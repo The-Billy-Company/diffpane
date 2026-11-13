@@ -11,4 +11,4 @@ These declarations make the preload API and generated or untyped renderer import
 
 - [`shims.d.ts`](shims.d.ts) — Declares the preload bridge on Window, the Vite grammar catalog, and the Monaco JSON tokenizer.
 
-Run `npm run check` to type-check callers against these declarations.
+Run `pnpm run check` to type-check callers against these declarations.

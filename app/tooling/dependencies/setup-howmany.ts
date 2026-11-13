@@ -63,13 +63,13 @@ export async function setupHowMany() {
   } catch {
     /* Prepare a missing, changed, or outdated bundle. */
   }
-  // Rust is a source-build dependency only, like Node and npm. Never run editor setup:
+  // Rust is a source-build dependency only, like Node and pnpm. Never run editor setup:
   // HowMany belongs inside Diffpane and must not change VS Code/Neovim settings.
   try {
     await execute('cargo', ['--version'], { timeout: 10000 })
   } catch {
     throw new Error(
-      'Building the app from source requires Rust 1.88+ (cargo). Install Rust, then rerun npm run install:app. Installed Diffpane apps include HowMany and do not require Rust.',
+      'Building the app from source requires Rust 1.88+ (cargo). Install Rust, then rerun pnpm run install:app. Installed Diffpane apps include HowMany and do not require Rust.',
     )
   }
   console.info(`Building bundled HowMany ${howmanyPin.version} (${process.arch})`)

@@ -18,7 +18,7 @@ doc_radar:
 - [Persistence](persistence/README.md) owns the encrypted database, application preferences, and project records.
 - [Tools](tools/README.md) owns language servers, HowMany analysis, and Claude integration.
 
-Run `npm run dev -- .` from the repository root to open this checkout in Diffpane. Each module README lists the tests that exercise its boundary.
+Run `pnpm run dev .` from the repository root to open this checkout in Diffpane. Each module README lists the tests that exercise its boundary.
 
 ## Desktop behavior
 

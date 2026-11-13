@@ -11,4 +11,4 @@ This suite exercises the pinned grammar catalog and its renderer consumers to ke
 
 - [Syntax catalog](syntax.test.mjs). Check dependency closure, format detection, source-preserving tokens and late grammar theme changes.
 
-Run `npm test -- app/tests/tooling/syntax` from the repository root.
+Run `pnpm test app/tests/tooling/syntax` from the repository root.

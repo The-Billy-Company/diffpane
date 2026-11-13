@@ -15,4 +15,4 @@ doc_radar:
 - [`content-search.mjs`](content-search.mjs) scans eligible working files and returns bounded, cancellable results.
 - [`file-operations.ts`](file-operations.ts) validates file operation targets and coordinates renames.
 
-The [workspace session](../../runtime/session/README.md) uses these operations to update its inventory and document snapshots. Run `npm test -- app/tests/runtime/repository app/tests/interface/search/content-search.test.mjs` from the repository root.
+The [workspace session](../../runtime/session/README.md) uses these operations to update its inventory and document snapshots. Run `pnpm test app/tests/runtime/repository app/tests/interface/search/content-search.test.mjs` from the repository root.

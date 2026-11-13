@@ -23,7 +23,7 @@
     "fmt": "vp fmt",
     "test:watch": "vp test watch",
     "test:docs": "vp test app/tests/tooling/quality/docs.test.mjs",
-    "verify": "vp check && vp test && vp run bundle"
+    "verify": "node .pnpmfile.mjs && vp check && vp test && vp run bundle"
   },
   "dependencies": {
     "@parcel/watcher": "2.6.0",
@@ -59,11 +59,9 @@
     "vite-plus": "1.1.0",
     "yaml": "^2.9.1"
   },
-  "overrides": {
-    "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0"
-  },
   "engines": {
-    "node": "^22.22.1 || ^24.11.0 || >=26.0.0"
+    "node": "^22.22.2 || ^24.11.0 || >=26.0.0",
+    "pnpm": ">=12.15.0"
   },
-  "packageManager": "npm@11.19.1"
+  "packageManager": "pnpm@12.15.0"
 }

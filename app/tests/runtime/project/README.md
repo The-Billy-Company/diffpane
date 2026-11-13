@@ -12,4 +12,4 @@ These suites cover persistent workspace content and preserve its scope when seve
 - [Idea store](idea-store.test.ts). Check Markdown, anchors, migrations and concurrency, including Claude proposal conflicts.
 - [Review note store](review-notes-store.test.ts). Check source anchors, folder scope, concurrent edits and legacy notes.
 
-Run `npm test -- app/tests/runtime/project` from the repository root.
+Run `pnpm test app/tests/runtime/project` from the repository root.

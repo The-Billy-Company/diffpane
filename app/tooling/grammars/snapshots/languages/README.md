@@ -9,4 +9,4 @@ doc_radar:
 
 `amadeus.json` follows the Amadeus lexer expression. `designcraft-script.json` highlights Designcraft Script commands and their embedded JSON. The [catalog](../../catalog/README.md) registers both languages.
 
-Run `npm test -- app/tests/tooling/syntax/syntax.test.mjs` from the repository root when updating either snapshot.
+Run `pnpm test app/tests/tooling/syntax/syntax.test.mjs` from the repository root when updating either snapshot.

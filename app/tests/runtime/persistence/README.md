@@ -14,4 +14,4 @@ These suites cover durable state and the contracts used to share it between wind
 - [Shortcut preferences](shortcut-preferences.test.ts). Check conflicts, legacy migration, defaults and cross-store merges.
 - [UI preferences](ui-preferences.test.ts). Check normalization and updates when newer edits arrive during hydration.
 
-Run `npm test -- app/tests/runtime/persistence` from the repository root.
+Run `pnpm test app/tests/runtime/persistence` from the repository root.

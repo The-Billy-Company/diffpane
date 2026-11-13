@@ -13,4 +13,4 @@ The workspace uses these modules to highlight changed functions and focus a comp
 - [`review-focus.js`](review-focus.js) — Owns comparison scope, navigation controls, and the full-file toggle.
 - [`review-focus.css`](review-focus.css) — Styles comparison scope and navigation controls.
 
-Run `npm test -- app/tests/interface/review/function-ranges.test.mjs` for function boundaries. Use `npm run dev -- .` to switch between focused and full-file views.
+Run `pnpm test app/tests/interface/review/function-ranges.test.mjs` for function boundaries. Use `pnpm run dev .` to switch between focused and full-file views.

@@ -16,4 +16,4 @@ The shell and feature controllers share these loading and failure views. Recover
 - [`window-mascot.css`](window-mascot.css) — Draws the character shared by the workspace opener and error boundary.
 - [`loading.css`](loading.css) — Styles inline loading indicators and editor placeholders.
 
-Run `npm run dev -- .` and inspect the startup loading view or open a file that has been removed from disk to exercise recovery.
+Run `pnpm run dev .` and inspect the startup loading view or open a file that has been removed from disk to exercise recovery.

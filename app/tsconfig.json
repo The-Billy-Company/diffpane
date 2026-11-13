@@ -26,6 +26,13 @@
     "moduleDetection": "force",
     "types": ["node"]
   },
-  "include": ["../vite.config.ts", "**/*.ts", "electron/**/*.mjs", "renderer/**/*.js", "tests/**/*.mjs"],
+  "include": [
+    "../vite.config.ts",
+    "../.pnpmfile.mjs",
+    "**/*.ts",
+    "electron/**/*.mjs",
+    "renderer/**/*.js",
+    "tests/**/*.mjs"
+  ],
   "exclude": ["node_modules", "dist", "release", "target", "test-results", "resources"]
 }

@@ -11,11 +11,11 @@ doc_radar:
 
 # Checks
 
-Run `npm test` for the Node suite through Vite+'s bundled Vitest. The runner discovers `app/tests/**/*.test.{mjs,ts}`. Tests use `vite-plus/test` and `onTestFinished` to clean up repositories, workers, and language servers. `npm run test:watch` reruns tests while editing. `npm run test:docs` runs the documentation assertions.
+Run `pnpm test` for the Node suite through Vite+'s bundled Vitest. The runner discovers `app/tests/**/*.test.{mjs,ts}`. Tests use `vite-plus/test` and `onTestFinished` to clean up repositories, workers, and language servers. `pnpm run test:watch` reruns tests while editing. `pnpm run test:docs` runs the documentation assertions.
 
-Run `npm run verify` for formatting, lint, type-aware checks, tests, and the cached renderer build.
+Run `pnpm run verify` for formatting, lint, type-aware checks, tests, and the cached renderer build.
 
-`npm run test:languages` runs the language matrix serially against nested projects and checks advertised capabilities, real responses, and process cleanup.
+`pnpm run test:languages` runs the language matrix serially against nested projects and checks advertised capabilities, real responses, and process cleanup.
 
 ## Test suites
 
@@ -33,4 +33,4 @@ Resource regressions cover idle diff-worker eviction and restart, cancellation d
 
 Autosave checks cover write coalescing, failures and retries, conflict detection, cache invalidation, source encodings, and path confinement. Reader tests cover native format recognition, malformed encodings, and bounded payloads. Media protocol tests cover full streams, byte ranges, missing files, and path confinement. Markdown path tests cover encoded links, anchors, and project traversal boundaries. Search and file operation tests cover filter boundaries and filesystem confinement.
 
-HowMany tests cover request coalescing, cancellation, timeouts, invalid reports, path confinement, source checksum rejection, automatic scan cooldown, and manual refresh. `npm run setup:howmany` prepares the binary for tests of real LSP diagnostics and config reloads. CI prepares the binary before running the suite. Scheduler checks cover paint ordering and cancellation, including the timer fallback.
+HowMany tests cover request coalescing, cancellation, timeouts, invalid reports, path confinement, source checksum rejection, automatic scan cooldown, and manual refresh. `pnpm run setup:howmany` prepares the binary for tests of real LSP diagnostics and config reloads. CI prepares the binary before running the suite. Scheduler checks cover paint ordering and cancellation, including the timer fallback.

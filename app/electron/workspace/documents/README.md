@@ -15,4 +15,4 @@ doc_radar:
 - [`document-cache.ts`](document-cache.ts) coalesces document reads and bounds retained preview payloads.
 - [`media.ts`](media.ts) streams working-tree media through a scoped Electron protocol and supports byte ranges.
 
-The [repository](../repository/README.md) uses the content reader. The [session](../../runtime/session/README.md) owns the cache. Run `npm test -- app/tests/runtime/documents` from the repository root.
+The [repository](../repository/README.md) uses the content reader. The [session](../../runtime/session/README.md) owns the cache. Run `pnpm test app/tests/runtime/documents` from the repository root.

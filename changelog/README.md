@@ -15,4 +15,4 @@ Each fragment records a shipped change. File names use a descriptive kebab-case 
 - [Integrations](integrations/README.md). Language tooling and HowMany analysis.
 - [Development](development/README.md). Build tooling and performance coverage.
 
-Run `npm run test:docs` from the repository root to validate the documentation assertions.
+Run `pnpm run test:docs` from the repository root to validate the documentation assertions.

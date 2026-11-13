@@ -9,4 +9,4 @@ doc_radar:
 
 `media-types.ts` defines the supported preview media. `text-lines.ts` implements bounded line and preview operations used by the Electron reader and renderer editor.
 
-Run `npm test -- app/tests/runtime/documents` from the repository root.
+Run `pnpm test app/tests/runtime/documents` from the repository root.

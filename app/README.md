@@ -15,4 +15,4 @@ The application tree contains the code that ships and the tooling and tests that
 - [Tooling](tooling/README.md) owns development, builds, packaging, and dependency pins.
 - [Tests](tests/README.md) indexes the automated checks by concern.
 
-Run `npm run dev -- .` from the repository root to open this working tree, or `npm run verify` to run the full verification suite.
+Run `pnpm run dev .` from the repository root to open this working tree, or `pnpm run verify` to run the full verification suite.

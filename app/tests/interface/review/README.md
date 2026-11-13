@@ -14,4 +14,4 @@ These suites cover the comparison and notes workflow from line decorations to wo
 - [Review checkpoints](review-checkpoint.test.mjs). Capture staged, unstaged and untracked bytes and exercise comparison, scope and version behavior.
 - [Review notes](review-notes.test.ts). Relocate unambiguous anchors and format bounded excerpts for handoff.
 
-Run `npm test -- app/tests/interface/review` from the repository root.
+Run `pnpm test app/tests/interface/review` from the repository root.

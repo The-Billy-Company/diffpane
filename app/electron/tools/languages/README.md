@@ -12,4 +12,4 @@ doc_radar:
 - [`servers.ts`](servers.ts) discovers supported language servers and builds their launch specifications.
 - [`language.mjs`](language.mjs) owns Language Server Protocol framing, open document versions, request cancellation, diagnostics, and process cleanup.
 
-The [workspace session](../../runtime/session/README.md) starts the servers for open files. Run `npm test -- app/tests/tooling/languages` from the repository root. `npm run test:languages` also exercises installed servers against real projects.
+The [workspace session](../../runtime/session/README.md) starts the servers for open files. Run `pnpm test app/tests/tooling/languages` from the repository root. `pnpm run test:languages` also exercises installed servers against real projects.

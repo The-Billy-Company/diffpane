@@ -9,4 +9,4 @@ doc_radar:
 
 `shortcuts.ts` defines shortcut actions, defaults, parsing, and Electron accelerator formatting. Electron uses the effective bindings for menus, and the renderer uses the same bindings for workspace shortcuts.
 
-Run `npm test -- app/tests/runtime/persistence/shortcut-preferences.test.ts` from the repository root.
+Run `pnpm test app/tests/runtime/persistence/shortcut-preferences.test.ts` from the repository root.

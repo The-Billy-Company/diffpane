@@ -12,4 +12,4 @@ The workspace supplies the selected file or lines as an anchor. This panel sends
 - [`review-notes.ts`](review-notes.ts) — Owns note composition, save and conflict feedback, and anchor navigation.
 - [`review-notes.css`](review-notes.css) — Styles the note list, composer, and action controls.
 
-Run `npm run dev -- .` and add, reopen, and copy a handoff for a note. Run `npm test -- app/tests/interface/review/review-notes.test.ts` for shared anchor behavior.
+Run `pnpm run dev .` and add, reopen, and copy a handoff for a note. Run `pnpm test app/tests/interface/review/review-notes.test.ts` for shared anchor behavior.

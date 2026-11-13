@@ -11,4 +11,4 @@ The notebook uses these checks to preserve Markdown structure and editing behavi
 
 - [Idea Markdown](idea-markdown.test.ts). Exercise Markdown handling in the notebook editor.
 
-Run `npm test -- app/tests/interface/ideas` from the repository root.
+Run `pnpm test app/tests/interface/ideas` from the repository root.

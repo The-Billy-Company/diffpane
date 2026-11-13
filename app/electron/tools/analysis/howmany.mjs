@@ -11,7 +11,7 @@ import { LanguageRuntime } from '../languages/language.mjs'
 const ANALYSIS_ARGS = ['--output', 'json', '--no-interactive', '--no-cache', '--no-detect', '--threads', '2']
 const MAX_OUTPUT = 16 * 1024 * 1024
 const MAX_AUTOMATIC_COOLDOWN_MS = 60_000
-const MISSING_TOOL = 'HowMany is unavailable. Reinstall Diffpane, or run npm run setup:howmany for source development.'
+const MISSING_TOOL = 'HowMany is unavailable. Reinstall Diffpane, or run pnpm run setup:howmany for source development.'
 
 export function discoverHowMany(env = process.env) {
   if (env.DIFFPANE_HOWMANY_BINARY) return env.DIFFPANE_HOWMANY_BINARY
@@ -149,7 +149,7 @@ export function validateReport(report, requireSource = true) {
   if (!validCounts(basic, 'total_files')) throw new Error('HowMany returned an invalid report')
   if (!source && !requireSource) return { ...report, basic }
   if (!source)
-    throw new Error('HowMany source totals are unavailable. Reinstall Diffpane or run npm run setup:howmany.')
+    throw new Error('HowMany source totals are unavailable. Reinstall Diffpane or run pnpm run setup:howmany.')
   if (!hasSourceReport(report)) throw new Error('HowMany returned an invalid report')
   return report
 }

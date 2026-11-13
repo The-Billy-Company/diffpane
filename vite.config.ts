@@ -3,7 +3,7 @@ import { safetyLint } from './app/tooling/quality/oxlint-safety.ts'
 import { typeAwareLint } from './app/tooling/quality/oxlint-typeaware.ts'
 export default defineConfig({
   staged: {
-    '*': 'vp check --fix',
+    '*': 'vp check --fix --no-error-on-unmatched-pattern',
   },
   fmt: {
     printWidth: 120,

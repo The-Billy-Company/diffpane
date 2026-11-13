@@ -14,4 +14,4 @@ These modules size and arrange the workspace panels, supply explorer icons, and 
 - [`after-paint.ts`](after-paint.ts) — Schedules cancellable work after a paint opportunity.
 - [`icons.ts`](icons.ts) — Resolves file and folder icons using Material theme associations.
 
-Run `npm test -- app/tests/interface/editor/after-paint.test.mjs` for scheduling. Use `npm run dev -- .` to exercise panel docking and resizing.
+Run `pnpm test app/tests/interface/editor/after-paint.test.mjs` for scheduling. Use `pnpm run dev .` to exercise panel docking and resizing.

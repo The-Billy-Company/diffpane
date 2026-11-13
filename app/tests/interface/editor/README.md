@@ -14,4 +14,4 @@ These suites verify the interaction between editor updates, background work and 
 - [Live updates](live-updates.test.mjs). Check bounded invalidation during overlapping native events and throttled frames.
 - [Markdown links](markdown.test.mjs). Resolve local paths and Unicode anchors while confining links to the project.
 
-Run `npm test -- app/tests/interface/editor` from the repository root.
+Run `pnpm test app/tests/interface/editor` from the repository root.

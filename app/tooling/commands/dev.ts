@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -7,8 +6,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build, createServer } from 'vite'
 
-const electronDir = path.dirname(createRequire(import.meta.url).resolve('electron'))
-const executablePath = path.join(electronDir, 'dist', readFileSync(path.join(electronDir, 'path.txt'), 'utf8'))
+const executablePath: unknown = createRequire(import.meta.url)('electron')
+if (typeof executablePath !== 'string') throw new Error('Electron did not provide an executable path.')
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 // The vite alias resolves to the core bundled with Vite+.

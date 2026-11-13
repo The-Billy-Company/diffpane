@@ -14,4 +14,4 @@ The workspace supplies selected project context and routes links opened from the
 - [`assistant.css`](assistant.css) — Styles the conversation, composer, and activity cards.
 - [`creature-glyph.ts`](creature-glyph.ts) — Defines the Creature glyph used in the panel and its entry points.
 
-Run `npm run dev -- .` and open The Creature from the workspace title bar to inspect the panel.
+Run `pnpm run dev .` and open The Creature from the workspace title bar to inspect the panel.

@@ -21,7 +21,7 @@ doc_radar:
 
 # Viewer
 
-The renderer runs in the sandboxed desktop window and communicates with [Electron](../electron/README.md) through its preload bridge. Run `npm run dev -- .` from the repository root to open the viewer.
+The renderer runs in the sandboxed desktop window and communicates with [Electron](../electron/README.md) through its preload bridge. Run `pnpm run dev .` from the repository root to open the viewer.
 
 - [Window shell](shell/README.md) — startup, workspace composition, panel layout, and recovery.
 - [Editor](editor/README.md) — saves, live updates, highlighting, language tools, and previews.

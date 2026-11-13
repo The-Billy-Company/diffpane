@@ -14,4 +14,4 @@ These suites cover the runtime path from bounded file decoding to cached documen
 - [Media protocol](media.test.mjs). Check byte ranges, streaming, content types and filesystem confinement.
 - [Preview memory](preview-memory.test.mjs). Use a GC-enabled Node process to check that bounded previews release their large source strings.
 
-Run `npm test -- app/tests/runtime/documents` from the repository root.
+Run `pnpm test app/tests/runtime/documents` from the repository root.

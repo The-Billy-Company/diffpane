@@ -13,4 +13,4 @@ The settings panel mounts these appearance controls. The preference controller s
 - [`ui-preferences.ts`](ui-preferences.ts) — Merges preference updates and coordinates persistence and theme changes.
 - [`appearance.css`](appearance.css) — Styles appearance controls and preference groups.
 
-Run `npm test -- app/tests/runtime/persistence/ui-preferences.test.ts` for the preference contract. Open Settings with `npm run dev -- .` to check the controls.
+Run `pnpm test app/tests/runtime/persistence/ui-preferences.test.ts` for the preference contract. Open Settings with `pnpm run dev .` to check the controls.

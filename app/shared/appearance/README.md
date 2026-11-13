@@ -47,4 +47,4 @@ The UI and Markdown prose use the platform's system sans-serif. Code defaults to
 
 ## Updating the tokens
 
-After editing the source tokens, run `node app/tooling/appearance/theme-css.ts`. Run `npm test -- app/tests/interface/appearance/theme.test.ts` to check the generated CSS, sRGB gamut, and representative color pairs. Text pairs target 4.5:1 and meaningful state indicators target 3:1.
+After editing the source tokens, run `node app/tooling/appearance/theme-css.ts`. Run `pnpm test app/tests/interface/appearance/theme.test.ts` to check the generated CSS, sRGB gamut, and representative color pairs. Text pairs target 4.5:1 and meaningful state indicators target 3:1.

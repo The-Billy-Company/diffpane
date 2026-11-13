@@ -14,4 +14,4 @@ The renderer entry point composes the file explorer, Monaco, review controls, an
 - [`dom.js`](dom.js) — Checks that required elements match the expected DOM types.
 - [`style.css`](style.css) — Styles the shared window, welcome screen, and editor chrome.
 
-Run `npm run dev -- .` and open, edit, and switch between files in the workspace.
+Run `pnpm run dev .` and open, edit, and switch between files in the workspace.

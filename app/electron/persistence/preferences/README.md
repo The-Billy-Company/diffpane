@@ -15,4 +15,4 @@ doc_radar:
 - [`shortcut-preferences.ts`](shortcut-preferences.ts) manages validated keyboard bindings in local state.
 - [`ui-preferences.ts`](ui-preferences.ts) defines defaults, bounds, and patch validation for appearance, pane layout, and Ideas docking.
 
-The [main process](../../runtime/window/README.md) connects these settings to the [local database](../database/README.md). Run `npm test -- app/tests/runtime/persistence` from the repository root.
+The [main process](../../runtime/window/README.md) connects these settings to the [local database](../database/README.md). Run `pnpm test app/tests/runtime/persistence` from the repository root.

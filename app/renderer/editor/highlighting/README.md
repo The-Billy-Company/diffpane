@@ -13,4 +13,4 @@ The editor uses Vite’s lazy grammar catalog and the active appearance preferen
 - [`grammars.ts`](grammars.ts) — Loads grammar dependencies and attaches TextMate tokenization.
 - [`editor-themes.ts`](editor-themes.ts) — Defines the light and dark editor palettes.
 
-Run `npm test -- app/tests/tooling/syntax` to check grammar dependencies, tokenization, and theme switching.
+Run `pnpm test app/tests/tooling/syntax` to check grammar dependencies, tokenization, and theme switching.

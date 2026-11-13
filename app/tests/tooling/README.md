@@ -15,4 +15,4 @@ These suites cover external integrations and the verification tools used during 
 - [Quality](quality/README.md). Error outcomes and documentation assertions.
 - [Syntax](syntax/README.md). Grammar catalog and token rendering.
 
-Run `npm test -- app/tests/tooling` from the repository root.
+Run `pnpm test app/tests/tooling` from the repository root.

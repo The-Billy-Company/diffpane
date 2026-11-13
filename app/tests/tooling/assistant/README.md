@@ -11,4 +11,4 @@ This suite uses controlled model responses to verify the Claude session's ordere
 
 - [Claude session](claude-session.test.ts). Check streamed activity and on-demand workspace reads.
 
-Run `npm test -- app/tests/tooling/assistant` from the repository root.
+Run `pnpm test app/tests/tooling/assistant` from the repository root.

@@ -1,0 +1,44 @@
+# Electron Packager moves runtime tools from physical node_modules directories into the app bundle.
+nodeLinker: hoisted
+enableGlobalVirtualStore: false
+
+minimumReleaseAge: 2880
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+blockExoticSubdeps: true
+trustPolicy: no-downgrade
+trustPolicyIgnoreAfter: 525600
+trustLockfile: false
+strictSsl: true
+fetchRetries: 4
+dedupePeers: true
+dedupeDirectDeps: false
+dedupePeerDependents: true
+strictDepBuilds: true
+dangerouslyAllowAllBuilds: false
+verifyDepsBeforeRun: install
+optimisticRepeatInstall: true
+verifyStoreIntegrity: true
+strictStorePkgContentCheck: true
+sideEffectsCache: true
+allowUnusedPatches: false
+engineStrict: true
+saveExact: true
+pmOnFail: error
+updateNotifier: false
+strictPeerDependencies: true
+resolvePeersFromWorkspaceRoot: true
+autoInstallPeers: true
+
+# Vite Plus supplies Vite through an alias with its own version number.
+peerDependencyRules:
+  allowedVersions:
+    '@vitest/mocker@5.0.3>vite': '1.1.0'
+    'vitest@5.0.3>vite': '1.1.0'
+
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
+
+allowBuilds:
+  '@parcel/watcher': false
+  node-pty: true

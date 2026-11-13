@@ -19,16 +19,35 @@ jobs:
       VP_GIT_HOOKS: '0'
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
       - uses: actions/setup-node@v6.5.0
         with:
-          node-version-file: .github/config/node-version
-          cache: npm
+          node-version-file: .node-version
+          cache: pnpm
       - name: Cache bundled HowMany
         uses: actions/cache@v6.1.0
         with:
           path: resources/howmany
           key: howmany-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/tooling/dependencies/howmany-tool.json', 'app/tooling/dependencies/setup-howmany.ts') }}
-      - run: npm ci --prefer-offline
+      - run: pnpm install --frozen-lockfile --prefer-offline
       - run: git diff --exit-code -- app/electron/runtime/window/preload.cjs app/electron/runtime/terminal/preload.cjs
-      - run: npm run setup:howmany
-      - run: npm run verify
+      - run: pnpm run setup:howmany
+      - run: pnpm run verify
+      - name: Smoke test the macOS installer
+        env:
+          DIFFPANE_CODESIGN_IDENTITY: '-'
+        run: |
+          pnpm run install:app
+          contents="$HOME/Applications/Diffpane.app/Contents"
+          unpacked="$contents/Resources/app.asar.unpacked"
+          pty="$unpacked/node_modules/node-pty/prebuilds/darwin-$(uname -m)"
+          test -f "$pty/pty.node"
+          test -x "$pty/spawn-helper"
+          test -f "$unpacked/node_modules/basedpyright/dist/pyright-langserver.js"
+          test -f "$unpacked/node_modules/typescript/lib/typescript.js"
+          test -f "$unpacked/node_modules/typescript-language-server/lib/cli.mjs"
+          test "$(plutil -extract CFBundleDocumentTypes.0.LSHandlerRank raw -o - "$contents/Info.plist")" = Alternate
+          "$unpacked/resources/howmany/howmany" --version
+          "$HOME/.local/bin/dp" --version

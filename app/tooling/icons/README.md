@@ -7,4 +7,4 @@ doc_radar:
 
 # Icon generation
 
-Run `npm run build:icons` from the repository root on macOS. [`build-icons.ts`](build-icons.ts) reads the [master artwork](../../../branding/desktop/diffpane.png), sizes PNG variants with `sips`, writes a multi-size ICO, and builds the macOS icon with `iconutil`. The generated files live under [branding](../../../branding/README.md).
+Run `pnpm run build:icons` from the repository root on macOS. [`build-icons.ts`](build-icons.ts) reads the [master artwork](../../../branding/desktop/diffpane.png), sizes PNG variants with `sips`, writes a multi-size ICO, and builds the macOS icon with `iconutil`. The generated files live under [branding](../../../branding/README.md).

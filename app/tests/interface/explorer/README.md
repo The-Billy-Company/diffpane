@@ -14,4 +14,4 @@ These suites cover projecting the file inventory into a tree and searching it wi
 - [Navigator](navigator.test.mjs). Project visible rows and badges for sorted, scoped and collapsed inventories.
 - [Search runtime](search-runtime.test.mjs). Settle stale and queued queries, restart failed workers and release inventory on close.
 
-Run `npm test -- app/tests/interface/explorer` from the repository root.
+Run `pnpm test app/tests/interface/explorer` from the repository root.

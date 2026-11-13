@@ -7,7 +7,7 @@ doc_radar:
 
 # Tooling
 
-The root npm scripts are the entry points for these development and release tools.
+The root pnpm scripts are the entry points for these development and release tools.
 
 - [Commands](commands/README.md) owns the Make targets, development launcher, and preload generator.
 - [Distribution](distribution/README.md) owns the macOS installer and terminal launcher.

@@ -13,4 +13,4 @@ This view searches file contents through the Electron bridge. It returns a selec
 - [`search-filters.ts`](search-filters.ts) — Defines filter controls and matching for kind, language, extension, and path.
 - [`content-search.css`](content-search.css) — Styles the project search view and its results.
 
-Run `npm test -- app/tests/interface/search` for content search and shared filters.
+Run `pnpm test app/tests/interface/search` for content search and shared filters.

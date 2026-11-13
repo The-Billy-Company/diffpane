@@ -18,4 +18,4 @@ doc_radar:
 - [`claude-session.mjs`](claude-session.mjs) manages conversation turns, tool requests, and proposals awaiting review.
 - [`claude-workspace.mjs`](claude-workspace.mjs) checks workspace path visibility and bounds file reads for the assistant.
 
-The assistant uses the [repository](../../workspace/repository/README.md) and [project records](../../persistence/project/README.md) as its workspace boundaries. Run `npm test -- app/tests/tooling/assistant` from the repository root.
+The assistant uses the [repository](../../workspace/repository/README.md) and [project records](../../persistence/project/README.md) as its workspace boundaries. Run `pnpm test app/tests/tooling/assistant` from the repository root.

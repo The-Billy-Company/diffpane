@@ -55,11 +55,11 @@ Diffpane calls Claude Haiku directly. Your prompts, context references, and the 
 
 ## Build from source
 
-Use the Node.js version in `.github/config/node-version`. Building the macOS app also requires Rust 1.88+ and the Xcode command-line tools.
+Use the Node.js version in `.node-version` and the pnpm version pinned in `package.json`. Building the macOS app also requires Rust 1.88+ and the Xcode command-line tools.
 
 ```sh
-npm ci
-npm run install:app
+pnpm install --frozen-lockfile
+pnpm run install:app
 ```
 
 Then, from any project folder:
@@ -81,10 +81,10 @@ Open **Settings → Keyboard shortcuts** from the title-bar gear or the Diffpane
 ## Development
 
 ```sh
-npm run dev -- .  # open this repo from source
-npm test          # run tests
-npm run build     # build the renderer
-npm run verify    # check formatting, lint, types, tests, and build
+pnpm run dev .   # open this repo from source
+pnpm test        # run tests
+pnpm run build   # build the renderer
+pnpm run verify  # check formatting, lint, types, tests, and build
 ```
 
 Run `make <target>` from the repository root to use the Make targets.

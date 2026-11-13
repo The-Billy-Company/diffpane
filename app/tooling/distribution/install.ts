@@ -3,6 +3,7 @@ import { constants } from 'node:fs'
 import { chmod, cp, lstat, mkdir, mkdtemp, writeFile, rename, readFile, readlink, rm, symlink } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { packager } from '@electron/packager'
 import { appError } from '../../shared/recovery/app-errors.ts'
 import { setupHowMany } from '../dependencies/setup-howmany.ts'
@@ -17,10 +18,10 @@ if (
 )
   throw new Error('Diffpane requires a numeric release version in package.json.')
 const { version } = metadata
-if (process.argv.length > 2) throw new Error('Usage: npm run install:app')
+if (process.argv.length > 2) throw new Error('Usage: pnpm run install:app')
 
 if (process.platform !== 'darwin')
-  throw new Error('The terminal launcher installer currently targets macOS. Use npm start on other platforms.')
+  throw new Error('The terminal launcher installer currently targets macOS. Use pnpm start on other platforms.')
 
 function signingIdentity() {
   const configured = process.env.DIFFPANE_CODESIGN_IDENTITY?.trim()
@@ -68,7 +69,7 @@ const adHoc = identity === '-'
 if (adHoc) console.warn('Using ad hoc signing. macOS may ask for Diffpane Keychain access again after a rebuild.')
 
 async function buildRenderer() {
-  const child = spawn('npm', ['run', 'build'], { stdio: 'inherit' })
+  const child = spawn('pnpm', ['run', 'build'], { stdio: 'inherit' })
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => {
@@ -92,6 +93,7 @@ const [bundle] = await (async () => {
       tmpdir: scratch,
       name: 'Diffpane',
       appBundleId: 'com.diffpane.app',
+      extendInfo: fileURLToPath(new URL('./macos-info.plist', import.meta.url)),
       icon: 'branding/desktop/diffpane.icns',
       appVersion: version,
       overwrite: true,

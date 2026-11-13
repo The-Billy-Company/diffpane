@@ -14,4 +14,4 @@ The workspace turns Electron inventory and status updates into a virtualized tre
 - [`file-actions.ts`](file-actions.ts) — Provides the contextual menu and actions for files and directories.
 - [`navigator.css`](navigator.css) — Styles tree rows, search, and Git status badges.
 
-Run `npm test -- app/tests/interface/explorer/navigator.test.mjs app/tests/interface/explorer/navigation-reconcile.test.mjs`.
+Run `pnpm test app/tests/interface/explorer/navigator.test.mjs app/tests/interface/explorer/navigation-reconcile.test.mjs`.

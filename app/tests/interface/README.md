@@ -15,4 +15,4 @@ These suites exercise the workspace behaviors users encounter while reading, fin
 - [Review](review/README.md). Line decorations, function context, checkpoints and notes.
 - [Search](search/README.md). Project text queries and file search filters.
 
-Run `npm test -- app/tests/interface` from the repository root.
+Run `pnpm test app/tests/interface` from the repository root.

@@ -1,15 +1,15 @@
 .PHONY: setup dev build test install verify lint-doc-radar
 setup:
-	npm ci
+	pnpm install --frozen-lockfile
 dev:
-	npm run dev -- .
+	pnpm run dev .
 build:
-	npm run build
+	pnpm run build
 test:
-	npm test
+	pnpm test
 install:
-	npm run install:app
+	pnpm run install:app
 verify:
-	npm run verify
+	pnpm run verify
 lint-doc-radar:
-	npm run test:docs
+	pnpm run test:docs

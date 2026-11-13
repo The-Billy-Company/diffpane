@@ -12,4 +12,4 @@ The workspace starts analysis through the Electron bridge. This panel turns work
 - [`howmany.js`](howmany.js) — Renders project and per-file reports and manages diagnostic markers.
 - [`howmany.css`](howmany.css) — Styles analysis summaries and the report view.
 
-Run `npm run setup:howmany`, then `npm run dev -- .` to inspect the workspace summary and file report.
+Run `pnpm run setup:howmany`, then `pnpm run dev .` to inspect the workspace summary and file report.

@@ -16,4 +16,4 @@ The dock and full notebook share the workspace appearance tokens. Search highlig
 - [`idea-editor-markdown.ts`](idea-editor-markdown.ts) — Displays Markdown while editing and handles syntax-aware decorations and actions.
 - [`ideas.css`](ideas.css) — Styles the notebook, editor toolbar, and docking controls.
 
-Run `npm test -- app/tests/interface/ideas` for editing commands. Use `npm run dev -- .` to exercise the notebook and docking.
+Run `pnpm test app/tests/interface/ideas` for editing commands. Use `pnpm run dev .` to exercise the notebook and docking.

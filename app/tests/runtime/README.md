@@ -15,4 +15,4 @@ These suites exercise Electron's workspace services and persistence, often throu
 - [Repository](repository/README.md). Git inventory, file operations and saves.
 - [Session](session/README.md). Watcher reconciliation, worker protocol and shutdown.
 
-Run `npm test -- app/tests/runtime` from the repository root.
+Run `pnpm test app/tests/runtime` from the repository root.

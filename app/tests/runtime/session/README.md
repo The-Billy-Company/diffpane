@@ -14,4 +14,4 @@ These suites check watcher-driven refreshes and the workspace worker lifecycle. 
 - [Shutdown](session-shutdown.test.mjs). Hold watcher startup and unsubscribe separately and require natural worker exit.
 - [Session](session.test.mjs). Exercise save refreshes, cache lifetimes, inventory reconciliation and watcher fallbacks.
 
-Run `npm test -- app/tests/runtime/session` from the repository root.
+Run `pnpm test app/tests/runtime/session` from the repository root.

@@ -12,4 +12,4 @@ These suites cover project text matching and the filters used by the workspace's
 - [Content search](content-search.test.mjs). Check literal matching, result coordinates, path scope, bounds and cancellation.
 - [Search filters](search-filters.test.ts). Combine entry kind, language, extension and folder constraints.
 
-Run `npm test -- app/tests/interface/search` from the repository root.
+Run `pnpm test app/tests/interface/search` from the repository root.

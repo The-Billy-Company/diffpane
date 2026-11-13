@@ -12,4 +12,4 @@ The workspace attaches these Monaco providers to visible models. They use the pr
 - [`languages.js`](languages.js) — Manages provider registration, capabilities, diagnostics, and cancellation.
 - [`language-protocol.js`](language-protocol.js) — Validates and translates language server positions, symbols, and diagnostics.
 
-Run `npm test -- app/tests/tooling/languages/language-renderer.test.mjs` to check the renderer provider lifecycle.
+Run `pnpm test app/tests/tooling/languages/language-renderer.test.mjs` to check the renderer provider lifecycle.
