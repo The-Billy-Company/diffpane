@@ -59,6 +59,26 @@ function executable(filename: string) {
   }
 }
 
+function loadPty(): SpawnPty {
+  // Load the native addon at start so a missing binding leaves the rest of Diffpane usable.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve the installed addon lazily with its published types.
+  const { spawn } = require('node-pty') as typeof import('node-pty')
+  if (process.platform === 'darwin') {
+    // node-pty tries local builds before prebuilds. Check the helper beside the binding it actually loaded.
+    const loader = require.cache[require.resolve('node-pty/lib/utils.js')]
+    const binding = loader?.children.find(child => path.basename(child.filename) === 'pty.node')
+    const helper =
+      binding &&
+      path
+        .join(path.dirname(binding.filename), 'spawn-helper')
+        .replace('app.asar', 'app.asar.unpacked')
+        .replace('node_modules.asar', 'node_modules.asar.unpacked')
+    // A failed macOS spawn can abort in native code before JavaScript can catch it.
+    if (!helper || !executable(helper)) throw new Error('The terminal helper is missing or not executable.')
+  }
+  return spawn
+}
+
 function unixShell(shell: string | null) {
   if (shell && executable(shell)) return shell
   return process.platform === 'darwin' && executable('/bin/zsh') ? '/bin/zsh' : '/bin/sh'
@@ -144,9 +164,7 @@ export class TerminalProcess {
       throw new Error('Invalid terminal workspace or dimensions.')
 
     const { shell, args, env } = shellSettings()
-    // Load the native addon at start so a missing binding leaves the rest of Diffpane usable.
-    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Resolve the installed addon lazily with its published types.
-    const spawn = spawnPty ?? (require('node-pty') as typeof import('node-pty')).spawn
+    const spawn = spawnPty ?? loadPty()
     this.#pty = spawn(shell, args, { name: 'xterm-256color', cwd, cols, rows, env })
     this.#onExit = onExit
     this.#data = this.#pty.onData(data => {

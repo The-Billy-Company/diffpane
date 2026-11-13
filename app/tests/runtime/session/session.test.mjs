@@ -631,6 +631,30 @@ const controlledFallbackSetup = `
       });
 `
 
+test('workspace stays usable and refreshes files when the native watcher fails to load', async t => {
+  const repo = await fixture(t, {
+    fileCount: 1,
+    setup: `${controlledFallbackSetup}
+      const { registerHooks } = await import('node:module');
+      registerHooks({
+        resolve(specifier, context, nextResolve) {
+          if (specifier === '@parcel/watcher') {
+            throw Object.assign(new Error('native watcher rejected'), { code: 'ERR_DLOPEN_FAILED' });
+          }
+          return nextResolve(specifier, context);
+        },
+      });
+    `,
+  })
+  await repo.waitFor(value => value.watchError?.includes('The native watcher could not load'))
+  await repo.waitNotice('test-poll-ready')
+  assert.equal((await repo.call('document', 'src/file0.txt', 'head')).after, 'baseline 0\n')
+  await repo.write('src/new.txt', 'discovered by polling\n')
+  repo.signal({ testPoll: true })
+  await repo.waitFor(value => value.files.some(file => file.path === 'src/new.txt'))
+  assert.equal((await repo.call('document', 'src/new.txt', 'head')).after, 'discovered by polling\n')
+})
+
 test('watcher fallback forwards created, updated and removed files to language servers', async t => {
   const repo = await fixture(t, {
     fileCount: 2,

@@ -173,6 +173,7 @@ function mount(bridge: TerminalBridge) {
     transitioning = true
     receivedExit = false
     syncControls()
+    document.body.classList.remove('terminal-has-output')
     setStatus('Starting shell…')
     try {
       view.terminal.dispose()
@@ -245,6 +246,7 @@ function mount(bridge: TerminalBridge) {
     applyTheme(theme)
   })
   bridge.onData((data, bytes) => {
+    document.body.classList.add('terminal-has-output')
     pendingWrites++
     view.terminal.write(data, () => {
       bridge.acknowledge(bytes)

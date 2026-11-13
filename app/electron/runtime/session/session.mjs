@@ -3,7 +3,6 @@ import { lstat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { parentPort, workerData } from 'node:worker_threads'
-import watcher from '@parcel/watcher'
 import { createDiagnostics } from '../../../shared/diagnostics/diagnostics.ts'
 import { mediaType } from '../../../shared/documents/media-types.ts'
 import { countLines } from '../../../shared/documents/text-lines.ts'
@@ -1057,6 +1056,13 @@ async function receive({ id, method, args }) {
 }
 
 const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
+  const watcherLoad = await attemptAsync(() => import('@parcel/watcher'))
+  if (shuttingDown) return
+  if (!watcherLoad.ok) {
+    watchFailed('The native watcher could not load', 'WATCHER_UNAVAILABLE')
+    return
+  }
+  const { default: watcher } = watcherLoad.value
   for (const watchPath of new Set([repository.scope, repository.gitDir, repository.commonDir])) {
     if (shuttingDown) break
     try {

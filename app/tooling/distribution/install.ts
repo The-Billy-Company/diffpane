@@ -175,6 +175,21 @@ try {
   })
   if (adHoc) execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp], { stdio: 'inherit' })
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagedApp], { stdio: 'inherit' })
+  // Signature verification alone does not check whether Electron can load and launch the native code.
+  execFileSync(
+    path.join(stagedApp, 'Contents/MacOS/Diffpane'),
+    [
+      '--eval',
+      `const load = require('node:module').createRequire(process.argv[1]);
+       load('@parcel/watcher');
+       const shell = load('node-pty').spawn('/bin/sh', ['-c', 'exit 0']);
+       shell.onExit(({ exitCode, signal }) => {
+         if (exitCode !== 0 || signal) throw new Error('The packaged terminal smoke test failed.');
+       });`,
+      path.join(stagedApp, 'Contents/Resources/app.asar/package.json'),
+    ],
+    { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit', timeout: 10_000 },
+  )
   launcherStage = await mkdtemp(path.join(bin, '.diffpane-'))
   const stagedLauncher = path.join(launcherStage, 'diffpane')
   await writeFile(stagedLauncher, launcher, { mode: 0o755 })

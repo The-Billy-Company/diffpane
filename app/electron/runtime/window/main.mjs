@@ -1,8 +1,7 @@
 // MONOLITHIC: Electron window registration, worker ownership, save flushing and application shutdown share the session registry. Extract IPC families once their session and shutdown boundaries can be tested independently.
-// Keep the native watcher library loaded while worker teardown joins its native threads.
-import '@parcel/watcher'
 import { randomUUID } from 'node:crypto'
 import { stat, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
@@ -87,6 +86,14 @@ diagnostics.event('app-start')
 process.on('uncaughtExceptionMonitor', cause => {
   createDiagnostics('main', event => diagnosticLog?.recordFatal(event)).error('uncaught-main-error', cause)
 })
+// Keep the native watcher library loaded while worker teardown joins its native threads.
+const watcherLoad = attempt(
+  () => {
+    createRequire(import.meta.url)('@parcel/watcher')
+  },
+  { code: 'WATCHER_UNAVAILABLE' },
+)
+if (!watcherLoad.ok) diagnostics.error('watcher-load', watcherLoad.error)
 app.on('child-process-gone', (_event, details) => {
   const group = details.type === 'GPU' ? 'gpu' : details.type === 'Utility' ? 'utility' : 'other'
   const reason = details.reason

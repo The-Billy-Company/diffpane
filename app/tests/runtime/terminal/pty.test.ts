@@ -1,9 +1,15 @@
+import { accessSync } from 'node:fs'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { IPty } from 'node-pty'
 import { afterEach, expect, test, vi } from 'vite-plus/test'
 import { TerminalProcess } from '../../../electron/runtime/terminal/pty.ts'
+
+vi.mock('node:fs', async importOriginal => {
+  const fs = await importOriginal<typeof import('node:fs')>()
+  return { ...fs, accessSync: vi.fn<typeof fs.accessSync>(fs.accessSync) }
+})
 
 type TerminalOptions = ConstructorParameters<typeof TerminalProcess>[0]
 
@@ -141,6 +147,24 @@ test('uses the conventional shell exit status when the PTY shell is signaled', a
   expect(pty.write).not.toHaveBeenCalled()
   expect(pty.kill).not.toHaveBeenCalled()
 })
+
+test.skipIf(process.platform !== 'darwin')(
+  'rejects an unavailable macOS spawn helper before starting a shell',
+  async () => {
+    const fs = await vi.importActual<typeof import('node:fs')>('node:fs')
+    vi.mocked(accessSync).mockImplementation((file, mode) => {
+      if (typeof file !== 'string' || path.basename(file) !== 'spawn-helper') return fs.accessSync(file, mode)
+      throw new Error('spawn helper is unavailable')
+    })
+    try {
+      expect(() => new TerminalProcess({ cwd: process.cwd(), cols: 80, rows: 24, onData() {}, onExit() {} })).toThrow(
+        'The terminal helper is missing or not executable.',
+      )
+    } finally {
+      vi.mocked(accessSync).mockReset()
+    }
+  },
+)
 
 test.skipIf(process.platform === 'win32')(
   'runs an interactive PTY in the workspace and propagates resize and exit',

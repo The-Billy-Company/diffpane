@@ -48,6 +48,21 @@ body {
   white-space: nowrap;
 }
 
+body:not(.terminal-has-output) #terminal-status {
+  position: absolute;
+  z-index: 1;
+  inset: calc(50% + 17px) 12px auto;
+  transform: translateY(-50%);
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.terminal-toolbar .terminal-controls {
+  margin-inline-start: auto;
+}
+
 .terminal-controls {
   display: flex;
   flex: none;
