@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { expect, test, vi } from 'vite-plus/test'
 import { ClaudeSession } from '../../../electron/tools/assistant/claude-session.mjs'
 import type { ClaudeActivity, ClaudeWorkspace } from '../../../electron/tools/assistant/claude-session.mjs'
@@ -55,9 +56,32 @@ function eventStream(events: readonly ({ type: string } & Record<string, unknown
 const emptyWorkspace = {
   list: async () => ({ paths: [], truncated: false }),
   read: async () => '',
+  search: async () => ({ matches: [], truncated: false }),
   listIdeas: async () => [],
   readIdea: async () => undefined,
 } satisfies ClaudeWorkspace
+
+function requestBody(request: RequestInit | undefined) {
+  if (typeof request?.body !== 'string') throw new Error('Expected a Claude request')
+  return request.body
+}
+
+function toolResult(request: RequestInit | undefined, id: string) {
+  const payload: unknown = JSON.parse(requestBody(request))
+  assert.ok(payload && typeof payload === 'object' && 'messages' in payload && Array.isArray(payload.messages))
+  const messages: unknown[] = payload.messages
+  const message = messages.at(-1)
+  assert.ok(message && typeof message === 'object' && 'content' in message && Array.isArray(message.content))
+  const blocks: unknown[] = message.content
+  const block = blocks.find(
+    entry => entry && typeof entry === 'object' && 'tool_use_id' in entry && entry.tool_use_id === id,
+  )
+  assert.ok(
+    block && typeof block === 'object' && 'content' in block && typeof block.content === 'string',
+    `Missing tool result ${id}`,
+  )
+  return { content: block.content, isError: 'is_error' in block && block.is_error === true }
+}
 
 test('reset releases the active turn without letting the old completion unlock its replacement', async t => {
   const oldKey = Promise.withResolvers<string>()
@@ -112,7 +136,7 @@ test('streams ordered activity and fetches attached workspace content only when 
   const read = vi.fn<ClaudeWorkspace['read']>(async () => source)
   const readIdea = vi.fn<ClaudeWorkspace['readIdea']>(async () => idea)
   const list = vi.fn<ClaudeWorkspace['list']>(async () => [])
-  const workspace = { list, read, listIdeas: list, readIdea }
+  const workspace = { ...emptyWorkspace, list, read, listIdeas: list, readIdea }
   const requests: string[] = []
   const inspectionsPerRequest: number[][] = []
   const responses = [
@@ -204,4 +228,158 @@ test('streams ordered activity and fetches attached workspace content only when 
   expect(next).not.toContain('Selected line α')
   expect(next).not.toContain('One Markdown task')
   expect(next).not.toContain('tool_result')
+})
+
+test('reads explicit file ranges in a batch and records the returned working excerpts as edit evidence', async t => {
+  const files = [
+    { path: 'first.txt', start_line: 2, end_line: 2 },
+    { path: '.env' },
+    { path: 'missing.txt' },
+    { path: 'first.txt', side: 'head', start_line: 1, end_line: 1 },
+    { path: 'first.txt', start_line: 3, end_line: 3 },
+  ]
+  const read = vi.fn<ClaudeWorkspace['read']>(async (path, side) => {
+    if (path === 'missing.txt') throw new Error('ENOENT: /private/workspace/missing.txt')
+    if (side === 'head') return 'HEAD line\nOther HEAD line'
+    return 'Unrequested line\nWorking line\nAnother working line'
+  })
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'batch', 'read_files', JSON.stringify({ files }))))
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'unread-edit', 'propose_edit', '{"path":"first.txt","before":"Unrequested line","after":"No"}'),
+        ...toolBlock(1, 'read-edit', 'propose_edit', '{"path":"first.txt","before":"Working line","after":"Updated"}'),
+      ]),
+    )
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature prepared the edit.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const session = new ClaudeSession()
+  const result = await session.send(
+    { prompt: 'Read these ranges and update the working line', proposeEdits: true },
+    key,
+    { ...emptyWorkspace, read },
+  )
+
+  expect(requestBody(fetch.mock.calls[0]?.[1])).toContain('"name":"read_files"')
+  expect(read).toHaveBeenCalledTimes(3)
+  expect(read).toHaveBeenCalledWith('first.txt', 'working')
+  expect(read).toHaveBeenCalledWith('first.txt', 'head')
+  expect(read).toHaveBeenCalledWith('missing.txt', 'working')
+  const batch = toolResult(fetch.mock.calls[1]?.[1], 'batch')
+  expect(batch.isError).toBe(false)
+  expect(batch.content).not.toMatch(/Unrequested line|Other HEAD line|\/private\/workspace/u)
+  expect(JSON.parse(batch.content)).toMatchObject({
+    files: [
+      { path: 'first.txt', side: 'working', startLine: 2, endLine: 2, text: 'Working line' },
+      { error: 'Supply the path of a project text file.' },
+      { path: 'missing.txt', error: 'This project text file could not be read.' },
+      { path: 'first.txt', side: 'head', startLine: 1, endLine: 1, text: 'HEAD line' },
+      { path: 'first.txt', side: 'working', startLine: 3, endLine: 3, text: 'Another working line' },
+    ],
+    truncated: false,
+  })
+  expect(toolResult(fetch.mock.calls[2]?.[1], 'unread-edit').isError).toBe(true)
+  expect(result.proposal).toMatchObject({ kind: 'file', path: 'first.txt', startLine: 2, before: 'Working line' })
+})
+
+test('an invalid batch range lets a later batch read see the updated file', async t => {
+  const read = vi
+    .fn<ClaudeWorkspace['read']>()
+    .mockResolvedValueOnce('Old line')
+    .mockResolvedValueOnce('Old line\nNew line')
+  const batch = '{"files":[{"path":"file.txt","start_line":2,"end_line":2}]}'
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'before-change', 'read_files', batch)))
+    .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'after-change', 'read_files', batch)))
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature found the new line.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  await new ClaudeSession().send({ prompt: 'Read line 2' }, key, { ...emptyWorkspace, read })
+
+  expect(read).toHaveBeenCalledTimes(2)
+  expect(JSON.parse(toolResult(fetch.mock.calls[1]?.[1], 'before-change').content)).toMatchObject({
+    files: [{ path: 'file.txt', error: 'This text has 1 lines.' }],
+  })
+  expect(JSON.parse(toolResult(fetch.mock.calls[2]?.[1], 'after-change').content)).toMatchObject({
+    files: [{ path: 'file.txt', startLine: 2, endLine: 2, text: 'New line' }],
+  })
+})
+
+test('bounds serialized batch excerpts and excludes omitted text from edit evidence', async t => {
+  const files = Array.from({ length: 8 }, (_, index) => ({ path: `file${index}.txt` }))
+  const prefix = 'Visible prefix '
+  const suffix = 'Omitted suffix'
+  const read = vi.fn<ClaudeWorkspace['read']>(async () => `${prefix}${'"'.repeat(6400)}${suffix}`)
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'batch', 'read_files', JSON.stringify({ files }))))
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'omitted', 'propose_edit', '{"path":"file0.txt","before":"Omitted suffix","after":"No"}'),
+        ...toolBlock(1, 'visible', 'propose_edit', '{"path":"file7.txt","before":"Visible prefix","after":"Yes"}'),
+      ]),
+    )
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature prepared the edit.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const result = await new ClaudeSession().send(
+    { prompt: 'Read all files in a batch and update a line', proposeEdits: true },
+    key,
+    { ...emptyWorkspace, read },
+  )
+
+  const batch = toolResult(fetch.mock.calls[1]?.[1], 'batch')
+  expect(batch.isError).toBe(false)
+  expect(batch.content.length).toBeLessThanOrEqual(28_000)
+  expect(batch.content).not.toContain(suffix)
+  expect(JSON.parse(batch.content)).toMatchObject({
+    files: files.map(file => ({ path: file.path, startLine: 1, truncated: true })),
+    truncated: true,
+  })
+  expect(toolResult(fetch.mock.calls[2]?.[1], 'omitted').isError).toBe(true)
+  expect(result.proposal).toMatchObject({ kind: 'file', path: 'file7.txt', before: 'Visible prefix' })
+})
+
+test('sends an exact phrase to Gist and exposes its locations without granting edit evidence', async t => {
+  const query = ' --[Needle] '
+  const matches = [{ path: 'src/example.ts', line: 3, column: 2, text: 'x --[Needle] y' }]
+  const search = vi.fn<ClaudeWorkspace['search']>(async () => ({ matches, truncated: true }))
+  const read = vi.fn<ClaudeWorkspace['read']>(emptyWorkspace.read)
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'search', 'search_files', JSON.stringify({ query })),
+        ...toolBlock(
+          1,
+          'edit',
+          'propose_edit',
+          '{"path":"src/example.ts","before":"x --[Needle] y","after":"Updated"}',
+        ),
+      ]),
+    )
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature found a match.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const activity: ClaudeActivity[] = []
+  const result = await new ClaudeSession().send(
+    { prompt: 'Search for the phrase', proposeEdits: true, requestId: 'search-request' },
+    key,
+    { ...emptyWorkspace, search, read },
+    event => activity.push(event),
+  )
+
+  expect(requestBody(fetch.mock.calls[0]?.[1])).toContain('"name":"search_files"')
+  expect(search).toHaveBeenCalledExactlyOnceWith(query, true, expect.any(AbortSignal))
+  expect(read).not.toHaveBeenCalled()
+  expect(activity.filter(event => event.type === 'tool' && event.id === 'search')).toMatchObject([
+    { status: 'running' },
+    { status: 'done' },
+  ])
+  expect(JSON.parse(toolResult(fetch.mock.calls[1]?.[1], 'search').content)).toEqual({ matches, truncated: true })
+  expect(toolResult(fetch.mock.calls[1]?.[1], 'edit').isError).toBe(true)
+  expect(result.proposal).toBeUndefined()
 })

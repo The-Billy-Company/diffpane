@@ -32,6 +32,7 @@ import { IdeaStore } from '../../persistence/project/idea-store.ts'
 import { ReviewNotesStore } from '../../persistence/project/review-notes.ts'
 import { ClaudeCredentials } from '../../tools/assistant/claude-credentials.mjs'
 import { ClaudeSession } from '../../tools/assistant/claude-session.mjs'
+import { searchClaudeGist } from '../../tools/assistant/gist-search.mjs'
 import { mediaResponse } from '../../workspace/documents/media.ts'
 import { startDesktopMetrics } from '../diagnostics/desktop-metrics.ts'
 import { createDiagnosticLog } from '../diagnostics/diagnostic-log.ts'
@@ -901,6 +902,14 @@ const claudeHandlers = {
   },
   send: (session, input) => {
     if (!session.directory) throw new Error('Open a file or folder to ask about your project.')
+    /** @type {import('../../tools/assistant/claude-session.mjs').ClaudeWorkspace['read']} */
+    const read = async (filename, side) => {
+      const text = await session.call('claude-read', [filename, side]).catch(() => {
+        throw new Error('This project text file could not be read.')
+      })
+      if (typeof text !== 'string') throw new Error('This project text file could not be read.')
+      return text
+    }
     return session.claude.send(
       input,
       () => claudeCredentials.key(),
@@ -922,13 +931,11 @@ const claudeHandlers = {
           if (paths.length !== value.paths.length) throw new Error('The project file list is unavailable.')
           return { paths, truncated: value.truncated }
         },
-        read: async (filename, side) => {
-          const text = await session.call('claude-read', [filename, side]).catch(() => {
-            throw new Error('This project text file could not be read.')
-          })
-          if (typeof text !== 'string') throw new Error('This project text file could not be read.')
-          return text
-        },
+        read,
+        search: async (query, matchCase, signal) =>
+          searchClaudeGist(await session.reviewWorkspace(), query, matchCase, signal, filename =>
+            read(filename, 'working'),
+          ),
         listIdeas: async query => ideaStore.summaries(await session.root(), query),
         readIdea: async id => ideaStore.get(await session.root(), id),
       },

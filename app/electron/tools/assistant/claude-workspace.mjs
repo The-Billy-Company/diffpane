@@ -6,10 +6,48 @@ import { fileContent } from '../../workspace/documents/file-content.ts'
 import { operationPath } from '../../workspace/repository/file-operations.ts'
 
 export const MAX_CLAUDE_FILE_BYTES = 512 * 1024
+export const MAX_CLAUDE_READ_FILES = 8
 const PRIVATE_NAME =
   /^(?:\.env(?:\.|$)|\.git$|\.git-credentials$|\.netrc$|\.npmrc$|\.pypirc$|\.ssh$|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.|$)|(?:credentials|secrets)\.json$)|\.(?:pem|key|p12|pfx|keystore)$/iu
 function unavailable() {
   return new Error('The Creature can access only regular project text files in scope.')
+}
+
+class ClaudeLineRangeError extends Error {}
+
+/** @param {string} text @param {number} limit */
+export function clip(text, limit) {
+  return text.slice(0, limit).replace(/[\uD800-\uDBFF]$/u, '')
+}
+
+/** @param {string} text @param {unknown} [start] @param {unknown} [last] @param {number} [limit] */
+export function lineRange(text, start = 1, last, limit = 6500) {
+  if (typeof start !== 'number' || !Number.isSafeInteger(start) || start < 1)
+    throw new ClaudeLineRangeError('Choose a valid line range.')
+  const end = last === undefined ? start + 79 : last
+  if (typeof end !== 'number' || !Number.isSafeInteger(end) || end < start)
+    throw new ClaudeLineRangeError('Choose a valid line range.')
+  const lines = text.split(/\r\n?|\n/u)
+  if (start > lines.length) throw new ClaudeLineRangeError(`This text has ${lines.length} lines.`)
+  const selected = []
+  let remaining = limit
+  let clippedLine = false
+  for (const line of lines.slice(start - 1, Math.min(end, start + 119))) {
+    if (remaining <= 0) break
+    if (line.length > remaining && selected.length) break
+    if (line.length > remaining) clippedLine = true
+    const excerpt = clip(line, remaining)
+    selected.push(excerpt)
+    remaining -= excerpt.length + 1
+  }
+  const endLine = start + selected.length - 1
+  return {
+    startLine: start,
+    endLine,
+    totalLines: lines.length,
+    text: selected.join('\n'),
+    truncated: clippedLine || endLine < Math.min(end, lines.length),
+  }
 }
 
 /** @param {unknown} filename @returns {filename is string} */
@@ -80,4 +118,48 @@ export async function readClaudeFile(workspace, filename) {
   const contents = fileContent(await readClaudeBytes(handle, size), filename)
   if (contents.kind !== 'text' || contents.limited) throw unavailable()
   return contents.value
+}
+
+/** @typedef {{ path: string, side?: 'working' | 'head', start_line?: unknown, end_line?: unknown }} ClaudeReadRequest */
+
+/**
+ * @template T
+ * @param {unknown} files
+ * @param {(file: ClaudeReadRequest) => Promise<T>} read
+ * @param {AbortSignal} signal
+ * @returns {Promise<(T | { path?: string, error: string })[]>}
+ */
+export async function readClaudeFiles(files, read, signal) {
+  if (!Array.isArray(files) || !files.length || files.length > MAX_CLAUDE_READ_FILES)
+    throw new Error(`Supply 1 to ${MAX_CLAUDE_READ_FILES} project files.`)
+  signal.throwIfAborted()
+  /** @type {unknown[]} */
+  const requests = files
+  return Promise.all(
+    Array.from(requests, async file => {
+      if (file === null || typeof file !== 'object' || Array.isArray(file) || !('path' in file))
+        return { error: 'Supply the path of a project text file.' }
+      const filename = file.path
+      if (!claudeVisiblePath(filename)) return { error: 'Supply the path of a project text file.' }
+      const side = 'side' in file ? file.side : undefined
+      if (side !== undefined && side !== 'working' && side !== 'head')
+        return { path: filename, error: 'Choose the working file or HEAD.' }
+      try {
+        const result = await read({
+          path: filename,
+          side,
+          start_line: 'start_line' in file ? file.start_line : undefined,
+          end_line: 'end_line' in file ? file.end_line : undefined,
+        })
+        signal.throwIfAborted()
+        return result
+      } catch (error) {
+        signal.throwIfAborted()
+        return {
+          path: filename,
+          error: error instanceof ClaudeLineRangeError ? error.message : 'This project text file could not be read.',
+        }
+      }
+    }),
+  )
 }
