@@ -40,6 +40,12 @@ import {
 if (!parentPort) throw new Error('Workspace session requires a worker port')
 const port = parentPort
 const diagnostics = createDiagnostics('workspace', value => port.postMessage({ event: 'diagnostic', value }))
+// Parcel's FSEvents backend reports these notices without closing the stream.
+const fseventsRescanMessages = new Set([
+  'Events were dropped by the FSEvents client. File system must be re-scanned.',
+  'Events were dropped by the kernel. File system must be re-scanned.',
+  'Too many events. File system must be re-scanned.',
+])
 const startupTime = performance.now()
 const { repository, initialPath, versions } = await diagnostics.run('workspace.open', async () => {
   const launch = parseSessionLaunch(workerData)
@@ -1058,8 +1064,13 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
       const subscription = await watcher.subscribe(watchPath, (error, events) => {
         if (shuttingDown) return
         if (error) {
-          watchFailed(error, 'WATCHER_FAILED')
-          return
+          if (!fseventsRescanMessages.has(error.message)) {
+            watchFailed(error, 'WATCHER_FAILED')
+            return
+          }
+          diagnostics.event('workspace.watch.rescan', 'warn')
+          force = true
+          documents.invalidate()
         }
         const livePaths = new Set()
         for (const event of events) {

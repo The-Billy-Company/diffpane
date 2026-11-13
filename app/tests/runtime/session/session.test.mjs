@@ -163,10 +163,11 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions }
   }
   await waitFor(snapshot => snapshot.revision > 0)
   const canonicalRoot = await realpath(root)
-  /** @param {import('@parcel/watcher').Event[]} events */
-  const emit = events =>
+  /** @param {import('@parcel/watcher').Event[]} events @param {string} [error] */
+  const emit = (events, error) =>
     postWorkerMessage(worker, {
       testEvents: events.map(event => ({ ...event, path: path.join(canonicalRoot, event.path) })),
+      testWatchError: error,
     })
   /** @param {string} event */
   const waitNotice = async event => {
@@ -189,7 +190,7 @@ const injectedWatchSetup = `
         return { unsubscribe: async () => {} };
       };
       testPort.on('message', message => {
-        if (message.testEvents) callbacks[0](null, message.testEvents);
+        if (message.testEvents) callbacks[0](message.testWatchError ? new Error(message.testWatchError) : null, message.testEvents);
       });
     `
 
@@ -524,6 +525,51 @@ test('a watcher update restores a deleted tracked file to the inventory', async 
     [tracked],
   )
 })
+
+test.for(['Events were dropped by the FSEvents client.', 'Events were dropped by the kernel.', 'Too many events.'])(
+  'an FSEvents rescan recovers missed edits and keeps native updates active (%s)',
+  async (reason, t) => {
+    const repo = await fixture(t, {
+      fileCount: 2,
+      setup: `${injectedWatchSetup}
+        const { LanguageRuntime } = await import(${JSON.stringify(new URL('../../../electron/tools/languages/language.mjs', import.meta.url).href)});
+        LanguageRuntime.prototype.changed = function (events) {
+          if (events.some(event => event.path.endsWith('/file1.txt')))
+            testPort.postMessage({ event: 'test-surviving-event' });
+        };
+      `,
+    })
+    const selected = 'src/file0.txt'
+    const reported = 'src/file1.txt'
+    const added = 'src/new.txt'
+    const before = await repo.call('snapshot')
+    assert.equal((await repo.call('files')).length, 2)
+    assert.equal((await repo.call('document', selected, 'head')).after, 'baseline 0\n')
+
+    await Promise.all([
+      repo.write(selected, 'missed edit\n'),
+      repo.write(added, 'missed create\n'),
+      repo.write(reported, 'reported edit\n'),
+    ])
+    repo.emit([{ path: reported, type: 'update' }], `${reason} File system must be re-scanned.`)
+    const recovered = await repo.waitFor(snapshot => snapshot.revision > before.revision)
+    assert.equal(recovered.watchError, undefined)
+    assert.deepEqual(recovered.changedPaths, ['*'])
+    assert.ok(recovered.inventoryRevision > before.inventoryRevision)
+    assert.ok(recovered.files.some(file => file.path === added))
+    assert.ok(repo.pathEvents.includes('*'))
+    assert.ok((await repo.call('files')).some(file => file.path === added))
+    assert.equal((await repo.call('document', selected, 'head')).after, 'missed edit\n')
+    await repo.waitNotice('test-surviving-event')
+
+    await repo.write(selected, 'next edit\n')
+    repo.emit([{ path: selected, type: 'update' }])
+    const next = await repo.waitFor(snapshot => snapshot.revision > recovered.revision)
+    assert.equal(next.watchError, undefined)
+    assert.deepEqual(next.changedPaths, [selected])
+    assert.equal((await repo.call('document', selected, 'head')).after, 'next edit\n')
+  },
+)
 
 test('watcher fallback delivers inventories slower than its polling interval and keeps detecting edits', async t => {
   const repo = await fixture(t, {
