@@ -22,6 +22,21 @@ if (process.argv.length > 2) throw new Error('Usage: npm run install:app')
 if (process.platform !== 'darwin')
   throw new Error('The terminal launcher installer currently targets macOS. Use npm start on other platforms.')
 
+function signingIdentity() {
+  const configured = process.env.DIFFPANE_CODESIGN_IDENTITY?.trim()
+  if (configured) return configured
+
+  const output = execFileSync('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning'], { encoding: 'utf8' })
+  const identities = [...output.matchAll(/^\s*\d+\) ([\dA-F]{40}) "Developer ID Application: /gm)].map(
+    match => match[1],
+  )
+  if (identities.length > 1)
+    throw new Error(
+      'Multiple Developer ID Application identities found. Set DIFFPANE_CODESIGN_IDENTITY to one of them.',
+    )
+  return identities[0] ?? '-'
+}
+
 const userDirectory = os.homedir()
 const applications = path.join(userDirectory, 'Applications')
 const destination = path.join(applications, 'Diffpane.app')
@@ -47,6 +62,10 @@ if (
   throw new Error(`Cannot install the dp shortcut because ${shortLauncher} is already in use.`)
 if (existingLongLauncher && !existingLongLauncher.isFile() && !existingLongLauncher.isSymbolicLink())
   throw new Error(`Cannot install the launcher because ${longLauncher} is already in use.`)
+
+const identity = signingIdentity()
+const adHoc = identity === '-'
+if (adHoc) console.warn('Using ad hoc signing. macOS may ask for Diffpane Keychain access again after a rebuild.')
 
 async function buildRenderer() {
   const child = spawn('npm', ['run', 'build'], { stdio: 'inherit' })
@@ -76,7 +95,17 @@ const [bundle] = await (async () => {
       icon: 'branding/desktop/diffpane.icns',
       appVersion: version,
       overwrite: true,
-      asar: { unpack: '**/{*.node,spawn-helper}' },
+      osxSign: adHoc
+        ? undefined
+        : {
+            identity,
+            continueOnError: false,
+            preAutoEntitlements: false,
+            preEmbedProvisioningProfile: false,
+            optionsForFile: () => ({ timestamp: 'none' }),
+          },
+      // Match by basename so ASAR finds native files under the hidden staging directory.
+      asar: { unpack: '{*.node,spawn-helper}' },
       beforeAsar: [
         async ({ buildPath, arch }) => {
           const pty = path.join(buildPath, 'node_modules/node-pty')
@@ -110,6 +139,7 @@ const [bundle] = await (async () => {
         /^\/resources\/(?!howmany(?:\/|$))/,
         /^\/resources\/howmany\/build\.json$/,
         /^\/node_modules\/\.vite[^/]*(?:\/|$)/,
+        /^\/node_modules\/node-pty\/prebuilds\/(?!darwin-)/,
         // Ship the language servers and their standard libraries without CLI-only
         // compiler entry points and source maps.
         /^\/node_modules\/basedpyright\/dist\/(?:pyright\.js|pyright(?:-langserver)?\.js\.map)$/,
@@ -141,7 +171,8 @@ try {
     verbatimSymlinks: true,
     mode: constants.COPYFILE_FICLONE,
   })
-  execFileSync('codesign', ['--force', '--deep', '--sign', '-', stagedApp], { stdio: 'inherit' })
+  if (adHoc) execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp], { stdio: 'inherit' })
+  execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagedApp], { stdio: 'inherit' })
   launcherStage = await mkdtemp(path.join(bin, '.diffpane-'))
   const stagedLauncher = path.join(launcherStage, 'diffpane')
   await writeFile(stagedLauncher, launcher, { mode: 0o755 })
