@@ -13,6 +13,15 @@ function versionGroup(text: string, className: string) {
   return group
 }
 
+function wipeSide(side: 'before' | 'after') {
+  const layer = document.createElement('div')
+  layer.className = `image-wipe-${side}`
+  layer.setAttribute('aria-hidden', 'true')
+  const sample = document.createElement('div')
+  sample.className = 'image-wipe-loupe-sample'
+  return { layer, sample, image: null as HTMLImageElement | null }
+}
+
 /** Borrows the loaded preview images while the wipe is open. */
 export function createImageWipe(baseline: string) {
   const button = document.createElement('button')
@@ -32,18 +41,21 @@ export function createImageWipe(baseline: string) {
     before: versionGroup(baseline, 'is-original'),
     after: versionGroup('Working file', 'is-working'),
   } as const
-  labels.append(paletteTargets.before, paletteTargets.after)
+  const loupeToggle = document.createElement('button')
+  loupeToggle.type = 'button'
+  loupeToggle.className = 'preview-toggle image-wipe-loupe-toggle'
+  loupeToggle.textContent = '2× Loupe'
+  loupeToggle.title = 'Magnify both versions under the pointer'
+  loupeToggle.setAttribute('aria-pressed', 'false')
+  labels.append(paletteTargets.before, loupeToggle, paletteTargets.after)
 
   const viewport = document.createElement('div')
   viewport.className = 'media-preview image-wipe-viewport'
   const stage = document.createElement('div')
   stage.className = 'image-wipe-stage'
-  const beforeLayer = document.createElement('div')
-  beforeLayer.className = 'image-wipe-before'
-  beforeLayer.setAttribute('aria-hidden', 'true')
-  const afterLayer = document.createElement('div')
-  afterLayer.className = 'image-wipe-after'
-  afterLayer.setAttribute('aria-hidden', 'true')
+  const beforeSide = wipeSide('before')
+  const afterSide = wipeSide('after')
+  const sides = [beforeSide, afterSide]
   const divider = document.createElement('div')
   divider.className = 'image-wipe-divider'
   divider.setAttribute('aria-hidden', 'true')
@@ -51,19 +63,69 @@ export function createImageWipe(baseline: string) {
   handle.className = 'image-wipe-handle'
   divider.append(handle)
 
+  const loupe = document.createElement('div')
+  loupe.className = 'image-wipe-loupe'
+  loupe.setAttribute('aria-hidden', 'true')
+  loupe.hidden = true
+  loupe.append(beforeSide.sample, afterSide.sample)
+
   const range = document.createElement('input')
   range.type = 'range'
   range.className = 'image-wipe-range'
   range.min = '0'
   range.max = '100'
   range.setAttribute('aria-label', 'Image comparison divider')
+  let loupeY = 50
+
+  function moveLoupe(x: number, y: number) {
+    loupeY = Math.min(100, Math.max(0, y))
+    loupe.style.setProperty('--loupe-x', String(Math.min(100, Math.max(0, x))))
+    loupe.style.setProperty('--loupe-y', String(loupeY))
+  }
+
+  function setLoupe(enabled: boolean) {
+    loupe.hidden = !enabled
+    loupeToggle.setAttribute('aria-pressed', String(enabled))
+    for (const { image, sample } of sides) {
+      sample.replaceChildren()
+      if (!enabled || !image) continue
+      const copy = document.createElement('img')
+      copy.alt = ''
+      copy.crossOrigin = image.crossOrigin
+      copy.src = image.currentSrc || image.src
+      sample.append(copy)
+    }
+    if (enabled) {
+      moveLoupe(range.valueAsNumber, 50)
+      range.setAttribute('aria-description', 'Use Shift with the Up and Down arrow keys to move the loupe vertically.')
+    } else range.removeAttribute('aria-description')
+  }
+
   function updateDivider() {
     stage.style.setProperty('--wipe-position', `${range.value}%`)
     range.setAttribute('aria-valuetext', `${range.value}% ${baseline}, ${100 - range.valueAsNumber}% working file`)
+    if (!loupe.hidden) moveLoupe(range.valueAsNumber, loupeY)
   }
-  range.addEventListener('input', updateDivider)
 
-  stage.append(beforeLayer, afterLayer, divider, range)
+  function followPointer(event: PointerEvent) {
+    if (loupe.hidden) return
+    const { left, top, width, height } = stage.getBoundingClientRect()
+    if (width && height) moveLoupe(((event.clientX - left) / width) * 100, ((event.clientY - top) / height) * 100)
+  }
+
+  loupeToggle.addEventListener('click', () => setLoupe(loupe.hasAttribute('hidden')))
+  range.addEventListener('input', updateDivider)
+  range.addEventListener('pointerdown', followPointer)
+  range.addEventListener('pointermove', followPointer)
+  range.addEventListener('keydown', event => {
+    if (loupe.hidden || !event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+    const delta = event.key === 'ArrowUp' ? -3 : event.key === 'ArrowDown' ? 3 : 0
+    if (!delta) return
+    event.preventDefault()
+    moveLoupe(range.valueAsNumber, loupeY + delta)
+  })
+
+  stage.append(beforeSide.layer, afterSide.layer, divider, loupe, range)
   viewport.append(stage)
   view.append(labels, viewport)
 
@@ -79,12 +141,18 @@ export function createImageWipe(baseline: string) {
       const height = Math.max(before.naturalHeight, after.naturalHeight)
       stage.style.setProperty('--wipe-aspect', String(width / height))
       stage.style.setProperty('--wipe-max-width', `${Math.max(width, 320)}px`)
-      for (const [image, layer] of [
-        [before, beforeLayer],
-        [after, afterLayer],
+      for (const [side, image] of [
+        [beforeSide, before],
+        [afterSide, after],
       ] as const) {
-        layer.style.setProperty('--wipe-image-width', `${(image.naturalWidth / width) * 100}%`)
-        layer.style.setProperty('--wipe-image-height', `${(image.naturalHeight / height) * 100}%`)
+        const { layer, sample } = side
+        side.image = image
+        const widthPercent = (image.naturalWidth / width) * 100
+        const heightPercent = (image.naturalHeight / height) * 100
+        layer.style.setProperty('--wipe-image-width', `${widthPercent}%`)
+        layer.style.setProperty('--wipe-image-height', `${heightPercent}%`)
+        sample.style.setProperty('--sample-width', String(widthPercent))
+        sample.style.setProperty('--sample-height', String(heightPercent))
         layer.append(image)
       }
       restoreImages = () => {
@@ -99,6 +167,8 @@ export function createImageWipe(baseline: string) {
     hide() {
       view.hidden = true
       button.setAttribute('aria-pressed', 'false')
+      setLoupe(false)
+      for (const side of sides) side.image = null
       restoreImages?.()
       restoreImages = undefined
     },

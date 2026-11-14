@@ -30,6 +30,11 @@
   margin-inline-start: 0;
 }
 
+.image-wipe-loupe-toggle {
+  flex: none;
+  white-space: nowrap;
+}
+
 .image-wipe .image-wipe-viewport {
   flex: 1;
   min-height: 0;
@@ -40,6 +45,7 @@
 .image-wipe-stage {
   --wipe-handle-size: 34px;
   position: relative;
+  container-type: inline-size;
   width: min(100cqw, 100cqh * var(--wipe-aspect), var(--wipe-max-width));
   aspect-ratio: var(--wipe-aspect);
   flex: none;
@@ -114,6 +120,54 @@
   transform: rotate(-135deg);
 }
 
+.image-wipe-loupe {
+  --diameter: min(176px, 100cqw, calc(100cqw / var(--wipe-aspect)));
+  --radius: calc(var(--diameter) / 2);
+  position: absolute;
+  left: clamp(var(--radius), calc(var(--loupe-x) * 1%), calc(100% - var(--radius)));
+  top: clamp(var(--radius), calc(var(--loupe-y) * 1%), calc(100% - var(--radius)));
+  width: var(--diameter);
+  aspect-ratio: 1;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: repeating-conic-gradient(var(--surface-raised) 0% 25%, var(--surface) 0% 50%) 0 0 / 12px 12px;
+  box-shadow:
+    0 0 0 1px var(--control-border),
+    0 4px 18px var(--shadow);
+  pointer-events: none;
+}
+
+.image-wipe-loupe-sample {
+  position: absolute;
+  inset: 0;
+  clip-path: inset(0 50% 0 0);
+}
+
+.image-wipe-loupe-sample:last-child {
+  clip-path: inset(0 0 0 50%);
+}
+
+.image-wipe-loupe-sample img {
+  position: absolute;
+  left: calc(50% - 2 * var(--loupe-x) * 1cqw);
+  top: calc(50% - 2 * var(--loupe-y) * 1cqw / var(--wipe-aspect));
+  width: calc(2 * var(--sample-width) * 1cqw);
+  height: calc(2 * var(--sample-height) * 1cqw / var(--wipe-aspect));
+}
+
+.image-wipe-loupe::after {
+  position: absolute;
+  inset: 0;
+  border: 2px solid transparent;
+  border-inline-start-color: var(--removed-edge);
+  border-inline-end-color: var(--added-edge);
+  border-radius: inherit;
+  background: linear-gradient(white, white) center / 1px 100% no-repeat;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 80%));
+  content: '';
+}
+
 .image-wipe-range {
   position: absolute;
   top: 50%;
@@ -126,6 +180,10 @@
   opacity: 0;
   cursor: ew-resize;
   touch-action: none;
+}
+
+.image-wipe-stage:has(.image-wipe-loupe:not([hidden])) .image-wipe-range {
+  cursor: crosshair;
 }
 
 .image-wipe-range::-webkit-slider-runnable-track {
@@ -143,7 +201,7 @@
   background: var(--accent-surface);
 }
 
-.image-wipe-stage:has(.image-wipe-range:focus-visible) .image-wipe-handle {
+.image-wipe-stage:has(.image-wipe-range:focus-visible) :is(.image-wipe-handle, .image-wipe-loupe) {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
