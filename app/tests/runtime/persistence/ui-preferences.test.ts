@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { runInNewContext } from 'node:vm'
 import { test, vi } from 'vite-plus/test'
 import {
   applyUiPreferencePatch,
+  defaultAppearance,
   parseUiPreferencePatch,
   parseUiPreferences,
 } from '../../../electron/persistence/preferences/ui-preferences.ts'
@@ -10,6 +13,7 @@ import type {
   UiPreferencesBridge,
   UiPreferenceUpdate,
 } from '../../../electron/persistence/preferences/ui-preferences.ts'
+import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import { createUiPreferences } from '../../../renderer/panels/appearance/ui-preferences.ts'
 
 test('legacy settings are normalized and each preference patch preserves unrelated fields', () => {
@@ -23,13 +27,34 @@ test('legacy settings are normalized and each preference patch preserves unrelat
   assert.equal(legacy.layout?.files, 156)
   assert.equal(legacy.ideasVisible, true)
   assert.equal(Object.keys(legacy).length, 3)
-  const patch = parseUiPreferencePatch('appearance', { font: 'monaco' })
+  const patch = parseUiPreferencePatch('appearance', { font: 'monaspace-neon' })
   assert.deepEqual(applyUiPreferencePatch(patch, legacy.appearance), {
     key: 'appearance',
-    value: { ...legacy.appearance, font: 'monaco' },
+    value: { ...legacy.appearance, font: 'monaspace-neon' },
   })
   assert.deepEqual(parseUiPreferences({ layout: { order: ['files', 'files', 'right', 'code'] } }), {})
   assert.throws(() => parseUiPreferencePatch('ideasVisible', 'true'), /Invalid Diffpane preference/u)
+})
+
+test('the emitted preload accepts the Monaspace Neon preference on save and load', async () => {
+  const source = await readFile(new URL('../../../electron/runtime/window/preload.cjs', import.meta.url), 'utf8')
+  const appearance = { ...defaultAppearance, font: 'monaspace-neon' as const }
+  const update = { key: 'appearance', value: appearance, revision: 1 }
+  const invoke = vi
+    .fn<() => Promise<unknown>>()
+    .mockResolvedValueOnce({ ok: true, value: update })
+    .mockResolvedValueOnce({ ok: true, value: { appearance } })
+  const send = vi.fn<(channel: string, ...args: unknown[]) => void>()
+  const exposeInMainWorld = vi.fn<(name: string, api: DiffpaneApi) => void>()
+  runInNewContext(source, {
+    require: () => ({ contextBridge: { exposeInMainWorld }, ipcRenderer: { invoke, send } }),
+    performance,
+    process: { platform: process.platform },
+  })
+  const bridge = exposeInMainWorld.mock.calls[0]?.[1].preferences
+  assert.ok(bridge)
+  assert.deepEqual(await bridge.set('appearance', { font: 'monaspace-neon' }), update)
+  assert.deepEqual(await bridge.get({}), { appearance })
 })
 
 test('hydration and acknowledgements preserve newer edits and retire committed legacy settings', async t => {

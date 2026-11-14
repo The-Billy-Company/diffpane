@@ -133,7 +133,11 @@ function isUiAppearance(value) {
     isRecord(value) &&
     (value.theme === 'dark' || value.theme === 'light' || value.theme === 'system') &&
     (value.layout === 'automatic' || value.layout === 'split' || value.layout === 'inline') &&
-    (value.font === 'system' || value.font === 'menlo' || value.font === 'monaco' || value.font === 'courier') &&
+    (value.font === 'system' ||
+      value.font === 'monaspace-neon' ||
+      value.font === 'menlo' ||
+      value.font === 'monaco' ||
+      value.font === 'courier') &&
     isCount(value.fontSize) &&
     value.fontSize >= 10 &&
     value.fontSize <= 28 &&

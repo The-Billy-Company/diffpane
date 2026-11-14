@@ -3,7 +3,7 @@ import { editorDefaultSize } from '../../../shared/appearance/typography.ts'
 const themes = ['dark', 'light', 'system'] as const
 const diffLayouts = ['automatic', 'split', 'inline'] as const
 const wrapModes = ['automatic', 'on', 'off'] as const
-const fonts = ['system', 'menlo', 'monaco', 'courier'] as const
+const fonts = ['system', 'monaspace-neon', 'menlo', 'monaco', 'courier'] as const
 
 export interface Appearance {
   theme: (typeof themes)[number]

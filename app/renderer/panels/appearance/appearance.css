@@ -1,3 +1,10 @@
+@font-face {
+  font-family: 'Monaspace Neon';
+  src: url('./fonts/monaspace-neon.woff2') format('woff2');
+  font-display: swap;
+  font-weight: 200 800;
+}
+
 .appearance-dialog {
   width: min(830px, calc(100% - 40px));
   max-width: none;
@@ -412,7 +419,7 @@
 
 .appearance-editor-options {
   display: grid;
-  grid-template-columns: minmax(max-content, 1fr) minmax(110px, 1fr);
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   gap: 8px 10px;
   padding-block: 2px;
@@ -565,6 +572,7 @@
   padding: 9px 10px;
   font-family: var(--editor-font, var(--font-mono));
   font-size: var(--editor-font-size, var(--editor-default-size));
+  font-feature-settings: var(--editor-font-features, normal);
   font-variant-ligatures: none;
   font-variant-numeric: tabular-nums;
   line-height: var(--editor-line-height, var(--editor-default-line-height));

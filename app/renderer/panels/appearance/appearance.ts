@@ -12,6 +12,7 @@ import './appearance.css'
 
 const FONTS = {
   system: monoFont,
+  'monaspace-neon': `"Monaspace Neon", ${monoFont}`,
   menlo: 'Menlo, Consolas, monospace',
   monaco: 'Monaco, "Lucida Console", monospace',
   courier: '"Courier New", Courier, monospace',
@@ -32,6 +33,7 @@ export function codeAppearance(settings: Appearance, review = false) {
   const wrap = settings.wordWrap === 'on' || (settings.wordWrap === 'automatic' && review)
   return {
     fontFamily: FONTS[settings.font],
+    fontLigatures: settings.font === 'monaspace-neon' ? '"calt" on, "liga" off' : (false as const),
     fontSize: settings.fontSize,
     lineHeight: Math.round((settings.fontSize * editorDefaultLineHeight) / editorDefaultSize),
     wordWrap: wrap ? ('on' as const) : ('off' as const),
@@ -134,6 +136,7 @@ export function createAppearanceSettings(
                 <label for="appearance-font">Font family</label>
                 <select name="font" id="appearance-font">
                   <option value="system">System mono</option>
+                  <option value="monaspace-neon">Monaspace Neon</option>
                   <option value="menlo">Menlo</option>
                   <option value="monaco">Monaco</option>
                   <option value="courier">Courier New</option>
@@ -157,10 +160,10 @@ export function createAppearanceSettings(
               <figure class="appearance-preview" aria-labelledby="appearance-preview-title">
                 <figcaption><span id="appearance-preview-title">Editor preview</span><span>example.ts</span></figcaption>
                 <div class="appearance-preview-code">
-                  <div class="appearance-preview-row"><span class="appearance-preview-number" aria-hidden="true">1</span><code><b>const</b> context = <span class="appearance-preview-value">3</span></code></div>
+                  <div class="appearance-preview-row"><span class="appearance-preview-number" aria-hidden="true">1</span><code><b>const</b> minimumWidth = <span class="appearance-preview-value">560</span></code></div>
                   <div class="appearance-preview-row"><span class="appearance-preview-number" aria-hidden="true">2</span><code><b>const</b> title = <em>'Review changes'</em></code></div>
                   <div class="appearance-preview-row"><span class="appearance-preview-number" aria-hidden="true">3</span><code><i>// Keep nearby lines visible while reviewing changes.</i></code></div>
-                  <div class="appearance-preview-row"><span class="appearance-preview-number" aria-hidden="true">4</span><code><b>export</b> { context, title }</code></div>
+                  <div class="appearance-preview-row"><span class="appearance-preview-number" aria-hidden="true">4</span><code><b>export</b> { minimumWidth, title }</code></div>
                 </div>
               </figure>
             </div>
@@ -205,6 +208,7 @@ export function createAppearanceSettings(
     const code = codeAppearance(value)
     root.dataset.theme = scheme
     root.style.setProperty('--editor-font', code.fontFamily)
+    root.style.setProperty('--editor-font-features', code.fontLigatures || 'normal')
     root.style.setProperty('--editor-font-size', `${code.fontSize}px`)
     root.style.setProperty('--editor-line-height', `${code.lineHeight}px`)
     onApply(value, scheme)

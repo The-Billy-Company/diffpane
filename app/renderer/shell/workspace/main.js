@@ -379,6 +379,7 @@ workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attri
 ui.terminalToggle.addEventListener('click', event => {
   if (event.isTrusted && !closingRequested) runTask('Toggle terminal', async () => void (await api.terminal?.toggle()))
 })
+let monaspaceFontRequested = false
 const appearance = createAppearanceSettings(uiPreferences, (preferences, scheme) => {
   const themeChanged = activeScheme !== scheme
   if (themeChanged) {
@@ -387,11 +388,29 @@ const appearance = createAppearanceSettings(uiPreferences, (preferences, scheme)
     recolorMarkdownPreviews(scheme)
     syncTerminalLayout()
   }
+  const code = codeAppearance(preferences)
+  if (preferences.font === 'monaspace-neon' && !monaspaceFontRequested) {
+    monaspaceFontRequested = true
+    // Monaco can measure fallback glyphs before the font finishes loading.
+    runTask(
+      'Load Monaspace Neon',
+      async () => {
+        try {
+          await document.fonts.load(`${code.fontSize}px "Monaspace Neon"`)
+        } catch (cause) {
+          monaspaceFontRequested = false
+          throw cause
+        }
+        monaco.editor.remeasureFonts()
+      },
+      { silent: true },
+    )
+  }
   for (const card of cards.values()) {
     if (card.diffEditor) {
       card.diffEditor.updateOptions(diffAppearance(preferences, Boolean(card.reviewComparison)))
       updateComparisonAriaLabels(card)
-    } else card.editor?.updateOptions(codeAppearance(preferences))
+    } else card.editor?.updateOptions(code)
   }
 })
 
@@ -1896,7 +1915,6 @@ function editorOptions(card) {
     ...codeAppearance(appearance.value),
     readOnly,
     domReadOnly: readOnly,
-    fontLigatures: false,
     lineNumbersMinChars: 4,
     glyphMargin: false,
     lineDecorationsWidth: 10,
