@@ -3,6 +3,7 @@ import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState, Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
+import { celebrate } from '../../shell/celebration/celebration.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 
 const HIDDEN_SYNTAX = Decoration.replace({})
@@ -208,12 +209,21 @@ class TaskMarker extends WidgetType {
     marker.setAttribute('aria-label', 'Checklist item')
     marker.title = this.checked ? 'Mark incomplete' : 'Mark complete'
     marker.addEventListener('mousedown', event => event.preventDefault())
-    marker.addEventListener('click', () => toggleTask(view, view.posAtDOM(marker)))
+    marker.addEventListener('click', () => toggleTask(view, view.posAtDOM(marker), marker))
     return marker
   }
 }
 
-export function toggleTask(view: EditorView, position: number) {
+function isLastUncheckedTask(state: EditorState, position: number) {
+  const cursor = ensureSyntaxTree(state, state.doc.length, 20)?.cursor()
+  if (!cursor) return false
+  do {
+    if (cursor.name === 'TaskMarker' && cursor.from !== position && sourceText(state, cursor) === '[ ]') return false
+  } while (cursor.next())
+  return true
+}
+
+export function toggleTask(view: EditorView, position: number, control?: HTMLElement) {
   if (view.state.readOnly) return false
   const line = view.state.doc.lineAt(position)
   let marker: { from: number; to: number } | undefined
@@ -227,11 +237,28 @@ export function toggleTask(view: EditorView, position: number) {
     },
   })
   if (!marker) return false
-  view.dispatch({
-    changes: { ...marker, insert: sourceText(view.state, marker) === ' ' ? 'x' : ' ' },
+  const checking = sourceText(view.state, marker) === ' '
+  const rect =
+    checking && isLastUncheckedTask(view.state, marker.from - 1)
+      ? (control?.getBoundingClientRect() ?? view.coordsAtPos(marker.from))
+      : null
+  const transaction = view.state.update({
+    changes: { ...marker, insert: checking ? 'x' : ' ' },
     userEvent: 'input.format',
     annotations: isolateHistory.of('full'),
   })
+  view.dispatch(transaction)
+  if (rect && transaction.docChanged) {
+    const stage = view.dom.closest<HTMLElement>('.idea-stage') ?? view.scrollDOM
+    const scrollTop = stage.scrollTop
+    const editedDoc = transaction.newDoc
+    celebrate(
+      'checklist',
+      { x: (rect.left + rect.right) / 2, y: (rect.top + rect.bottom) / 2 },
+      stage,
+      () => view.state.doc === editedDoc && stage.scrollTop === scrollTop,
+    )
+  }
   return true
 }
 

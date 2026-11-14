@@ -2,6 +2,7 @@
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { MAX_REVIEW_NOTE_LENGTH } from '../../../shared/review/review-notes.ts'
 import type { ReviewAnchor, ReviewNote, ReviewNoteChange } from '../../../shared/review/review-notes.ts'
+import { celebrate } from '../../shell/celebration/celebration.ts'
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
@@ -416,6 +417,13 @@ export function createReviewNotes(
     const context = contextVersion
     const update = updateVersion
     const editing = change.type === 'add' || change.type === 'edit' || change.type === 'delete'
+    const resolvingLastOpen =
+      change.type === 'resolve' &&
+      change.resolved &&
+      !resolved &&
+      !container.hidden &&
+      notes.some(note => note.id === change.id && !note.resolved) &&
+      notes.every(note => note.resolved || note.id === change.id)
     pending = change.type
     notify('')
     render()
@@ -440,6 +448,11 @@ export function createReviewNotes(
         receive(result.value)
       }
       notify(success)
+      if (resolvingLastOpen && result.value.every(note => note.resolved)) {
+        const stillComplete = () =>
+          context === contextVersion && !resolved && !container.hidden && notes.every(note => note.resolved)
+        if (stillComplete()) celebrate('notes', openFilter, container, stillComplete)
+      }
     } finally {
       if (context === contextVersion) {
         pending = null

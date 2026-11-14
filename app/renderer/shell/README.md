@@ -13,3 +13,4 @@ The shell starts the renderer and coordinates the lifetime of the desktop worksp
 - [Layout](layout/README.md) — Panel geometry, explorer icons, and paint scheduling.
 - [Recovery](recovery/README.md) — Loading indicators, failure views, and error handling.
 - [Diagnostics](diagnostics/README.md) — Renderer operation timing, failures, and responsiveness.
+- [Celebrations](celebration/celebration.ts) — Plays short, theme-colored bursts within the panel where an action completes.

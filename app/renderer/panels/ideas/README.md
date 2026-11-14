@@ -11,6 +11,8 @@ The workspace mounts this notebook and handles project links and ideas given to 
 
 The dock and full notebook share the workspace appearance tokens. Search highlights matching titles, note excerpts, or linked paths. Markdown headings use the shared type scale, and code blocks use the editor font and size from Appearance.
 
+Checking the last unchecked task in an idea plays a small burst beside its checkbox. Click the checkbox or press ⌘↵ on its line. The animation respects reduced motion.
+
 - [`ideas.ts`](ideas.ts) — Owns idea selection, search, drafts, autosave, and attachments.
 - [`idea-editor.ts`](idea-editor.ts) — Mounts CodeMirror and wires notebook editing actions.
 - [`idea-editor-markdown.ts`](idea-editor-markdown.ts) — Displays Markdown while editing and handles syntax-aware decorations and actions.

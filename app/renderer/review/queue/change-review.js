@@ -1,5 +1,6 @@
 // MONOLITHIC: Queue order, focus, baseline selection and reviewed revisions update together. Extract the review model once keyboard selection and checkpoint replacement have independent coverage.
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
+import { celebrate } from '../../shell/celebration/celebration.ts'
 import { projectIcon } from '../../shell/layout/icons.ts'
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
@@ -673,6 +674,13 @@ export function createChangeReview(
     const following = adjacent(1)
     reviewed.set(currentPath, currentVersion)
     project()
+    if (container.dataset.complete === 'true')
+      celebrate(
+        'review',
+        progressStrip,
+        container,
+        () => !disposed && filter === 'pending' && container.dataset.complete === 'true',
+      )
     if (following && following.path !== currentPath) openComparison(following)
   }
 
