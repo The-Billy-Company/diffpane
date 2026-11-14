@@ -5,7 +5,17 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, protocol, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  Menu,
+  protocol,
+  session as electronSession,
+  shell,
+} from 'electron'
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import { createDiagnostics, parseDiagnostic } from '../../../shared/diagnostics/diagnostics.ts'
 import { rendererOperations } from '../../../shared/diagnostics/renderer-operations.ts'
@@ -70,7 +80,7 @@ const mediaSessions = new Map()
 /** @type {Map<string, Promise<unknown>>} */
 const fileChanges = new Map()
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'diffpane-media', privileges: { standard: true, secure: true, stream: true } },
+  { scheme: 'diffpane-media', privileges: { standard: true, secure: true, stream: true, corsEnabled: true } },
   { scheme: terminalScheme, privileges: { standard: true, secure: true } },
 ])
 let nextRequest = 0
@@ -1491,6 +1501,19 @@ runBackground(
   async () => {
     await app.whenReady()
     if (diagnosticLog) stopDesktopMetrics = startDesktopMetrics(diagnostics)
+    // A renderer may sample pixels only from media issued to its own workspace frame.
+    electronSession.defaultSession.webRequest.onBeforeRequest(
+      { urls: ['diffpane-media://*/*'] },
+      (request, respond) => {
+        const contents = mediaSessions.get(new URL(request.url).hostname)?.contents
+        const ownsMedia =
+          contents &&
+          !contents.isDestroyed() &&
+          request.webContentsId === contents.id &&
+          request.frame === contents.mainFrame
+        respond({ cancel: !ownsMedia })
+      },
+    )
     protocol.handle('diffpane-media', async request => {
       const startedAt = performance.now()
       const result = await attemptAsync(async () => {

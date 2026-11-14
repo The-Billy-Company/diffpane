@@ -8,7 +8,8 @@ doc_radar:
 # Document previews
 
 The workspace uses this view for native media, bounded text, and hexadecimal inspection. It consumes the Electron file-content contract and releases preview resources when the active file changes.
-In an image comparison, choose Wipe and drag the divider or use the arrow keys to reveal each version in place. Pixel diff highlights and counts changed pixels in PNG, JPEG, BMP, and ICO pairs up to 4 MiB each with matching dimensions.
+Image headings show up to five dominant colors for PNG, APNG, JPEG, GIF, WebP, AVIF, SVG, BMP, and ICO previews. Palettes sample the decoded preview, including large streamed images and the default frame of animations. Hover a swatch to see its hex value.
+In an image comparison, choose Wipe and drag the divider or use the arrow keys to reveal each version in place. Each palette stays beside its version label. Pixel diff highlights and counts changed pixels in PNG, JPEG, BMP, and ICO pairs up to 4 MiB each with matching dimensions.
 Audio clips up to 4 MiB and five minutes show a WaveSurfer.js waveform in each preview pane. Click or drag the waveform to seek, or use the native player controls.
 
 - [`document-preview.ts`](document-preview.ts) — Builds the preview and comparison panes and owns Blob URLs.

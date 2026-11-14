@@ -45,7 +45,7 @@ const BINARY_EXTENSIONS = new Set([
   'psd',
 ])
 const MEDIA_EXTENSIONS = [
-  ['image', ['png', 'jpeg', 'jpg', 'gif', 'webp', 'bmp', 'ico', 'avif', 'svg']],
+  ['image', ['png', 'apng', 'jpeg', 'jpg', 'jfif', 'gif', 'webp', 'bmp', 'ico', 'avif', 'svg']],
   ['audio', ['mp3', 'wav', 'ogg', 'oga', 'flac', 'm4a', 'aac', 'opus']],
   ['video', ['mp4', 'm4v', 'webm', 'ogv', 'mov']],
   ['pdf', ['pdf']],
@@ -58,6 +58,7 @@ const MEDIA_KINDS = new Map(
 )
 const MIME_TYPES: Record<string, string> = {
   jpg: 'image/jpeg',
+  jfif: 'image/jpeg',
   svg: 'image/svg+xml',
   ico: 'image/x-icon',
   mp3: 'audio/mpeg',

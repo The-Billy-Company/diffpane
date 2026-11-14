@@ -48,7 +48,7 @@ Drag the dividers to resize Ideas, File Explorer, code, and the Creature or Revi
 Ideas, review notes, recent paths, keyboard shortcuts, and appearance and layout settings are saved locally in an encrypted database. On macOS, Keychain protects the encryption key. Existing settings and notes are imported automatically on upgrade.
 
 It also includes a file picker, language tools, line counts, and previews for images, audio, video, and PDFs.
-Open an image with **Diff**, then choose **Pixel diff** to highlight and count changed pixels in matching PNG, JPEG, BMP, or ICO images up to 4 MiB each.
+Image previews show dominant-color swatches beside the dimensions. Open an image with **Diff** to compare both palettes, or choose **Wipe** to reveal each version with a draggable divider. Choose **Pixel diff** to highlight and count changed pixels in matching PNG, JPEG, BMP, or ICO images up to 4 MiB each.
 
 ## The Creature
 

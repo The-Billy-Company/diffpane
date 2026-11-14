@@ -28,7 +28,11 @@ export function createImageWipe(baseline: string) {
   view.hidden = true
   const labels = document.createElement('div')
   labels.className = 'preview-heading image-wipe-labels'
-  labels.append(versionGroup(baseline, 'is-original'), versionGroup('Working file', 'is-working'))
+  const paletteTargets = {
+    before: versionGroup(baseline, 'is-original'),
+    after: versionGroup('Working file', 'is-working'),
+  } as const
+  labels.append(paletteTargets.before, paletteTargets.after)
 
   const viewport = document.createElement('div')
   viewport.className = 'media-preview image-wipe-viewport'
@@ -67,6 +71,7 @@ export function createImageWipe(baseline: string) {
   return {
     button,
     view,
+    paletteTargets,
     show(before: HTMLImageElement, after: HTMLImageElement) {
       const beforeParent = before.parentElement
       const afterParent = after.parentElement

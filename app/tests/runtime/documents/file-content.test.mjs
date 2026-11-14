@@ -61,6 +61,8 @@ test('native formats use explicit MIME types and common magic identifies extensi
   /** @type {ReadonlyArray<readonly [string, number[], 'image' | 'pdf' | 'audio' | 'video', string]>} */
   const fixtures = [
     ['photo.PNG', [0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10], 'image', 'image/png'],
+    ['animation.apng', [0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10], 'image', 'image/png'],
+    ['photo.jfif', [0xff, 0xd8, 0xff], 'image', 'image/jpeg'],
     ['unknown', [...Buffer.from('%PDF-1.7')], 'pdf', 'application/pdf'],
     ['sound.wav', [...Buffer.from('RIFF0000WAVE')], 'audio', 'audio/wav'],
     ['clip.webm', [0x1a, 0x45, 0xdf, 0xa3], 'video', 'video/webm'],
@@ -75,6 +77,8 @@ test('native formats use explicit MIME types and common magic identifies extensi
     assert.ok(result.hex)
   }
   assert.equal(readLimit('movie.mp4'), MAX_MEDIA_BYTES)
+  assert.equal(readLimit('animation.apng'), MAX_MEDIA_BYTES)
+  assert.equal(readLimit('photo.jfif'), MAX_MEDIA_BYTES)
   assert.equal(readLimit('source.unknown'), MAX_FILE_BYTES)
 })
 

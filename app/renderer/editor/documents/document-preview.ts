@@ -5,6 +5,7 @@ import { reportError } from '../../shell/recovery/errors.ts'
 import { showAudioPreview } from './audio-waveform/audio-waveform.ts'
 import { createImageDiff } from './image-diff/image-diff.ts'
 import { createImageWipe } from './image-diff/image-wipe.ts'
+import { appendImagePalette } from './image-palette/image-palette.ts'
 import { showMedia } from './media.ts'
 
 import type { FileContent } from '../../../electron/workspace/documents/file-content.ts'
@@ -12,6 +13,12 @@ import type { FileContent } from '../../../electron/workspace/documents/file-con
 interface PreviewMedia {
   url: string
   type: string
+}
+
+interface ImagePane {
+  image: HTMLImageElement
+  heading: HTMLElement
+  palette: HTMLElement
 }
 
 /** Native previews with an always available byte fallback. Owns all URLs and playback. */
@@ -51,7 +58,7 @@ export function showDocumentPreview(
   const workingImage = currentMedia ? currentMedia.type.startsWith('image/') : preview.after.kind === 'image'
   const wipe =
     compare && preview.before.kind === 'image' && workingImage ? createImageWipe(options.baseline ?? 'HEAD') : null
-  const images: Partial<Record<'before' | 'after', HTMLImageElement>> = {}
+  const images: Partial<Record<'before' | 'after', ImagePane>> = {}
   const imageDiff = compare ? createImageDiff(preview.before, preview.after, panes, status, closeWipe) : null
   if (wipe) tools.append(wipe.button)
   if (imageDiff) tools.append(imageDiff.button)
@@ -68,6 +75,7 @@ export function showDocumentPreview(
   function closeWipe() {
     if (!wipe || wipe.view.hidden) return
     wipe.hide()
+    for (const { heading, palette } of Object.values(images)) heading.append(palette)
     panes.hidden = false
   }
 
@@ -76,7 +84,9 @@ export function showDocumentPreview(
       closeWipe()
     } else if (images.before && images.after) {
       imageDiff?.reset()
-      wipe.show(images.before, images.after)
+      wipe.show(images.before.image, images.after.image)
+      wipe.paletteTargets.before.append(images.before.palette)
+      wipe.paletteTargets.after.append(images.after.palette)
       panes.hidden = true
     }
   })
@@ -191,12 +201,20 @@ export function showDocumentPreview(
         if (media.type.startsWith('image/') || media.type.startsWith('video/')) {
           cleanups.push(
             showMedia(body, media, filename, {
-              onReady: (description, image) => {
+              onReady: (description, signal, image) => {
                 details.textContent += ` · ${description}`
                 if (compare) details.title = details.textContent
-                if (wipe && image?.naturalWidth && image.naturalHeight) {
-                  images[side] = image
-                  wipe.button.hidden = !(images.before && images.after)
+                if (image?.naturalWidth && image.naturalHeight) {
+                  const palette = document.createElement('span')
+                  palette.className = 'preview-image-palette-slot'
+                  heading.append(palette)
+                  if (wipe) {
+                    images[side] = { image, palette, heading }
+                    wipe.button.hidden = !(images.before && images.after)
+                  }
+                  appendImagePalette(palette, image, signal).catch(() => {
+                    // Palette extraction is optional. A canvas or decoder failure leaves the preview usable.
+                  })
                 }
               },
               onError: failed,

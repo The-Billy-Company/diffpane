@@ -61,6 +61,7 @@ test('application quit waits for accepted storage work and rejects new writes du
     Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
     protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     safeStorage: {},
+    session: { defaultSession: { webRequest: { onBeforeRequest: vi.fn() } } },
     shell: {},
   }))
   const migrated = vi.spyOn(LocalState.prototype, 'migrate').mockResolvedValue()

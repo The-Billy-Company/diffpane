@@ -80,6 +80,8 @@ test('images have explicit types and empty files finish without a stream', async
   assert.equal(response.headers.get('Content-Length'), '0')
   assert.equal(await response.text(), '')
   assert.equal(mediaType('photo.PNG'), 'image/png')
+  assert.equal(mediaType('animation.apng'), 'image/apng')
+  assert.equal(mediaType('photo.jfif'), 'image/jpeg')
   assert.equal(mediaType('animation.gif'), 'image/gif')
   assert.equal(mediaType('notes.md'), null)
   assert.equal(mediaType('png'), null)

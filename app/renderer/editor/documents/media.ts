@@ -5,7 +5,10 @@ export function showMedia(
   {
     onReady,
     onError,
-  }: { onReady: (description: string, image?: HTMLImageElement) => void; onError: (message: string) => void },
+  }: {
+    onReady: (description: string, signal: AbortSignal, image?: HTMLImageElement) => void
+    onError: (message: string) => void
+  },
 ) {
   const video = media.type.startsWith('video/')
   const viewport = document.createElement('div')
@@ -16,7 +19,7 @@ export function showMedia(
   const listeners = new AbortController()
   const options = { signal: listeners.signal }
   const ready = (description: string, image?: HTMLImageElement) => {
-    if (!listeners.signal.aborted) onReady(description, image)
+    if (!listeners.signal.aborted) onReady(description, listeners.signal, image)
   }
   const failed = () => {
     if (listeners.signal.aborted) return
@@ -46,6 +49,7 @@ export function showMedia(
     viewport.append(element)
   } else {
     element.alt = filename
+    if (media.url.startsWith('diffpane-media:')) element.crossOrigin = 'anonymous'
     const toggle = document.createElement('button')
     toggle.type = 'button'
     toggle.className = 'media-image-toggle'

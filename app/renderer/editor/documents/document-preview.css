@@ -18,6 +18,23 @@
   justify-content: space-between;
   background: linear-gradient(155deg, var(--surface-raised), var(--surface));
 }
+.preview-image-palette-slot {
+  display: contents;
+}
+.preview-image-palette {
+  display: flex;
+  flex: 0 1 56px;
+  min-inline-size: 28px;
+  block-size: 10px;
+  margin-inline-start: auto;
+  overflow: hidden;
+  border: 1px solid var(--control-border);
+  border-radius: 4px;
+}
+.preview-image-palette span {
+  flex-basis: 0;
+  min-inline-size: 2px;
+}
 .preview-hint,
 .preview-tools {
   flex-shrink: 0;
