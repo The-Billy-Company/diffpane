@@ -31,6 +31,7 @@ import { createLanguageFeatures } from '../../editor/languages/languages.js'
 import { isMarkdown } from '../../editor/markdown/markdown-paths.ts'
 import { recolorMarkdownPreviews, showMarkdownPreview } from '../../editor/markdown/markdown-preview.ts'
 import { Autosave } from '../../editor/updates/autosave.ts'
+import { createLiveEditHighlight, liveEditRanges } from '../../editor/updates/live-edit-highlight.ts'
 import { LivePathBatch, subscribeLivePaths } from '../../editor/updates/live-updates.ts'
 import { createFilePicker } from '../../explorer/file-picker/files.ts'
 import { createContentSearch } from '../../explorer/project-search/content-search.ts'
@@ -89,6 +90,7 @@ import { getWorkspacePreferences } from './preferences.ts'
  * @property {CodeEditor | null} editor
  * @property {TextModel | null} model
  * @property {EditorDecorations | null} decorationCollection
+ * @property {ReturnType<typeof createLiveEditHighlight> | null} [liveEditHighlight]
  * @property {ViewState | null} viewState
  * @property {boolean} dirty
  * @property {boolean} active
@@ -2282,20 +2284,27 @@ function applyDiskText(card, text) {
   const hasBOM = text.startsWith('\uFEFF')
   const after = hasBOM ? text.slice(1) : text
   const eol = /\r\n|\r|\n/.exec(after)?.[0]
+  const reset = modelHasBOM !== hasBOM || (eol && eol !== model.getEOL())
+  const highlight = globalThis.document.hidden ? null : card.liveEditHighlight
+  // Keep offsets in the old model's line endings when it needs to rebuild its buffer.
+  const updated = reset && highlight ? after.replace(/\r\n?|\n/g, model.getEOL()) : after
+  const change = (!reset || highlight) && updated !== before ? minimalChange(before, updated) : null
+  const start = change && model.getPositionAt(change.start)
   card.applyingDocument = true
   try {
     // Monaco stores the BOM separately and uses a single line ending for its buffer.
     // Rebuild the buffer when either changes so existing undo offsets cannot alter them.
-    if (modelHasBOM !== hasBOM || (eol && eol !== model.getEOL())) model.setValue(text)
-    else if (before !== after) {
-      const change = minimalChange(before, after)
-      const start = model.getPositionAt(change.start)
+    if (reset) model.setValue(text)
+    else if (change && start) {
       const end = model.getPositionAt(change.end)
       model.applyEdits([{ range: monaco.Range.fromPositions(start, end), text: change.text }])
     }
   } finally {
     card.applyingDocument = false
   }
+  if (highlight && change && start)
+    highlight.show(liveEditRanges(before, updated, change, start.lineNumber), model.getLineCount())
+  else if (reset) card.liveEditHighlight?.clear()
 }
 
 /** @param {Card} card @param {() => boolean} change */
@@ -2528,6 +2537,8 @@ function setCardEditor(card, state) {
     refreshAssistantContext()
   }
   card.decorationCollection = card.editor.createDecorationsCollection()
+  card.liveEditHighlight = createLiveEditHighlight(card.editor)
+  card.contextActions.push(card.liveEditHighlight)
   if (state) card.editor.restoreViewState(state)
 }
 
@@ -2681,6 +2692,7 @@ function releaseEditor(card) {
   card.editor = null
   card.model = null
   card.decorationCollection = null
+  card.liveEditHighlight = null
   card.textBytes = 0
   card.text = null
   card.saveStatus = null

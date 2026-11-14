@@ -1,0 +1,65 @@
+.monaco-editor :is(.live-edit-line, .live-edit-gutter) {
+  --live-edit-ink: var(--accent);
+  pointer-events: none;
+}
+
+.monaco-editor .live-edit-deletion {
+  --live-edit-ink: var(--removed);
+}
+
+.monaco-editor .live-edit-line::before {
+  position: absolute;
+  inset: 1px 0;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--live-edit-ink) 26%, transparent),
+    color-mix(in oklab, var(--live-edit-ink) 10%, transparent) 58%,
+    transparent
+  );
+  transform-origin: left;
+  content: '';
+}
+
+.monaco-editor .live-edit-gutter::before {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--live-edit-ink);
+  box-shadow: 0 0 7px color-mix(in oklab, var(--live-edit-ink) 55%, transparent);
+  transform: translateY(-50%);
+  content: '';
+}
+
+.monaco-editor .live-edit-gutter.live-edit-deletion::before {
+  width: 7px;
+  height: 2px;
+  border-radius: 1px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .monaco-editor .live-edit-line::before {
+    animation: live-edit-sweep 300ms cubic-bezier(0.18, 0.72, 0.28, 1) both;
+  }
+
+  .monaco-editor :is(.live-edit-line, .live-edit-gutter) {
+    animation: live-edit-fade 1450ms 150ms ease-out both;
+  }
+}
+
+@keyframes live-edit-sweep {
+  from {
+    transform: scaleX(0.08);
+  }
+}
+
+@keyframes live-edit-fade {
+  25% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
