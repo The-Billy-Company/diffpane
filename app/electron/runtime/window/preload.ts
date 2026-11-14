@@ -212,16 +212,26 @@ function isSide(value: unknown): value is 'working' | 'head' {
   return value === 'working' || value === 'head'
 }
 
+const appearanceFonts = {
+  system: true,
+  'monaspace-neon': true,
+  'monaspace-argon': true,
+  'monaspace-krypton': true,
+  'monaspace-radon': true,
+  'monaspace-xenon': true,
+  menlo: true,
+  monaco: true,
+  courier: true,
+  wingdings: true,
+} satisfies Record<Appearance['font'], true>
+
 function isUiAppearance(value: unknown): value is Appearance {
   return (
     isRecord(value) &&
     (value.theme === 'dark' || value.theme === 'light' || value.theme === 'system') &&
     (value.layout === 'automatic' || value.layout === 'split' || value.layout === 'inline') &&
-    (value.font === 'system' ||
-      value.font === 'monaspace-neon' ||
-      value.font === 'menlo' ||
-      value.font === 'monaco' ||
-      value.font === 'courier') &&
+    isString(value.font) &&
+    Object.hasOwn(appearanceFonts, value.font) &&
     isCount(value.fontSize) &&
     value.fontSize >= 10 &&
     value.fontSize <= 28 &&

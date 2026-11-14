@@ -36,10 +36,21 @@ test('legacy settings are normalized and each preference patch preserves unrelat
   assert.throws(() => parseUiPreferencePatch('ideasVisible', 'true'), /Invalid Diffpane preference/u)
 })
 
-test('the emitted preload accepts the Monaspace Neon preference on save and load', async () => {
+test.each([
+  'system',
+  'monaspace-neon',
+  'monaspace-argon',
+  'monaspace-krypton',
+  'monaspace-radon',
+  'monaspace-xenon',
+  'menlo',
+  'monaco',
+  'courier',
+  'wingdings',
+] as const)('the emitted preload accepts the %s font on save and load', async font => {
   const source = await readFile(new URL('../../../electron/runtime/window/preload.cjs', import.meta.url), 'utf8')
-  const appearance = { ...defaultAppearance, font: 'monaspace-neon' as const }
-  const update = { key: 'appearance', value: appearance, revision: 1 }
+  const appearance = { ...defaultAppearance, font }
+  const update = { ...applyUiPreferencePatch(parseUiPreferencePatch('appearance', { font })), revision: 1 }
   const invoke = vi
     .fn<() => Promise<unknown>>()
     .mockResolvedValueOnce({ ok: true, value: update })
@@ -53,7 +64,7 @@ test('the emitted preload accepts the Monaspace Neon preference on save and load
   })
   const bridge = exposeInMainWorld.mock.calls[0]?.[1].preferences
   assert.ok(bridge)
-  assert.deepEqual(await bridge.set('appearance', { font: 'monaspace-neon' }), update)
+  assert.deepEqual(await bridge.set('appearance', { font }), { key: 'appearance', value: appearance, revision: 1 })
   assert.deepEqual(await bridge.get({}), { appearance })
 })
 

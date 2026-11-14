@@ -37,7 +37,12 @@ import { createFilePicker } from '../../explorer/file-picker/files.ts'
 import { createContentSearch } from '../../explorer/project-search/content-search.ts'
 import { createNavigator } from '../../explorer/tree/navigator.js'
 import { createHowMany } from '../../panels/analysis/howmany.js'
-import { codeAppearance, createAppearanceSettings, diffAppearance } from '../../panels/appearance/appearance.ts'
+import {
+  bundledEditorFont,
+  codeAppearance,
+  createAppearanceSettings,
+  diffAppearance,
+} from '../../panels/appearance/appearance.ts'
 import { createAssistant } from '../../panels/assistant/assistant.js'
 import { creatureGlyph } from '../../panels/assistant/creature-glyph.ts'
 import { mountIdeaBuilder } from '../../panels/ideas/ideas.ts'
@@ -379,7 +384,8 @@ workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attri
 ui.terminalToggle.addEventListener('click', event => {
   if (event.isTrusted && !closingRequested) runTask('Toggle terminal', async () => void (await api.terminal?.toggle()))
 })
-let monaspaceFontRequested = false
+/** @type {Set<string>} */
+const requestedEditorFonts = new Set()
 const appearance = createAppearanceSettings(uiPreferences, (preferences, scheme) => {
   const themeChanged = activeScheme !== scheme
   if (themeChanged) {
@@ -389,16 +395,17 @@ const appearance = createAppearanceSettings(uiPreferences, (preferences, scheme)
     syncTerminalLayout()
   }
   const code = codeAppearance(preferences)
-  if (preferences.font === 'monaspace-neon' && !monaspaceFontRequested) {
-    monaspaceFontRequested = true
+  const bundledFont = bundledEditorFont(preferences.font)
+  if (bundledFont && !requestedEditorFonts.has(bundledFont)) {
+    requestedEditorFonts.add(bundledFont)
     // Monaco can measure fallback glyphs before the font finishes loading.
     runTask(
-      'Load Monaspace Neon',
+      'Load editor font',
       async () => {
         try {
-          await document.fonts.load(`${code.fontSize}px "Monaspace Neon"`)
+          await document.fonts.load(`${code.fontSize}px "${bundledFont}"`)
         } catch (cause) {
-          monaspaceFontRequested = false
+          requestedEditorFonts.delete(bundledFont)
           throw cause
         }
         monaco.editor.remeasureFonts()

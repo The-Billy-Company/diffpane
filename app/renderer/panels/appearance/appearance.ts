@@ -10,12 +10,28 @@ import { requireElement } from '../../shell/workspace/dom.js'
 import type { UiPreferenceController } from './ui-preferences.ts'
 import './appearance.css'
 
-const FONTS = {
-  system: monoFont,
-  'monaspace-neon': `"Monaspace Neon", ${monoFont}`,
-  menlo: 'Menlo, Consolas, monospace',
-  monaco: 'Monaco, "Lucida Console", monospace',
-  courier: '"Courier New", Courier, monospace',
+interface FontChoice {
+  label: string
+  family?: string
+  bundled?: boolean
+}
+
+const FONTS: Record<Appearance['font'], FontChoice> = {
+  system: { label: 'System mono', family: monoFont },
+  'monaspace-neon': { label: 'Monaspace Neon', bundled: true },
+  'monaspace-argon': { label: 'Monaspace Argon', bundled: true },
+  'monaspace-krypton': { label: 'Monaspace Krypton', bundled: true },
+  'monaspace-radon': { label: 'Monaspace Radon', bundled: true },
+  'monaspace-xenon': { label: 'Monaspace Xenon', bundled: true },
+  menlo: { label: 'Menlo', family: 'Menlo, Consolas, monospace' },
+  monaco: { label: 'Monaco', family: 'Monaco, "Lucida Console", monospace' },
+  courier: { label: 'Courier New', family: '"Courier New", Courier, monospace' },
+  wingdings: { label: 'Wingdings' },
+}
+
+export function bundledEditorFont(font: Appearance['font']) {
+  const choice = FONTS[font]
+  return choice.bundled ? choice.label : undefined
 }
 
 function isAppearanceField(value: string): value is keyof Appearance {
@@ -30,10 +46,12 @@ function isAppearanceField(value: string): value is keyof Appearance {
 }
 
 export function codeAppearance(settings: Appearance, review = false) {
+  const font = FONTS[settings.font]
   const wrap = settings.wordWrap === 'on' || (settings.wordWrap === 'automatic' && review)
   return {
-    fontFamily: FONTS[settings.font],
-    fontLigatures: settings.font === 'monaspace-neon' ? '"calt" on, "liga" off' : (false as const),
+    fontFamily: font.family ?? `"${font.label}", ${monoFont}`,
+    fontLigatures: font.bundled ? '"calt" on, "liga" off' : (false as const),
+    disableMonospaceOptimizations: settings.font === 'wingdings',
     fontSize: settings.fontSize,
     lineHeight: Math.round((settings.fontSize * editorDefaultLineHeight) / editorDefaultSize),
     wordWrap: wrap ? ('on' as const) : ('off' as const),
@@ -135,11 +153,9 @@ export function createAppearanceSettings(
               <div class="appearance-editor-options">
                 <label for="appearance-font">Font family</label>
                 <select name="font" id="appearance-font">
-                  <option value="system">System mono</option>
-                  <option value="monaspace-neon">Monaspace Neon</option>
-                  <option value="menlo">Menlo</option>
-                  <option value="monaco">Monaco</option>
-                  <option value="courier">Courier New</option>
+                  ${Object.entries(FONTS)
+                    .map(([fontId, font]) => `<option value="${fontId}">${font.label}</option>`)
+                    .join('')}
                 </select>
                 <label for="appearance-font-size">Font size</label>
                 <div class="appearance-stepper">
