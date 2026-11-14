@@ -500,12 +500,65 @@
 }
 
 .file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center {
-  background: color-mix(in oklab, var(--surface) 72%, var(--workbench-background));
+  --fold-paper: color-mix(in oklab, var(--surface-raised) 78%, var(--workbench-background));
+  --fold-crease: color-mix(in oklab, var(--subtle) 48%, var(--fold-paper));
+  position: relative;
+  isolation: isolate;
+  background: transparent;
+  box-shadow: none;
   color: var(--muted);
   font-size: var(--text-caption);
 }
 
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center:is(:hover, :focus-within) {
-  background: var(--accent-surface);
+/* Keep Monaco's click and drag targets above the fold artwork. */
+.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center::before {
+  position: absolute;
+  z-index: -1;
+  inset: 1px 0;
+  background:
+    repeating-linear-gradient(90deg, var(--fold-crease) 0 2px, transparent 2px 6px) center / 100% 1px no-repeat,
+    linear-gradient(
+      var(--fold-paper),
+      color-mix(in oklab, var(--fold-paper) 58%, var(--workbench-background)) 50%,
+      color-mix(in oklab, var(--fold-paper) 76%, var(--line)) 50%,
+      var(--fold-paper)
+    );
+  mask:
+    conic-gradient(from 135deg at top, #000 90deg, transparent 0) top / 8px 4px repeat-x,
+    linear-gradient(#000 0 0) center / 100% calc(100% - 6px) no-repeat,
+    conic-gradient(from -45deg at bottom, #000 90deg, transparent 0) bottom / 8px 4px repeat-x;
+  content: '';
+  pointer-events: none;
+}
+
+.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .content-row {
+  min-width: 0;
+}
+
+.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .content-row > span:first-child {
+  min-width: 0;
+  padding: 1px 8px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: var(--fold-paper);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-medium);
+  text-overflow: ellipsis;
+}
+
+.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .default-control {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--fold-paper);
+  cursor: pointer;
+}
+
+.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center:is(:hover, :focus-within),
+.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines.dragging .center {
+  --fold-paper: var(--accent-surface);
+  --fold-crease: color-mix(in oklab, var(--accent) 58%, var(--fold-paper));
   color: var(--accent);
 }
