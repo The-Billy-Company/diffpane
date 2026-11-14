@@ -220,11 +220,14 @@ export function createNavigator(
     </div>
     <div class="navigator-filter-host"></div>
     <div class="navigator-summary" role="status">Reading files…</div>
-    <div class="navigator-tree" role="tree" aria-label="Project files" tabindex="0"><div class="navigator-rows"></div></div>
+    <div class="navigator-tree" role="tree" aria-label="Project files" tabindex="0">
+      <div class="navigator-rows"><div class="navigator-branch-trace" aria-hidden="true"></div></div>
+    </div>
     <details class="navigator-outline"><summary>Outline</summary><div class="symbol-list navigator-symbols"></div></details>
     <div class="navigator-footer"><span>Project files</span><span class="navigator-total"></span></div>`
   const list = requireElement(container, '.navigator-tree', HTMLDivElement)
   const rows = requireElement(container, '.navigator-rows', HTMLDivElement)
+  const branchTrace = requireElement(rows, '.navigator-branch-trace', HTMLDivElement)
   const input = requireElement(container, 'input', HTMLInputElement)
   const summary = requireElement(container, '.navigator-summary', HTMLDivElement)
   const total = requireElement(container, '.navigator-total', HTMLSpanElement)
@@ -256,6 +259,8 @@ export function createNavigator(
   let activeKey = tree.root.key
   /** @type {string | null} */
   let selectedPath = null
+  /** @type {number | undefined | null} */
+  let tracedIndex = null
   /** @type {RevealRequest | null} */
   let revealPath = null
   /** @type {Set<NavigationNode>} */
@@ -310,6 +315,7 @@ export function createNavigator(
 
   function refreshProjection(preserve = true) {
     rowRevision++
+    tracedIndex = null
     const index = Math.floor(list.scrollTop / ROW_HEIGHT)
     const anchor = preserve ? visible[index]?.node.key : null
     const offset = list.scrollTop % ROW_HEIGHT
@@ -342,6 +348,31 @@ export function createNavigator(
     render()
   }
 
+  /** @param {boolean} showingResults */
+  function renderBranchTrace(showingResults) {
+    const index = showingResults || selectedPath === null ? undefined : visibleIndex.get(`file:${selectedPath}`)
+    if (index === tracedIndex) return
+    tracedIndex = index
+    const segments = document.createDocumentFragment()
+    for (let childIndex = index; childIndex !== undefined;) {
+      const child = visible[childIndex]
+      if (!child?.node.parentKey) break
+      const parentIndex = visibleIndex.get(child.node.parentKey)
+      if (parentIndex === undefined) break
+
+      const segment = document.createElement('span')
+      segment.className = 'navigator-branch-segment'
+      segment.classList.toggle('is-leaf', child.node.kind === 'file')
+      segment.style.setProperty('--navigator-depth', String(child.depth - 1))
+      const chevronClearance = 6
+      segment.style.top = `${parentIndex * ROW_HEIGHT + ROW_HEIGHT / 2 + chevronClearance}px`
+      segment.style.height = `${(childIndex - parentIndex) * ROW_HEIGHT - chevronClearance + 1}px`
+      segments.appendChild(segment)
+      childIndex = parentIndex
+    }
+    branchTrace.replaceChildren(segments)
+  }
+
   function render() {
     if (disposed || container.hidden) return
     const height = list.clientHeight || 400
@@ -349,6 +380,7 @@ export function createNavigator(
     const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
     const end = Math.min(visible.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN)
     const showingResults = searching()
+    renderBranchTrace(showingResults)
     const retained = new Set()
     let activeId = null
     for (let index = start; index < end; index++) {
@@ -380,7 +412,7 @@ export function createNavigator(
       rowRevisions.set(row, rowRevision)
       row.id = `navigator-${id}-row-${index}`
       row.style.top = `${index * ROW_HEIGHT}px`
-      row.style.paddingLeft = `${8 + depth * 12}px`
+      row.style.setProperty('--navigator-depth', String(depth))
       row.setAttribute('aria-level', String(depth + 1))
       if (node.kind === 'directory') row.setAttribute('aria-expanded', String(expanded.has(node.path)))
       const file = changes.get(node.path) ?? node.file

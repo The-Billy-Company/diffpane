@@ -147,8 +147,40 @@
   scrollbar-gutter: stable;
 }
 .navigator-rows {
+  --navigator-row-inset: 8px;
+  --navigator-indent: 12px;
   position: relative;
   width: 100%;
+}
+.navigator-branch-trace {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+.navigator-branch-segment {
+  position: absolute;
+  left: calc(var(--navigator-row-inset) + var(--navigator-depth) * var(--navigator-indent) + 3px);
+  width: calc(var(--navigator-indent) - 5px);
+  border: solid color-mix(in oklab, var(--accent) 70%, var(--surface));
+  border-width: 0 0 1px 1px;
+  border-bottom-left-radius: 5px;
+}
+.navigator-branch-segment.is-leaf {
+  width: calc(var(--navigator-indent) + 6px);
+  border-color: var(--accent);
+}
+.navigator-branch-segment.is-leaf::after {
+  position: absolute;
+  right: -2px;
+  bottom: -2.5px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 20%, transparent);
+  content: '';
 }
 .navigator-row {
   height: var(--navigator-row-height);
@@ -158,6 +190,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
+  padding-left: calc(var(--navigator-row-inset) + var(--navigator-depth) * var(--navigator-indent));
   padding-right: 12px;
   cursor: pointer;
   white-space: nowrap;
