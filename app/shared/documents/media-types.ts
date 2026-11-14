@@ -23,6 +23,12 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
   ogv: 'video/ogg',
 }
 
+export const MAX_PIXEL_DIFF_IMAGE_BYTES = 4 * 1024 * 1024
+
+export function isPixelDiffImage(type: string | null) {
+  return type === 'image/png' || type === 'image/jpeg' || type === 'image/bmp' || type === 'image/x-icon'
+}
+
 export function mediaType(filename: string) {
   const name = filename.slice(filename.lastIndexOf('/') + 1)
   const dot = name.lastIndexOf('.')

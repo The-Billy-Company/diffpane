@@ -1,6 +1,7 @@
 import { attempt } from '../../../shared/recovery/app-errors.ts'
 import type { ContentMatch } from '../../explorer/project-search/content-search.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
+import { createImageDiff } from './image-diff/image-diff.ts'
 import { showMedia } from './media.ts'
 
 import type { FileContent } from '../../../electron/workspace/documents/file-content.ts'
@@ -31,22 +32,32 @@ export function showDocumentPreview(
   toolbar.className = 'preview-toolbar'
   const toggle = document.createElement('button')
   toggle.type = 'button'
-  toggle.className = 'preview-byte-toggle'
+  toggle.className = 'preview-toggle'
   toggle.textContent = 'Hex'
   toggle.setAttribute('aria-label', 'Inspect raw bytes')
   toggle.setAttribute('aria-pressed', 'false')
   const hint = document.createElement('span')
-  hint.textContent = 'Preview'
-  toolbar.append(hint, toggle)
+  hint.className = 'preview-hint'
+  const status = document.createElement('span')
+  status.className = 'preview-image-status'
+  status.setAttribute('role', 'status')
+  const tools = document.createElement('div')
+  tools.className = 'preview-tools'
   const panes = document.createElement('div')
   panes.className = 'preview-panes'
+  const imageDiff = compare ? createImageDiff(preview.before, preview.after, panes, status) : null
+  if (imageDiff) tools.append(imageDiff.button)
+  tools.append(toggle)
+  toolbar.append(hint, status, tools)
   root.append(toolbar, panes)
+  if (imageDiff) root.append(imageDiff.view)
   host.replaceChildren(root)
   let raw = options.raw ?? false
   let match = options.match
   const cleanups: (() => void)[] = []
 
   function clear() {
+    imageDiff?.reset()
     for (let cleanup = cleanups.pop(); cleanup; cleanup = cleanups.pop()) {
       const result = attempt(cleanup, { operation: 'Release document preview' })
       if (!result.ok) reportError(result.error, { silent: true })
@@ -58,6 +69,7 @@ export function showDocumentPreview(
     clear()
     toggle.setAttribute('aria-pressed', String(raw))
     hint.textContent = raw ? 'Hexadecimal · ASCII' : 'Preview'
+    if (imageDiff) imageDiff.button.hidden = raw
     for (const side of compare ? (['before', 'after'] as const) : (['after'] as const)) {
       const value = preview[side]
       const pane = document.createElement('section')

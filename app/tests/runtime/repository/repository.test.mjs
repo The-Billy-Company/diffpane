@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { test } from 'vite-plus/test'
 import { readClaudeFile } from '../../../electron/tools/assistant/claude-workspace.mjs'
 import { Repository } from '../../../electron/workspace/repository/repository.mjs'
+import { MAX_PIXEL_DIFF_IMAGE_BYTES } from '../../../shared/documents/media-types.ts'
 
 const execute = promisify(execFile)
 /** @param {string} filename */
@@ -504,6 +505,37 @@ test('binary previews preserve HEAD, index and working bytes independently', asy
       assert.ok(preview?.after.hex?.includes(after), comparison)
     }),
   )
+})
+
+test('image comparisons retain working raster bytes through the pixel diff limit', async t => {
+  const repo = await fixture(t)
+  const filename = 'image.png'
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10])
+  await repo.write(filename, pngSignature)
+  await repo.commit()
+  const repository = await repo.open()
+  const checkpoint = await repository.captureCheckpoint()
+
+  const image = Buffer.alloc(MAX_PIXEL_DIFF_IMAGE_BYTES, 42)
+  pngSignature.copy(image)
+  await repo.write(filename, image)
+  const file = find(await repository.snapshot(), filename)
+  const comparison = await repository.contents(file)
+  const checkpointComparison = await repository.checkpointContents(checkpoint, file)
+  for (const { preview } of [comparison, checkpointComparison]) {
+    assert.equal(preview?.before.kind, 'image')
+    assert.equal(preview.before.data, pngSignature.toString('base64'))
+    assert.equal(preview.after.kind, 'image')
+    assert.ok(preview.after.data)
+    assert.ok(Buffer.from(preview.after.data, 'base64').equals(image))
+  }
+
+  await repo.write(filename, Buffer.concat([image, Buffer.from([0])]))
+  const large = (await repository.contents(file)).preview?.after
+  assert.equal(large?.kind, 'image')
+  assert.equal(large.size, MAX_PIXEL_DIFF_IMAGE_BYTES + 1)
+  assert.equal(large.hexBytes, 64 * 1024)
+  assert.equal(large.data, undefined)
 })
 
 test(

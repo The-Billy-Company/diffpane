@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, open, readdir, readlink, realpath, unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { mediaType } from '../../../shared/documents/media-types.ts'
+import { isPixelDiffImage, MAX_PIXEL_DIFF_IMAGE_BYTES, mediaType } from '../../../shared/documents/media-types.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import {
   checkClaudeFile,
@@ -60,6 +60,12 @@ const statusArguments = [
 ]
 const workingReadFlags = constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
+
+/** @param {string} type @param {number} size */
+function streamedPreviewLimit(type, size) {
+  return isPixelDiffImage(type) && size <= MAX_PIXEL_DIFF_IMAGE_BYTES ? MAX_PIXEL_DIFF_IMAGE_BYTES : 64 * 1024
+}
+
 function empty() {
   return Buffer.alloc(0)
 }
@@ -478,8 +484,9 @@ export class Repository {
       throw new Error(`Checkpoint scan exceeds its file or total read limit at ${filename}.`)
     if (budget) budget.bytes += size
     const hash = algorithm ? createHash(algorithm).update(`blob ${size}\0`) : undefined
-    const streamed = !budget && Boolean(mediaType(filename))
-    const limit = capture || !budget ? Math.min(size, streamed ? 64 * 1024 : readLimit(filename)) : 0
+    const streamType = budget ? null : mediaType(filename)
+    const limit =
+      capture || !budget ? Math.min(size, streamType ? streamedPreviewLimit(streamType, size) : readLimit(filename)) : 0
     if (capture) {
       if (!budget) throw new Error('Checkpoint capture requires a preview budget.')
       budget.previews = (budget.previews ?? 0) + limit
@@ -529,7 +536,7 @@ export class Repository {
         stamp,
         mode,
         oid: hash?.digest('hex'),
-        ...(capture || !budget ? { content: { bytes, size, streamed } } : {}),
+        ...(capture || !budget ? { content: { bytes, size, streamed: Boolean(streamType) } } : {}),
       }
     } finally {
       await handle.close()
@@ -1293,8 +1300,8 @@ export class Repository {
       handle = await open(absolute, workingReadFlags)
       const current = await handle.stat()
       if (!current.isFile()) return { note: 'This path is not a regular file.' }
-      const streamed = Boolean(mediaType(filename))
-      const limit = streamed ? 64 * 1024 : readLimit(filename)
+      const streamType = mediaType(filename)
+      const limit = streamType ? streamedPreviewLimit(streamType, current.size) : readLimit(filename)
       // Read one extra byte to notice growth and distinguish a full preview from a complete file.
       let bytes = Buffer.allocUnsafe(Math.min(current.size, limit) + 1)
       let length = 0
@@ -1309,7 +1316,11 @@ export class Repository {
         bytes.copy(grown, 0, 0, length)
         bytes = grown
       }
-      return { bytes: bytes.subarray(0, Math.min(length, limit)), size: Math.max(current.size, length), streamed }
+      return {
+        bytes: bytes.subarray(0, Math.min(length, limit)),
+        size: Math.max(current.size, length),
+        streamed: Boolean(streamType),
+      }
     } catch (error) {
       if (missing(error)) return empty()
       throw error
