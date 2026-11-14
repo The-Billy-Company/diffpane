@@ -4,6 +4,7 @@ import type { ContentMatch } from '../../explorer/project-search/content-search.
 import { reportError } from '../../shell/recovery/errors.ts'
 import { showAudioPreview } from './audio-waveform/audio-waveform.ts'
 import { createImageDiff } from './image-diff/image-diff.ts'
+import { createImageWipe } from './image-diff/image-wipe.ts'
 import { showMedia } from './media.ts'
 
 import type { FileContent } from '../../../electron/workspace/documents/file-content.ts'
@@ -47,18 +48,44 @@ export function showDocumentPreview(
   tools.className = 'preview-tools'
   const panes = document.createElement('div')
   panes.className = 'preview-panes'
-  const imageDiff = compare ? createImageDiff(preview.before, preview.after, panes, status) : null
+  const workingImage = currentMedia ? currentMedia.type.startsWith('image/') : preview.after.kind === 'image'
+  const wipe =
+    compare && preview.before.kind === 'image' && workingImage ? createImageWipe(options.baseline ?? 'HEAD') : null
+  const images: Partial<Record<'before' | 'after', HTMLImageElement>> = {}
+  const imageDiff = compare ? createImageDiff(preview.before, preview.after, panes, status, closeWipe) : null
+  if (wipe) tools.append(wipe.button)
   if (imageDiff) tools.append(imageDiff.button)
   tools.append(toggle)
   toolbar.append(hint, status, tools)
   root.append(toolbar, panes)
+  if (wipe) root.append(wipe.view)
   if (imageDiff) root.append(imageDiff.view)
   host.replaceChildren(root)
   let raw = options.raw ?? false
   let match = options.match
   const cleanups: (() => void)[] = []
 
+  function closeWipe() {
+    if (!wipe || wipe.view.hidden) return
+    wipe.hide()
+    panes.hidden = false
+  }
+
+  wipe?.button.addEventListener('click', () => {
+    if (!wipe.view.hidden) {
+      closeWipe()
+    } else if (images.before && images.after) {
+      imageDiff?.reset()
+      wipe.show(images.before, images.after)
+      panes.hidden = true
+    }
+  })
+
   function clear() {
+    closeWipe()
+    if (wipe) wipe.button.hidden = true
+    delete images.before
+    delete images.after
     imageDiff?.reset()
     for (let cleanup = cleanups.pop(); cleanup; cleanup = cleanups.pop()) {
       const result = attempt(cleanup, { operation: 'Release document preview' })
@@ -130,7 +157,14 @@ export function showDocumentPreview(
       } else if (raw || value.kind === 'text' || (value.kind === 'binary' && !(side === 'after' && currentMedia))) {
         bytes()
       } else {
-        const failed = () => bytes('This format or codec cannot be displayed.')
+        const failed = () => {
+          if (wipe) {
+            closeWipe()
+            delete images[side]
+            wipe.button.hidden = true
+          }
+          bytes('This format or codec cannot be displayed.')
+        }
         let media = side === 'after' ? currentMedia : null
         if (!media && 'data' in value && value.data && value.mime) {
           const { data: encoded, mime: type } = value
@@ -157,9 +191,13 @@ export function showDocumentPreview(
         if (media.type.startsWith('image/') || media.type.startsWith('video/')) {
           cleanups.push(
             showMedia(body, media, filename, {
-              onReady: description => {
+              onReady: (description, image) => {
                 details.textContent += ` · ${description}`
                 if (compare) details.title = details.textContent
+                if (wipe && image?.naturalWidth && image.naturalHeight) {
+                  images[side] = image
+                  wipe.button.hidden = !(images.before && images.after)
+                }
               },
               onError: failed,
             }),

@@ -16,7 +16,13 @@ function pixelSource(value: FileContent): ImageDiffSource | undefined {
 }
 
 /** Adds an on-demand comparison to a pair of native image previews. */
-export function createImageDiff(before: FileContent, after: FileContent, panes: HTMLElement, status: HTMLElement) {
+export function createImageDiff(
+  before: FileContent,
+  after: FileContent,
+  panes: HTMLElement,
+  status: HTMLElement,
+  onActivate: () => void,
+) {
   const original = pixelSource(before)
   const working = pixelSource(after)
   if (!original || !working) return null
@@ -85,6 +91,7 @@ export function createImageDiff(before: FileContent, after: FileContent, panes: 
       reset()
       return
     }
+    onActivate()
     button.setAttribute('aria-pressed', 'true')
     status.textContent = 'Comparing pixels…'
     try {

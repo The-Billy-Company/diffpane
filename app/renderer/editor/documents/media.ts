@@ -2,7 +2,10 @@ export function showMedia(
   host: ParentNode,
   media: { type: string; url: string },
   filename: string,
-  { onReady, onError }: { onReady: (description: string) => void; onError: (message: string) => void },
+  {
+    onReady,
+    onError,
+  }: { onReady: (description: string, image?: HTMLImageElement) => void; onError: (message: string) => void },
 ) {
   const video = media.type.startsWith('video/')
   const viewport = document.createElement('div')
@@ -12,8 +15,8 @@ export function showMedia(
   element.setAttribute('aria-label', filename)
   const listeners = new AbortController()
   const options = { signal: listeners.signal }
-  const ready = (description: string) => {
-    if (!listeners.signal.aborted) onReady(description)
+  const ready = (description: string, image?: HTMLImageElement) => {
+    if (!listeners.signal.aborted) onReady(description, image)
   }
   const failed = () => {
     if (listeners.signal.aborted) return
@@ -59,7 +62,11 @@ export function showMedia(
       },
       options,
     )
-    element.addEventListener('load', () => ready(`${element.naturalWidth} × ${element.naturalHeight}`), options)
+    element.addEventListener(
+      'load',
+      () => ready(`${element.naturalWidth} × ${element.naturalHeight}`, element),
+      options,
+    )
     toggle.append(element)
     viewport.append(toggle)
   }
