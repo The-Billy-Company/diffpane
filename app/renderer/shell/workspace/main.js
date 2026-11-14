@@ -44,6 +44,8 @@ import { mountIdeaBuilder } from '../../panels/ideas/ideas.ts'
 import { createSettings } from '../../panels/settings/settings.js'
 import '../../editor/documents/document-preview.css'
 import '../../explorer/tree/navigator.css'
+import { createBillyLanes } from '../../review/billy-lanes/lanes.ts'
+import { createBillyReviewContext } from '../../review/billy/context.ts'
 import { changedSymbolRanges } from '../../review/comparison/function-ranges.ts'
 import { createReviewFocus } from '../../review/comparison/review-focus.js'
 import { createReviewNotes } from '../../review/notes/review-notes.ts'
@@ -723,6 +725,7 @@ function closeCurrentFile() {
   }
   cards.clear()
   openedFile = null
+  billyContext?.clear()
   assistant?.refreshContext()
   ideas?.refreshContext()
   ui.feed.replaceChildren()
@@ -820,6 +823,8 @@ const review = createChangeReview(ui.changeReview, {
   onOpen: file => openFile(file, { compare: true, comparison: reviewComparison }),
   onBack: toggleReview,
   onBaseline: updateReviewBaseline,
+  includeFile: file => billyLanes?.includes(file) ?? true,
+  laneStatus: file => billyLanes?.status(file) ?? null,
   onCapture: async () => {
     await (openedFile ? cards.get(openedFile.path) : undefined)?.autosave?.flush()
     if (closingRequested || closed) throw new Error('This window is closing.')
@@ -835,15 +840,49 @@ const review = createChangeReview(ui.changeReview, {
     )
   },
 })
+const billyContext = api.billy && createBillyReviewContext(api.billy, openBillySource)
+const billyLanes =
+  api.billy &&
+  createBillyLanes(review.laneHost, {
+    listLanes: api.billy.listLanes,
+    readLaneChecks: api.billy.readLaneChecks,
+    readLaneLog: api.billy.readLaneLog,
+    onChange: () => review.refreshScope(),
+    onOpen: openBillySource,
+  })
+let billyAvailable = false
+let billyLanesRefreshed = -Infinity
 ui.reviewToggle.addEventListener('click', toggleReview)
+
+/** @param {string} path @param {number} [line] */
+async function openBillySource(path, line) {
+  if (!snapshot) return false
+  const target = `${snapshot.root.replace(/\/$/u, '')}/${path}`
+  if (!target.startsWith(`${snapshot.scope.replace(/\/$/u, '')}/`))
+    throw new Error('This source is outside the open folder. Open the Billy repository root to review it here.')
+  const file = reviewFiles().find(item => item.path === path)
+  const anchor = line === undefined ? null : { path, line, endLine: line, excerpt: '', direct: true }
+  if (!(await openFile(file ?? { path }, { compare: Boolean(file), comparison: reviewComparison, anchor })))
+    throw new Error('This source could not be opened in the current comparison.')
+  return true
+}
+
+function refreshBillyLanes() {
+  const now = performance.now()
+  if (!billyAvailable || !billyLanes || review.laneHost.closest('[hidden]') || now - billyLanesRefreshed < 15_000)
+    return
+  billyLanesRefreshed = now
+  runTask('Load agent lanes', billyLanes.refresh)
+}
+window.addEventListener('focus', refreshBillyLanes)
 
 /** @param {WorkspaceComparison} [comparison] */
 function reviewFiles(comparison = reviewComparison) {
   return (comparison === 'head' ? snapshot?.files : snapshot?.checkpoint?.files) ?? []
 }
 
-/** @param {'head' | 'checkpoint'} [mode] */
-function updateReviewBaseline(mode = reviewComparison === 'head' ? 'head' : 'checkpoint') {
+/** @param {'head' | 'checkpoint'} [mode] @param {boolean} [registryChanged] */
+function updateReviewBaseline(mode = reviewComparison === 'head' ? 'head' : 'checkpoint', registryChanged = false) {
   const checkpoint = snapshot?.checkpoint
   /** @type {WorkspaceComparison} */
   const next = mode === 'checkpoint' && checkpoint ? `checkpoint:${checkpoint.id}` : 'head'
@@ -851,6 +890,12 @@ function updateReviewBaseline(mode = reviewComparison === 'head' ? 'head' : 'che
   reviewComparison = next
   review.setBaseline(next === 'head' ? 'head' : 'checkpoint', checkpoint)
   const files = reviewFiles()
+  billyLanes?.setPaths(files)
+  billyContext?.setChanges(
+    files.map(file => file.path),
+    next,
+    registryChanged,
+  )
   if (changed) {
     navigationVersion++
     const card = openedFile ? cards.get(openedFile.path) : undefined
@@ -890,6 +935,7 @@ function syncReviewState() {
     else state = 'ready'
   }
   review.setCurrent(card?.file.path ?? null, state, version)
+  billyContext?.setChanged(Boolean(card && reviewFiles().some(file => file.path === card.file.path)))
 }
 
 const languageFeatures = createLanguageFeatures(monaco, api, { onState: updateLanguageState })
@@ -1142,7 +1188,11 @@ async function openFile(
     current.pendingReviewAnchor = anchor
     current.anchorFromIdea = ideaLink
     current.reviewNotice.hidden = true
-    if (anchor) {
+    if (compare && anchor?.direct) {
+      openComparison(current, comparison, file)
+      current.pendingReviewAnchor = anchor
+      if (!current.loading && !current.dirty) revealReviewAnchor(current)
+    } else if (anchor) {
       current.pendingMatch = null
       current.modeVersion = (current.modeVersion ?? 0) + 1
       const comparing = anchor.side === 'head'
@@ -1219,6 +1269,18 @@ async function openFile(
   cards.set(file.path, card)
   card.active = true
   ui.feed.replaceChildren(card.element)
+  const contextSlot = requireElement(card.element, '.billy-context-slot', HTMLDivElement)
+  const contextTrigger = requireElement(card.element, '.billy-review-trigger', HTMLButtonElement)
+  billyContext?.bind(contextSlot, contextTrigger, {
+    path: file.path,
+    changed: reviewFiles().some(entry => entry.path === file.path),
+    text: !mediaType(file.path) && file.submodule !== true,
+    line: () => {
+      const selection = card.editor?.getSelection()
+      if (selection && !selection.isEmpty()) return selection.startLineNumber
+      return card.reviewFocus.workingLine() ?? selection?.startLineNumber ?? null
+    },
+  })
   ideas?.refreshContext()
   ui.emptyState.hidden = true
   setSaveLabel('Autosave on')
@@ -1425,6 +1487,7 @@ function setSidebarVisible(visible) {
   if (showFiles !== !ui.navigator.hidden) navigator.toggle()
   const showReview = visible && reviewVisible
   review.setVisible(showReview)
+  if (showReview) refreshBillyLanes()
   ui.reviewToggle.setAttribute('aria-pressed', String(showReview))
   requireElement(ui.emptyState, 'h2', HTMLElement).textContent = showReview ? 'Open a comparison' : 'Open a file'
   updateEmptyStateHint()
@@ -1453,10 +1516,12 @@ function createCard(file, openedAt) {
         </button>
         <details class="symbol-outline" hidden><summary title="Document symbols">Symbols</summary><div class="symbol-list"></div></details>
         <button class="file-next-change change-button" type="button" title="Next change" aria-label="Next change in file" disabled>${icons.down}</button>
+        <button class="billy-review-trigger change-button" type="button" aria-expanded="false" hidden>Billy</button>
         <button class="file-action-toggle change-button" type="button" aria-label="File actions" title="File actions">${icons.more}</button>
         <div class="file-action-popover" role="group" aria-label="File actions" popover></div>
       </div>
     </div>
+    <div class="billy-context-slot"></div>
     <div class="file-note" hidden></div>
     <div class="file-errors"></div>
     <div class="howmany-counts" hidden></div>
@@ -1633,6 +1698,19 @@ function renderSnapshot(next) {
     ui.contentSearchToggle.hidden = !contentSearch
     ui.terminalToggle.hidden = !api.terminal
     ui.reviewToggle.hidden = false
+    if (api.billy)
+      runTask(
+        'Identify Billy workspace',
+        async () => {
+          const available = await api.billy.available()
+          if (closed || snapshot?.root !== next.root) return
+          billyAvailable = available
+          review.laneHost.hidden = !available
+          billyContext?.setAvailable(available)
+          refreshBillyLanes()
+        },
+        { silent: true },
+      )
     reviewNotes?.setContext(true)
     if (ideas) {
       ui.ideasToggle.hidden = false
@@ -1641,7 +1719,7 @@ function renderSnapshot(next) {
     }
   }
   navigator.update(next)
-  updateReviewBaseline()
+  updateReviewBaseline(undefined, next.changedPaths.includes('contracts/operate/codegen/generators.toml'))
   ui.projectName.textContent =
     next.scope.split('/').findLast(segment => segment !== '') ??
     next.root.split('/').findLast(segment => segment !== '') ??
@@ -2059,7 +2137,12 @@ function renderDocument(card, document) {
   if (diffEditor && (!card.reviewComparison || (!card.dirty && card.file.reviewVersion === document.reviewVersion))) {
     const scope = card.reviewComparison ? reviewScope : (card.fileDiffScope ?? 'full')
     card.element.dataset.reviewScope = scope
-    card.reviewFocus.attach(diffEditor, scope, comparisonAriaLabels(card), Boolean(card.reviewComparison))
+    card.reviewFocus.attach(
+      diffEditor,
+      scope,
+      comparisonAriaLabels(card),
+      Boolean(card.reviewComparison && !card.pendingReviewAnchor),
+    )
   } else delete card.element.dataset.reviewScope
   /** @type {monaco.editor.IModelDeltaDecoration[]} */
   const decorations = []
@@ -2477,7 +2560,7 @@ function setCardEditor(card, state) {
   } else card.editor = monaco.editor.create(card.host, { ...editorOptions(card), model })
   card.noteSide = 'working'
   card.ideaSide = 'working'
-  if (reviewNotes || ideas || assistant) {
+  if (reviewNotes || ideas || assistant || billyContext) {
     const contextActions = card.contextActions
     let contextFrame = 0
     const refreshAssistantContext = () => {
@@ -2490,6 +2573,22 @@ function setCardEditor(card, state) {
     contextActions.push({ dispose: () => cancelAnimationFrame(contextFrame) })
     /** @param {CodeEditor} editor @param {EditorSide} side */
     const bindContext = (editor, side) => {
+      if (billyContext && side === 'working') {
+        const billy = editor.createContextKey('diffpaneBillyReview', billyAvailable)
+        contextActions.push(
+          { dispose: () => billy.reset() },
+          editor.addAction({
+            id: 'diffpane-compare-sibling-function',
+            label: 'Compare sibling functions',
+            precondition: 'diffpaneBillyReview',
+            contextMenuGroupId: 'navigation',
+            contextMenuOrder: 22,
+            run: () => {
+              if (!closingRequested) billyContext.open('siblings', editor.getSelection()?.startLineNumber)
+            },
+          }),
+        )
+      }
       contextActions.push(
         editor.onDidFocusEditorText(() => {
           card.noteSide = side
@@ -3038,6 +3137,9 @@ Object.assign(window, {
       if (documentFrame !== null) cancelAnimationFrame(documentFrame)
       navigator.dispose()
       review.dispose()
+      window.removeEventListener('focus', refreshBillyLanes)
+      billyContext?.dispose()
+      billyLanes?.dispose()
       unsubscribePaths()
       appearance.dispose()
       unsubscribeIdeaVisibility()

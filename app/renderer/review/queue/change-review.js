@@ -27,6 +27,8 @@ import './change-review.css'
  *   onProgress: (progress: { pending: number, total: number }) => void,
  *   onCapture: () => Promise<void>,
  *   onBaseline: (baseline: ReviewBaseline) => void,
+ *   includeFile?: (file: ReviewFile) => boolean,
+ *   laneStatus?: (file: ReviewFile) => 'shared' | 'unrecorded' | null,
  * }} ChangeReviewOptions
  */
 
@@ -78,7 +80,10 @@ function changeStatus(file) {
 }
 
 /** @param {HTMLElement} container @param {ChangeReviewOptions} options */
-export function createChangeReview(container, { onOpen, onBack, onProgress, onCapture, onBaseline }) {
+export function createChangeReview(
+  container,
+  { onOpen, onBack, onProgress, onCapture, onBaseline, includeFile = () => true, laneStatus = () => null },
+) {
   const id = `change-review-${++instance}`
   container.classList.add('change-review')
   container.setAttribute('aria-labelledby', `${id}-title`)
@@ -100,6 +105,7 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
       <time class="change-review-checkpoint-time" id="${id}-checkpoint-time" aria-live="polite" hidden></time>
       <p class="change-review-error change-review-checkpoint-error" role="status" hidden></p>
     </div>
+    <div class="change-review-lane" hidden></div>
     <div class="change-review-progress" hidden>
       <span class="change-review-count" role="status"></span>
       <progress aria-label="Review progress" max="1" value="0"></progress>
@@ -146,6 +152,7 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
       </button>
     </footer>`
 
+  const laneHost = requireElement(container, '.change-review-lane', HTMLDivElement)
   const baselineSelect = requireElement(container, '.change-review-baseline-select', HTMLSelectElement)
   const captureButton = requireElement(container, '.change-review-capture', HTMLButtonElement)
   const captureLabel = requireElement(captureButton, 'span', HTMLSpanElement)
@@ -305,17 +312,23 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
       row.setAttribute('aria-setsize', String(entries.length))
       const status = changeStatus(file)
       const label = STATUS_LABELS[status] ?? 'Changed'
+      const lane = laneStatus(file)
+      const laneLabel = lane === 'shared' ? 'Shared path' : lane === 'unrecorded' ? 'Lane unknown' : ''
       const oldPath = file.originalPath
       const directory = file.path.slice(0, Math.max(0, slash))
       row.dataset.status = status
       row.title = oldPath ? `${label} · ${oldPath} → ${file.path}` : `${label} · ${file.path}`
       row.setAttribute(
         'aria-label',
-        `${label}, ${file.path}${oldPath ? `, from ${oldPath}` : ''}${loading ? ', loading comparison' : ''}`,
+        `${label}, ${file.path}${oldPath ? `, from ${oldPath}` : ''}${laneLabel ? `, ${laneLabel}` : ''}${loading ? ', loading comparison' : ''}`,
       )
-      requireElement(row, '.change-review-location', HTMLSpanElement).textContent = oldPath
-        ? `${directory ? `${directory} · ` : ''}From ${oldPath}`
-        : directory
+      requireElement(row, '.change-review-location', HTMLSpanElement).textContent = [
+        laneLabel,
+        directory,
+        oldPath ? `From ${oldPath}` : '',
+      ]
+        .filter(Boolean)
+        .join(' · ')
       const statusElement = requireElement(row, '.change-review-status', HTMLSpanElement)
       statusElement.toggleAttribute('data-loading-status', loading)
       requireElement(statusElement, '.change-review-status-symbol', HTMLSpanElement).textContent = status
@@ -412,21 +425,34 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
     markNext.toggleAttribute('hidden', !advance)
   }
 
+  let lastTotal = -1
+  let lastDone = -1
+
   function updateProgress() {
-    const total = changes.size
-    const done = reviewed.size
+    let total = 0
+    let done = 0
+    for (const file of changes.values()) {
+      if (!includeFile(file)) continue
+      total++
+      if (reviewed.has(file.path)) done++
+    }
     const summary = `${done.toLocaleString()} of ${total.toLocaleString()} reviewed`
-    if (count.textContent === summary) return
-    count.textContent = summary
+    if (count.textContent !== summary) count.textContent = summary
     progress.max = total || 1
     progress.value = done
     progress.setAttribute('aria-valuetext', summary)
     container.dataset.complete = String(total > 0 && done === total)
-    onProgress({ pending: total - done, total })
+    const all = changes.size
+    if (lastTotal !== all || lastDone !== reviewed.size) {
+      lastTotal = all
+      lastDone = reviewed.size
+      onProgress({ pending: all - reviewed.size, total: all })
+    }
+    return { total, done }
   }
 
-  function renderEmpty() {
-    const state = !changes.size ? 'clean' : filter === 'reviewed' ? 'reviewed' : 'complete'
+  function renderEmpty(scopedTotal = 0) {
+    const state = !changes.size ? 'clean' : !scopedTotal ? 'scope' : filter === 'reviewed' ? 'reviewed' : 'complete'
     const cleanState = baseline === 'head' ? 'head' : checkpoint?.error ? 'error' : 'checkpoint'
     const key = state === 'clean' ? cleanState : state
     if (empty.dataset.state === key) return
@@ -435,6 +461,7 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
       head: ['Working tree is clean', 'New changes will appear here as they happen.'],
       checkpoint: ['No changes since checkpoint', 'New changes will appear here as they happen.'],
       error: ['Checkpoint comparison unavailable'],
+      scope: ['No changes in this lane', 'Choose All changes to see the full comparison.'],
       reviewed: ['No files reviewed yet', 'Mark a file reviewed to find it here.', 'Show pending files'],
       complete: ['Review complete', 'New edits move files back to Pending.', 'View reviewed files'],
     }[key]
@@ -450,8 +477,9 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
     const offset = list.scrollTop % ROW_HEIGHT
     entries = []
     entryIndex = new Map()
+    const scoped = updateProgress()
     for (const file of changes.values()) {
-      if (reviewed.has(file.path) !== (filter === 'reviewed')) continue
+      if (!includeFile(file) || reviewed.has(file.path) !== (filter === 'reviewed')) continue
       entryIndex.set(file.path, entries.length)
       entries.push(file)
     }
@@ -466,14 +494,14 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
     }
     for (const button of filters) {
       const showReviewed = button.dataset.filter === 'reviewed'
-      const total = showReviewed ? reviewed.size : changes.size - reviewed.size
+      const total = showReviewed ? scoped.done : scoped.total - scoped.done
       button.setAttribute('aria-pressed', String(button.dataset.filter === filter))
       requireElement(button, 'span', HTMLSpanElement).textContent = total.toLocaleString()
     }
     const focused = document.activeElement
     const isEmpty = entries.length === 0
-    if (isEmpty) renderEmpty()
-    progressGroup.hidden = filterGroup.hidden = changes.size === 0
+    if (isEmpty) renderEmpty(scoped.total)
+    progressGroup.hidden = filterGroup.hidden = scoped.total === 0
     empty.hidden = !isEmpty
     list.hidden = footer.hidden = isEmpty
     if (activeRemoved && focused === list) revealActive()
@@ -531,13 +559,11 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
     if (!canMark() || currentPath === null || currentVersion === null) return
     if (filter === 'reviewed') {
       reviewed.delete(currentPath)
-      updateProgress()
       selectFilter('pending')
       return
     }
     const following = adjacent(1)
     reviewed.set(currentPath, currentVersion)
-    updateProgress()
     project()
     if (following && following.path !== currentPath) openComparison(following)
   }
@@ -622,6 +648,10 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
   renderBaseline()
 
   return {
+    laneHost,
+    refreshScope() {
+      if (!container.hidden) project({ resetScroll: true })
+    },
     /** @param {ReviewBaseline} mode @param {ReviewCheckpoint | null} [nextCheckpoint] */
     setBaseline(mode, nextCheckpoint) {
       const replaced = checkpoint?.id !== nextCheckpoint?.id
@@ -648,11 +678,10 @@ export function createChangeReview(container, { onOpen, onBack, onProgress, onCa
       for (const [path, version] of reviewed) {
         if (changes.get(path)?.reviewVersion !== version) reviewed.delete(path)
       }
-      updateProgress()
       if (!container.hidden) {
         project({ resetScroll: resetScrollOnUpdate })
         resetScrollOnUpdate = false
-      }
+      } else updateProgress()
     },
     /** @param {string | null} path @param {ReviewState | null} state @param {number | null} version */
     setCurrent(path, state, version) {

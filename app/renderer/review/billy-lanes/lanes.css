@@ -1,0 +1,140 @@
+.billy-lanes {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 5px;
+  min-width: 0;
+  margin: 0 var(--queue-inset, 15px) 10px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+
+.billy-lanes-controls,
+.billy-lanes-controls label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.billy-lanes-controls label,
+.billy-lanes-controls select {
+  flex: 1 1 auto;
+}
+
+.billy-lanes-controls select,
+.billy-lanes-refresh {
+  min-width: 0;
+  min-height: 27px;
+  padding: 2px 5px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.billy-lanes-refresh {
+  display: inline-grid;
+  flex: 0 0 27px;
+  place-items: center;
+  color: var(--muted);
+}
+
+.billy-lanes-refresh svg {
+  width: 14px;
+  height: 14px;
+}
+
+.billy-lanes-refresh:hover:enabled {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.billy-lanes p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.billy-lanes-checks {
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.billy-lanes-checks summary {
+  color: var(--text);
+  cursor: pointer;
+  font-weight: var(--weight-medium);
+}
+
+.billy-lanes-checks summary:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.billy-lanes-checks:is([data-state='incomplete'], [data-state='unavailable']) summary {
+  color: var(--warning);
+}
+
+.billy-lanes-evidence {
+  display: grid;
+  gap: 6px;
+  max-height: min(18vh, 132px);
+  padding-block: 5px 1px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.billy-lanes-evidence ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.billy-lanes-evidence li {
+  padding-block-start: 5px;
+  border-block-start: 1px solid var(--line);
+}
+
+.billy-lanes-evidence button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: start;
+  text-decoration: underline;
+}
+
+.billy-lanes-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+}
+
+.billy-lanes-logs {
+  min-width: 0;
+  padding-block-start: 5px;
+  border-block-start: 1px solid var(--line);
+}
+
+.billy-lanes-logs select {
+  max-width: 100%;
+  margin: 4px 0;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.billy-lanes-logs pre {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+}

@@ -455,7 +455,228 @@ function isNull(value) {
 function isMedia(value) {
   return isRecord(value) && isString(value.type) && isString(value.url)
 }
+function isBillyLane(value) {
+  return isRecord(value) && isString(value.slug) && isBoolean(value.current) && arrayOf(isString)(value.recorded)
+}
+function isBillyLanePage(value) {
+  return isRecord(value) && isBoolean(value.truncated) && arrayOf(isBillyLane)(value.rows)
+}
+function isBillyLaneRule(value) {
+  return isRecord(value) && isString(value.id) && isString(value.path) && optional(isPositive)(value.line)
+}
+function isBillyLaneFinding(value) {
+  return (
+    isRecord(value) &&
+    isString(value.check) &&
+    isString(value.message) &&
+    optional(isString)(value.path) &&
+    optional(isPositive)(value.line) &&
+    arrayOf(isBillyLaneRule)(value.rules)
+  )
+}
+function isBillyLaneLog(value) {
+  return (
+    isRecord(value) &&
+    isString(value.text) &&
+    isBoolean(value.complete) &&
+    isCount(value.readBytes) &&
+    optional(isCount)(value.totalBytes)
+  )
+}
+function isBillyLaneChecks(value) {
+  if (!isRecord(value)) return false
+  if (value.kind === 'missing') return true
+  return (
+    value.kind === 'saved' &&
+    isString(value.capture) &&
+    arrayOf(isString)(value.failedChecks) &&
+    isRecord(value.counts) &&
+    isCount(value.counts.passed) &&
+    isCount(value.counts.failed) &&
+    isCount(value.counts.advisory) &&
+    isCount(value.counts.skipped) &&
+    optional(isTimestamp)(value.capturedAt) &&
+    isBoolean(value.conclusive) &&
+    arrayOf(isBillyLaneFinding)(value.findings) &&
+    isBoolean(value.findingsComplete) &&
+    isCount(value.findingsTotal)
+  )
+}
+function isBillyContractFile(value) {
+  return (
+    isRecord(value) &&
+    isString(value.path) &&
+    isBoolean(value.changed) &&
+    isBoolean(value.shared) &&
+    (value.sections === undefined ||
+      (Array.isArray(value.sections) &&
+        value.sections.every(
+          section =>
+            isRecord(section) && isString(section.name) && isPositive(section.start) && isPositive(section.end),
+        ))) &&
+    (value.confidence === 'declared' || value.confidence === 'header' || value.confidence === 'candidate')
+  )
+}
+function isBillyContractGroup(value) {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    (value.sourceKind === 'generator' || value.sourceKind === 'protobuf') &&
+    arrayOf(isBillyContractFile)(value.sources) &&
+    arrayOf(isBillyContractFile)(value.outputs)
+  )
+}
+function isBillyContractDiff(value) {
+  return isRecord(value) && isBoolean(value.limited) && arrayOf(isBillyContractGroup)(value.groups)
+}
+function isBillyClaim(value) {
+  return (
+    isRecord(value) &&
+    isString(value.path) &&
+    isPositive(value.line) &&
+    isString(value.label) &&
+    arrayOf(isString)(value.findings) &&
+    (value.kind === 'sentinel' || value.kind === 'occurrence' || value.kind === 'path')
+  )
+}
+function isBillyClaimsResult(value) {
+  return (
+    isRecord(value) &&
+    isBoolean(value.limited) &&
+    arrayOf(isBillyClaim)(value.claims) &&
+    (value.verification === 'scoped' || value.verification === 'unavailable')
+  )
+}
+function isBillySiblingExcerpt(value) {
+  return isRecord(value) && isString(value.path) && isPositive(value.line) && nullable(isString)(value.text)
+}
+function isBillySiblingMatch(value) {
+  return (
+    isRecord(value) &&
+    (value.grade === 'identical' || value.grade === 'strong' || value.grade === 'moderate') &&
+    isBillySiblingExcerpt(value)
+  )
+}
+function isBillySiblingResult(value) {
+  return (
+    isRecord(value) &&
+    (value.kind === 'no-function' ||
+      (value.kind === 'ready' &&
+        isString(value.scope) &&
+        isBillySiblingExcerpt(value.source) &&
+        arrayOf(isBillySiblingMatch)(value.candidates)))
+  )
+}
+function isBillyPlaybook(value) {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.title) &&
+    isString(value.source) &&
+    isString(value.registry) &&
+    isString(value.trigger) &&
+    nullable(isString)(value.owningEval) &&
+    Array.isArray(value.routes) &&
+    value.routes.every(
+      route =>
+        isRecord(route) &&
+        arrayOf(isString)(route.values) &&
+        (route.kind === 'Mission' ||
+          route.kind === 'Surface' ||
+          route.kind === 'Tool' ||
+          route.kind === 'Connector' ||
+          route.kind === 'Native format'),
+    )
+  )
+}
+function isBillyReplayRun(value) {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.build) &&
+    isString(value.commit) &&
+    nullable(isString)(value.mode) &&
+    arrayOf(isString)(value.scenarios)
+  )
+}
+function isBillyReplayText(value) {
+  return isRecord(value) && isString(value.preview) && isString(value.hash) && isBoolean(value.truncated)
+}
+function isBillyReplayCall(value) {
+  return (
+    isRecord(value) &&
+    isString(value.name) &&
+    nullable(isString)(value.agent) &&
+    nullable(isBillyReplayText)(value.args) &&
+    nullable(isBillyReplayText)(value.result) &&
+    (value.status === 'error' ||
+      value.status === 'finished' ||
+      value.status === 'started' ||
+      value.status === 'unknown')
+  )
+}
+function isBillyReplayComposition(value) {
+  return (
+    isRecord(value) &&
+    nullable(isString)(value.variant) &&
+    nullable(isString)(value.identityHash) &&
+    nullable(isString)(value.toolSchemaHash) &&
+    nullable(isCount)(value.identityTokens) &&
+    nullable(isCount)(value.toolCount) &&
+    nullable(isCount)(value.toolTokens) &&
+    nullable(isCount)(value.historyTokens) &&
+    nullable(isCount)(value.cacheReadTokens) &&
+    nullable(isCount)(value.cacheWriteTokens) &&
+    nullable(arrayOf(isString))(value.playbooks) &&
+    (value.context === null ||
+      (Array.isArray(value.context) &&
+        value.context.every(block => isRecord(block) && isString(block.id) && isCount(block.tokens))))
+  )
+}
+function isBillyReplayModel(value) {
+  return (
+    isRecord(value) &&
+    nullable(isString)(value.agent) &&
+    nullable(isString)(value.provider) &&
+    nullable(isString)(value.model) &&
+    nullable(isBillyReplayComposition)(value.composition)
+  )
+}
+function isBillyReplayCase(value) {
+  if (
+    !isRecord(value) ||
+    !isString(value.scenario) ||
+    !nullable(isString)(value.user) ||
+    !nullable(isString)(value.verdict) ||
+    !nullable(isBillyReplayText)(value.reason) ||
+    !nullable(isBillyReplayText)(value.error) ||
+    !Array.isArray(value.turns)
+  )
+    return false
+  return value.turns.every(
+    turn =>
+      isRecord(turn) &&
+      nullable(isBillyReplayText)(turn.user) &&
+      nullable(isBillyReplayText)(turn.reply) &&
+      nullable(arrayOf(isBillyReplayCall))(turn.calls) &&
+      nullable(arrayOf(isBillyReplayModel))(turn.models),
+  )
+}
 const API = {
+  billy: {
+    available: () => invoke('billy-available', isBoolean),
+    listLanes: () => invoke('billy-lanes', isBillyLanePage),
+    readLaneChecks: slug => invoke('billy-lane-checks', isBillyLaneChecks, slug),
+    readLaneLog: (slug, check, capture) => invoke('billy-lane-log', isBillyLaneLog, slug, check, capture),
+    readContractDiff: request => invoke('billy-contract', isBillyContractDiff, request),
+    readClaims: path => invoke('billy-claims', isBillyClaimsResult, path),
+    readSiblings: (path, line) => invoke('billy-siblings', isBillySiblingResult, path, line),
+    replay: {
+      playbook: path => invoke('billy-playbook', nullable(isBillyPlaybook), path),
+      pickRun: () => invoke('billy-pick-replay', nullable(isBillyReplayRun)),
+      readCase: (runId, scenario) => invoke('billy-replay-case', isBillyReplayCase, runId, scenario),
+    },
+  },
   preferences: {
     get: legacy => invoke('preferences-get', isUiPreferences, legacy),
     set: (key, value) => invoke('preferences-set', isUiPreferenceUpdate, key, value),

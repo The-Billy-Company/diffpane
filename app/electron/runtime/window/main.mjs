@@ -36,6 +36,7 @@ import { ReviewNotesStore } from '../../persistence/project/review-notes.ts'
 import { ClaudeCredentials } from '../../tools/assistant/claude-credentials.mjs'
 import { ClaudeSession } from '../../tools/assistant/claude-session.mjs'
 import { searchClaudeGist } from '../../tools/assistant/gist-search.mjs'
+import { registerBillyReview, resetBillyReview } from '../../tools/billy/bridge.ts'
 import { mediaResponse } from '../../workspace/documents/media.ts'
 import { startDesktopMetrics } from '../diagnostics/desktop-metrics.ts'
 import { createDiagnosticLog } from '../diagnostics/diagnostic-log.ts'
@@ -616,6 +617,7 @@ function createWindow(directory = null) {
     },
     stop() {
       if (this.stopping) return this.stopping
+      resetBillyReview(this)
       this.claude.reset()
       this.stopping = (async () => {
         const terminalStopped = terminal.reset()
@@ -744,12 +746,14 @@ function createWindow(directory = null) {
     )
   })
   window.on('closed', () => {
+    resetBillyReview(session)
     sessions.delete(windowId)
     mediaSessions.delete(session.mediaToken)
     session.finishFlush?.(true)
     runBackground('close-workspace', () => session.stop())
   })
   function detachRenderer() {
+    resetBillyReview(session)
     const wasReady = session.rendererReady
     session.rendererReady = false
     runBackground('stop-terminal', () => terminal.reset())
@@ -921,6 +925,8 @@ app.on('open-file', (event, filename) => {
   if (app.isReady()) windowAction('open-file', () => openTarget(filename))
   else pendingOpenPaths.push(filename)
 })
+
+registerBillyReview(handle)
 
 handle('open-external', async (_session, _event, href) => {
   if (typeof href !== 'string') throw appError('This link cannot be opened.', { code: 'INVALID_LINK' })

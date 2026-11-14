@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, open, realpath } from 'node:fs/promises'
+import { access, lstat, open, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -58,10 +58,28 @@ export async function readBillyText(
     if (!metadata.isFile() || (!prefix && metadata.size > maxBytes))
       throw new Error('This file exceeds the workspace reader limit or is unavailable.')
     const buffer = Buffer.alloc(Math.min(metadata.size + 1, maxBytes + Number(!prefix)))
-    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0)
+    let offset = 0
+    while (offset < buffer.length) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Short reads advance one owned descriptor offset.
+      const { bytesRead } = await file.read(buffer, offset, buffer.length - offset, offset)
+      if (!bytesRead) break
+      offset += bytesRead
+    }
+    const [current, resolved] = await Promise.all([lstat(candidate), realpath(candidate)])
     signal?.throwIfAborted()
-    if (!prefix && bytesRead > maxBytes) throw new Error('This file exceeds the workspace reader limit.')
-    return buffer.toString('utf8', 0, bytesRead)
+    if (
+      resolved !== candidate ||
+      !current.isFile() ||
+      current.dev !== metadata.dev ||
+      current.ino !== metadata.ino ||
+      current.size !== metadata.size ||
+      current.mtimeMs !== metadata.mtimeMs ||
+      current.ctimeMs !== metadata.ctimeMs
+    )
+      throw new Error('The workspace file changed while reading.')
+    if (!prefix && (offset > maxBytes || offset !== metadata.size))
+      throw new Error('The workspace file could not be read completely.')
+    return buffer.toString('utf8', 0, offset)
   } finally {
     await file.close()
   }
@@ -91,14 +109,13 @@ async function executable(root: string, tool: BillyTool): Promise<string> {
     if (relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative)))
       continue
     const candidate = path.join(directory, name)
-    // oxlint-disable-next-line eslint/no-await-in-loop -- Probe the user's tool paths in precedence order.
-    if (
-      await access(candidate, constants.X_OK).then(
-        () => true,
-        () => false,
-      )
-    )
+    try {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Probe the user's tool paths in precedence order.
+      await access(candidate, constants.X_OK)
       return candidate
+    } catch {
+      // Try the next installed tool location.
+    }
   }
   throw new Error(`${tool} is unavailable. Install it using Billy’s developer setup.`)
 }

@@ -1,0 +1,118 @@
+.billy-siblings {
+  display: grid;
+  container-type: inline-size;
+  min-inline-size: 0;
+  gap: 7px;
+  color: var(--text);
+  font-size: var(--text-caption);
+}
+
+.billy-siblings [hidden],
+.billy-siblings[hidden] {
+  display: none;
+}
+
+.billy-siblings-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 9px;
+}
+
+.billy-siblings-status {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.billy-siblings-match {
+  display: flex;
+  align-items: center;
+  min-inline-size: 0;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.billy-siblings :is(button, select) {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.billy-siblings select {
+  min-inline-size: 0;
+  max-inline-size: min(48cqw, 220px);
+  padding: 3px 5px;
+  text-overflow: ellipsis;
+}
+
+.billy-siblings button:hover {
+  background: var(--hover);
+}
+
+.billy-siblings :is(button, select):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.billy-siblings-retry {
+  width: max-content;
+  padding: 3px 6px;
+}
+
+.billy-siblings-pair {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 7px;
+}
+
+.billy-siblings-excerpt {
+  min-inline-size: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-inset);
+}
+
+.billy-siblings-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 3px;
+  min-inline-size: 0;
+  padding: 5px 6px;
+  border-block-end: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+}
+
+.billy-siblings-meta button {
+  overflow: hidden;
+  max-inline-size: 100%;
+  padding: 2px 5px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.billy-siblings-excerpt pre {
+  overflow: auto;
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--editor-text);
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: 1.45;
+}
+
+@container (width < 420px) {
+  .billy-siblings-pair {
+    grid-auto-flow: row;
+  }
+}

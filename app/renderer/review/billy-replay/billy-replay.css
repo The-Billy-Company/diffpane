@@ -1,0 +1,164 @@
+.billy-replay {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 9px 12px;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-caption);
+}
+
+.billy-replay [hidden],
+.billy-replay[hidden],
+.billy-replay-status:empty {
+  display: none;
+}
+
+.billy-replay :is(button, summary, select):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.billy-replay-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+}
+
+.billy-replay-picker button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 5px 7px;
+  text-align: start;
+}
+
+.billy-replay :is(button, select) {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+.billy-replay button:enabled:hover {
+  background: var(--hover);
+}
+.billy-replay button:disabled {
+  opacity: 0.66;
+}
+.billy-replay-muted {
+  color: var(--muted);
+}
+.billy-replay-picker :is(strong, span) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.billy-replay :is(p, h3, dl, dd) {
+  margin: 0;
+}
+.billy-replay p {
+  overflow-wrap: anywhere;
+}
+
+.billy-replay-playbook {
+  display: grid;
+  gap: 3px;
+  padding: 6px 8px;
+  border-inline-start: 2px solid var(--accent);
+  background: var(--accent-surface);
+  border-radius: 3px;
+}
+
+.billy-replay-source {
+  margin-top: 4px;
+  padding: 3px 6px;
+}
+.billy-replay-route {
+  color: var(--muted);
+}
+
+.billy-replay-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.billy-replay-field select {
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 6px;
+}
+.billy-replay-status {
+  color: var(--muted);
+  line-height: 1.4;
+}
+.billy-replay-results {
+  display: grid;
+  gap: 8px;
+}
+.billy-replay-result-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.billy-replay-observation {
+  display: grid;
+  gap: 3px;
+}
+
+.billy-replay-side {
+  min-width: 0;
+  padding: 6px 7px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.billy-replay-side h3 {
+  font-size: inherit;
+  margin-block-end: 5px;
+}
+.billy-replay-detail {
+  min-width: 0;
+}
+.billy-replay-detail summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.billy-replay-detail > :not(summary) {
+  margin-inline-start: 9px;
+}
+.billy-replay-detail + .billy-replay-detail {
+  margin-block-start: 3px;
+}
+.billy-replay-detail[open] > summary {
+  margin-block-end: 3px;
+}
+
+.billy-replay-metadata {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.billy-replay-metadata dt {
+  color: var(--muted);
+}
+.billy-replay-metadata dd:not(:last-child) {
+  margin-block-end: 3px;
+}
+
+.billy-replay-preview {
+  max-height: 13em;
+  margin-block: 3px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  user-select: text;
+}

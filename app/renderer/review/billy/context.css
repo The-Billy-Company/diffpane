@@ -1,0 +1,89 @@
+.billy-review-trigger {
+  width: auto;
+  padding-inline: 7px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  white-space: nowrap;
+}
+
+.billy-context-slot {
+  display: contents;
+}
+
+.billy-review-trigger[aria-expanded='true'] {
+  background: var(--selection-inactive);
+  color: var(--accent);
+}
+
+.billy-review-context {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-block-size: 0;
+  max-block-size: min(45%, 375px);
+  border-block: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.billy-review-bar {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 5px;
+  padding: 5px 10px 4px;
+}
+
+.billy-review-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.billy-review-bar button {
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 3px 7px;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-label);
+}
+
+.billy-review-bar button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.billy-review-bar button[aria-pressed='true'] {
+  background: var(--selection-inactive);
+  color: var(--accent);
+}
+
+.billy-review-bar .billy-review-close {
+  padding-inline: 8px;
+  font-size: var(--text-subheading);
+  line-height: 1.25;
+}
+
+.billy-review-scroll {
+  min-block-size: 0;
+  overflow: auto;
+  padding: 0 11px 9px;
+  overscroll-behavior: contain;
+}
+
+@container (max-width: 360px) {
+  .file-header:has(.billy-review-trigger:not([hidden])) {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 0;
+  }
+
+  .file-header:has(.billy-review-trigger:not([hidden])) .file-actions {
+    grid-column: 1 / -1;
+    justify-content: end;
+    flex-wrap: wrap;
+  }
+}

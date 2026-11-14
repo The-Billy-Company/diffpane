@@ -197,6 +197,10 @@ export function createReviewFocus({ onScope }) {
     bar,
     changeMap: changeMap.element,
     scopeControl,
+    workingLine() {
+      const hunk = hunks[index]
+      return hunk?.modifiedEndLineNumber ? Math.max(1, hunk.modifiedStartLineNumber) : null
+    },
     /**
      * @param {import('monaco-editor').editor.IDiffEditor} diffEditor
      * @param {ReviewScope} initialScope
