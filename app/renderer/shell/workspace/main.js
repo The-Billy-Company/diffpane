@@ -23,6 +23,7 @@ import { appError, attempt, attemptAsync } from '../../../shared/recovery/app-er
 import './style.css'
 import '../recovery/loading.css'
 import { captureReviewLines, locateReviewLines } from '../../../shared/review/review-notes.ts'
+import { createChangePeek } from '../../editor/change-peek/change-peek.ts'
 import { showDocumentPreview } from '../../editor/documents/document-preview.ts'
 import { createDocumentProcessor } from '../../editor/documents/document-runtime.ts'
 import { editorThemeName } from '../../editor/highlighting/editor-themes.ts'
@@ -100,6 +101,8 @@ import { getWorkspacePreferences } from './preferences.ts'
  * @property {CodeEditor | null} editor
  * @property {TextModel | null} model
  * @property {EditorDecorations | null} decorationCollection
+ * @property {ReturnType<typeof createChangePeek> | null} [changePeek]
+ * @property {number} [decorationEditVersion]
  * @property {ReturnType<typeof createLiveEditHighlight> | null} [liveEditHighlight]
  * @property {ViewState | null} viewState
  * @property {boolean} dirty
@@ -1878,6 +1881,7 @@ async function loadDocument(card, retry = false) {
       card.renderedComparison = comparison
       card.noteSide = card.ideaSide = 'working'
     }
+    card.decorationEditVersion = editVersion
     const rendered = renderDocument(card, document)
     if (rendered) await rendered
     if (!card.active || generation !== card.generation) return
@@ -2225,6 +2229,9 @@ function renderDocument(card, document) {
   /** @type {Set<number>} */
   const changeLines = new Set()
   const lineCount = model.getLineCount()
+  const hasChangePeek = card.changePeek?.update(
+    card.renderedComparison === 'head' && card.decorationEditVersion === (card.editVersion ?? 0) ? document : null,
+  )
   for (const change of document.decorations) {
     const start = Math.max(1, Math.min(lineCount, change.startLine))
     const end = Math.max(start, Math.min(lineCount, change.endLine))
@@ -2236,7 +2243,9 @@ function renderDocument(card, document) {
       options: {
         isWholeLine: !deleted,
         linesDecorationsClassName: `diff-gutter-${kind}`,
-        linesDecorationsTooltip: `${kind === 'deleted' ? 'Lines deleted' : kind === 'modified' ? 'Lines modified' : 'Lines added'} compared with ${baseline}`,
+        linesDecorationsTooltip: hasChangePeek
+          ? null
+          : `${kind === 'deleted' ? 'Lines deleted' : kind === 'modified' ? 'Lines modified' : 'Lines added'} compared with ${baseline}`,
         overviewRuler: {
           ...overviewRulerColors[kind],
           position: monaco.editor.OverviewRulerLane.Left,
@@ -2581,6 +2590,7 @@ function setCardEditor(card, state) {
   if (!model || !document) throw new Error('File text must load before opening an editor.')
   for (const action of card.contextActions ?? []) action.dispose()
   card.contextActions = []
+  card.changePeek = null
   card.headContext = null
   card.languageCleanup?.()
   card.languageCleanup = null
@@ -2633,7 +2643,11 @@ function setCardEditor(card, state) {
     card.originalDecorations = originalEditor.createDecorationsCollection()
     card.originalFunctionDecorations = originalEditor.createDecorationsCollection()
     card.functionDecorations = card.editor.createDecorationsCollection()
-  } else card.editor = monaco.editor.create(card.host, { ...editorOptions(card), model })
+  } else {
+    card.editor = monaco.editor.create(card.host, { ...editorOptions(card), model })
+    card.changePeek = createChangePeek(card.host, card.editor)
+    card.contextActions.push(card.changePeek)
+  }
   card.noteSide = 'working'
   card.ideaSide = 'working'
   if (reviewNotes || ideas || assistant) {
@@ -2825,6 +2839,7 @@ function releaseEditor(card) {
   if (!card.model && !card.editor && !card.diffEditor) return
   for (const action of card.contextActions ?? []) action.dispose()
   card.contextActions = []
+  card.changePeek = null
   card.headContext = null
   card.noteSide = 'working'
   card.ideaSide = 'working'

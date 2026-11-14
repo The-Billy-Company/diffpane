@@ -1,0 +1,128 @@
+.change-peek {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  width: 400px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  box-shadow:
+    0 3px 8px var(--shadow),
+    0 12px 28px var(--shadow);
+  color: var(--text);
+  font-size: var(--text-caption);
+  user-select: none;
+}
+
+.change-peek::before {
+  position: absolute;
+  inset-block-start: calc(var(--change-peek-anchor) - 4px);
+  left: -5px;
+  width: 8px;
+  height: 8px;
+  border-bottom: 1px solid var(--control-border);
+  border-left: 1px solid var(--control-border);
+  background: var(--surface-raised);
+  rotate: 45deg;
+  content: '';
+}
+
+.change-peek-heading {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 6px 9px;
+  font-weight: var(--weight-semibold);
+}
+
+.change-peek-heading span:last-child {
+  color: var(--muted);
+  font-weight: var(--weight-regular);
+}
+
+.change-peek[data-kind='added'] .change-peek-heading span:first-child {
+  color: var(--added);
+}
+
+.change-peek[data-kind='deleted'] .change-peek-heading span:first-child {
+  color: var(--removed);
+}
+
+.change-peek[data-kind='modified'] .change-peek-heading span:first-child {
+  color: var(--modified);
+}
+
+.change-peek-body {
+  position: relative;
+  min-height: 0;
+  margin: 0 4px 4px;
+  overflow: auto;
+  border-radius: 4px;
+  font: var(--text-caption) / 1.55 var(--font-mono);
+}
+
+.change-peek-excerpt[data-side='before'] {
+  --peek-edge: var(--removed-edge);
+  --peek-ink: var(--removed);
+  --peek-fill: var(--removed-surface);
+  --peek-gutter: var(--removed-gutter);
+}
+
+.change-peek-excerpt[data-side='after'] {
+  --peek-edge: var(--added-edge);
+  --peek-ink: var(--added);
+  --peek-fill: var(--added-surface);
+  --peek-gutter: var(--added-gutter);
+}
+
+.change-peek-excerpt {
+  border-inline-start: 2px solid var(--peek-edge);
+  background: var(--peek-fill);
+  color: var(--editor-text);
+}
+
+.change-peek-row {
+  display: grid;
+  grid-template-columns: 8ch minmax(0, 1fr);
+}
+
+.change-peek-row span {
+  padding-inline: 4px;
+  background: var(--peek-gutter);
+  color: var(--peek-ink);
+  text-align: end;
+  white-space: pre;
+}
+
+.change-peek-row code {
+  padding-inline: 7px;
+  overflow: hidden;
+  font: inherit;
+  tab-size: 2;
+  text-overflow: ellipsis;
+  white-space: pre;
+  unicode-bidi: plaintext;
+}
+
+.change-peek-more {
+  padding-inline-start: calc(8ch + 7px);
+  color: var(--peek-ink);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .change-peek:not([hidden]) {
+    animation: change-peek-in 120ms ease-out both;
+  }
+}
+
+@keyframes change-peek-in {
+  from {
+    opacity: 0;
+    translate: -3px 0;
+  }
+}
