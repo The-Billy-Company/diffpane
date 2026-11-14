@@ -191,8 +191,8 @@ importers:
         specifier: 6.0.3
         version: 6.0.3
       typescript-language-server:
-        specifier: 6.0.2
-        version: 6.0.2
+        specifier: 6.0.3
+        version: 6.0.3
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -2110,8 +2110,8 @@ packages:
     resolution: {integrity: sha512-JfJeIHke7y2egdGGgRAvpCwYFUsHlM2gPcrVOxFkznt/4uzQ7HFmvE63iFHVLBJNDuyDOQgijDK/tXH/f6Msjg==}
     engines: {node: '>=6.10'}
 
-  typescript-language-server@6.0.2:
-    resolution: {integrity: sha512-Ph7Ql+xkUJvMamnkh1h+aKP6HxLR7lrWIYkPn9/LZBkJdJZgtIj7OoVhkDYtQ7zFPTPmqZHOVXaUKGyz9M2q1Q==}
+  typescript-language-server@6.0.3:
+    resolution: {integrity: sha512-iAxKyLXRNbnxGfCGZ/j4ilAb0PSNommvTvcghF8B8sq5JFGDKEQwzNEFZ0KTYEwzcA7rtRa+2OPeouiFR8L5KA==}
     engines: {node: '>=22.22.2'}
     hasBin: true
 
@@ -3894,7 +3894,7 @@ snapshots:
 
   ts-dedent@2.3.0: {}
 
-  typescript-language-server@6.0.2:
+  typescript-language-server@6.0.3:
     dependencies:
       vscode-jsonrpc: 5.0.1
       vscode-languageserver-protocol: 3.18.5
