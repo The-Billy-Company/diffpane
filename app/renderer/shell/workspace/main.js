@@ -62,7 +62,6 @@ import { projectIcon } from '../layout/icons.ts'
 import { createWorkspaceLayout } from '../layout/workspace-layout.ts'
 import { createRollingNumber } from '../number-flow/number-flow.ts'
 import { clearErrorNotice, guard, renderFailure, reportError, runTask, setErrorNoticeHost } from '../recovery/errors.ts'
-import { waitForWorkspaceOpeningPeeks } from '../recovery/workspace-opening.ts'
 import { drawRecentTargetArt, drawWelcomeArt, drawWorkbenchArt } from './art/workspace-art.ts'
 import { requireElement } from './dom.js'
 import { FileHistory } from './file-history.ts'
@@ -327,11 +326,8 @@ let reviewComparison = 'head'
 const savedViews = new Map()
 const fileHistory = new FileHistory()
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
-const minimumOpeningMs = 3300
 let initialInventoryReady = false
 let initialDocumentReady = false
-/** @type {number | undefined} */
-let workspaceOpeningTimer
 let recentVersion = 0
 let recentSignature = ''
 let targetOpening = false
@@ -374,7 +370,6 @@ const unsubscribeTerminal = api.terminal?.onVisibility(visible => {
   if (visible) syncTerminalLayout()
 })
 terminalBounds.observe(ui.terminalDock)
-workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
 ui.terminalToggle.addEventListener('click', event => {
   if (event.isTrusted && !closingRequested) runTask('Toggle terminal', async () => void (await api.terminal?.toggle()))
 })
@@ -535,35 +530,14 @@ const assistant =
   })
 
 function finishWorkspaceOpening() {
-  window.clearTimeout(workspaceOpeningTimer)
-  workspaceOpeningTimer = undefined
-  if (workspaceOpening?.hidden !== false) return
-  workspaceOpening.hidden = true
+  if (workspaceOpening) workspaceOpening.hidden = true
   app.inert = false
-}
-
-function revealWorkspace() {
-  runTask('Reveal workspace', async () => {
-    await waitForWorkspaceOpeningPeeks(workspaceOpening)
-    if (closed || workspaceOpening?.hidden !== false) return
-    finishWorkspaceOpening()
-    rendererDiagnostics.measure('renderer.workspace-first-render', 0)
-  })
 }
 
 function revealWorkspaceWhenReady() {
   if (closed || workspaceOpening?.hidden !== false || !initialInventoryReady || !initialDocumentReady) return
-  const firstPaint = performance.getEntriesByName('first-contentful-paint', 'paint')[0]
-  const openingStart = firstPaint ?? performance.getEntriesByName('workspace-opening', 'mark')[0]
-  const elapsed = performance.now() - (openingStart?.startTime ?? 0)
-  const remaining = reducedMotion.matches ? 0 : minimumOpeningMs - elapsed
-  if (remaining <= 0) revealWorkspace()
-  else {
-    workspaceOpeningTimer ??= window.setTimeout(() => {
-      workspaceOpeningTimer = undefined
-      revealWorkspaceWhenReady()
-    }, remaining)
-  }
+  finishWorkspaceOpening()
+  rendererDiagnostics.measure('renderer.workspace-first-render', 0)
 }
 
 function showStartScreen(failed = false) {
@@ -587,17 +561,11 @@ function showStartScreen(failed = false) {
       ? 'Choose another file or folder'
       : 'No project open'
   document.title = 'Diffpane'
-  if (failed) finishWorkspaceOpening()
-  else
-    runTask('Reveal welcome screen', async () => {
-      await waitForWorkspaceOpeningPeeks(workspaceOpening)
-      if (closed || snapshot || workspaceOpening?.hidden !== false) return
-      finishWorkspaceOpening()
-      if (!welcomeRendered) {
-        welcomeRendered = true
-        rendererDiagnostics.measure('renderer.welcome-first-render', 0)
-      }
-    })
+  finishWorkspaceOpening()
+  if (!failed && !welcomeRendered) {
+    welcomeRendered = true
+    rendererDiagnostics.measure('renderer.welcome-first-render', 0)
+  }
   runTask('Load recent projects', loadRecentTargets)
 }
 
@@ -3149,6 +3117,7 @@ Object.assign(window, {
     }),
   )
   const unsubscribeIdeas = api.ideas?.onChange(change => ideas?.applyChange(change))
+  workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
   api.rendererReady()
   const unsubscribePaths = subscribeLivePaths(
     api,
@@ -3191,7 +3160,6 @@ Object.assign(window, {
     })
   })
   const unsubscribeErrors = api.onError(showWorkspaceFailure)
-  reducedMotion.addEventListener('change', revealWorkspaceWhenReady)
   runTask('Load workspace', async () => {
     const result = await attemptAsync(async () => applySnapshot(await api.snapshot()))
     if (!result.ok) showWorkspaceFailure(result.error)
@@ -3200,8 +3168,6 @@ Object.assign(window, {
     'pagehide',
     () => {
       closed = true
-      window.clearTimeout(workspaceOpeningTimer)
-      reducedMotion.removeEventListener('change', revealWorkspaceWhenReady)
       terminalBounds.disconnect()
       workspaceDialogs.disconnect()
       unsubscribeTerminal?.()

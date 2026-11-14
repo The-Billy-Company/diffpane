@@ -22,7 +22,7 @@ const plain = filename => ({
 
 /**
  * @template {import('../../../electron/runtime/session/workspace-types.ts').WorkspaceFile} File
- * @param {{ files: File[] }} snapshot
+ * @param {{ files: readonly File[] }} snapshot
  * @param {string} filename
  * @returns {File}
  */

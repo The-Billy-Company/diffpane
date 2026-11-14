@@ -362,6 +362,7 @@ function missingStamp(stamp) {
 
 /** @param {Map<string, ReviewState>} states */
 function syncExternalReviewPaths(states) {
+  if (repository.root === repository.scope) return
   externalReviewPaths = new Map(
     [...states]
       .filter(([filename]) => {
@@ -413,7 +414,7 @@ function queueExternalReviewPoll() {
   ).unref()
 }
 
-/** @param {StatusFile[]} statusFiles @param {readonly string[]} changedPaths @param {boolean} scanAll @param {Stamps} [stamps] */
+/** @param {RepositoryStatus['files']} statusFiles @param {readonly string[]} changedPaths @param {boolean} scanAll @param {Stamps} [stamps] */
 async function versionReviewFiles(statusFiles, changedPaths, scanAll, stamps = new Map()) {
   const changed = new Set(changedPaths)
   const affected = (/** @type {string} */ filename) => {

@@ -28,8 +28,3 @@ export function startWorkspaceOpeningPeeks(opening: HTMLElement | null) {
     })
     .catch((cause: unknown) => rendererDiagnostics.error('renderer.workspace-opening-art', cause))
 }
-
-export function waitForWorkspaceOpeningPeeks(opening: HTMLElement | null) {
-  const peeks = Array.from(opening?.querySelectorAll('.workspace-opening__peek') ?? [])
-  return Promise.allSettled(peeks.flatMap(peek => peek.getAnimations().map(animation => animation.finished)))
-}

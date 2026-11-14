@@ -31,7 +31,7 @@ import {
 /** @typedef {{value: Promise<BlobContents>, bytes: number}} CachedBlob */
 /** @typedef {WorkspaceFile & {originalPath: string | null, index: string, worktree: string, conflicted: boolean, submodule: boolean}} InventoryEntry */
 /** @typedef {InventoryEntry & {statusKey: string}} StatusFile */
-/** @typedef {{branch: string, head: string | null, files: StatusFile[]}} RepositoryStatus */
+/** @typedef {Readonly<{branch: string, head: string | null, files: readonly Readonly<StatusFile>[]}>} RepositoryStatus */
 /** @typedef {{mode: string, oid: string}} TreeEntry */
 /** @typedef {{mode: string, stamp: string, oid?: string, content?: ContentBytes}} CheckpointFile */
 /** @typedef {{capturedAt: number, head: string | null, algorithm: string, paths: Map<string, CheckpointFile | null>, current: Map<string, CheckpointFile | null>, baseline: Map<string, TreeEntry | null>, committed: {head: string | null, paths: Set<string>} | null}} Checkpoint */
@@ -49,6 +49,7 @@ const MAX_CHECKPOINT_PATHS = 2_000
 const MAX_CHECKPOINT_PREVIEWS = 32 * 1024 * 1024
 const MAX_CHECKPOINT_FILE = 512 * 1024 * 1024
 const MAX_CHECKPOINT_SCAN = 1024 * 1024 * 1024
+const CHECKPOINT_CONCURRENCY = 8
 const statusArguments = [
   'status',
   '--porcelain=v2',
@@ -81,6 +82,33 @@ function comparePaths(left, right) {
 /** @param {Set<string>} paths */
 function checkCheckpointPathCount(paths) {
   if (paths.size > MAX_CHECKPOINT_PATHS) throw new Error('The checkpoint needs to compare more than 2,000 paths.')
+}
+
+/** @template Item, Result @param {readonly Item[]} items @param {(item: Item) => Promise<Result>} read */
+async function mapCheckpointReads(items, read) {
+  /** @type {Result[]} */
+  const values = []
+  let next = 0
+  /** @type {Error | undefined} */
+  let failure
+  await Promise.all(
+    Array.from({ length: Math.min(CHECKPOINT_CONCURRENCY, items.length) }, async () => {
+      while (!failure) {
+        const index = next++
+        const item = items[index]
+        if (item === undefined) break
+        try {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Each worker holds one slot in the checkpoint I/O pool.
+          values[index] = await read(item)
+        } catch (error) {
+          failure ??= error instanceof Error ? error : appError(error)
+        }
+      }
+    }),
+  )
+  // Drain reads already in progress so callers can retry without competing against a failed scan.
+  if (failure) throw failure
+  return values
 }
 
 /** @param {BigIntStats} metadata */
@@ -185,10 +213,14 @@ async function restoreSave(handle, original, bytes, written, currentStamp) {
 export class Repository {
   /** @type {Map<string, Promise<void>>} */
   #saves = new Map()
+  /** @type {{fingerprint: string, result: RepositoryStatus} | undefined} */
+  #lastStatus
   /** @type {Set<string> | undefined} */
   inventoryDirectories
-  /** @type {string | undefined} */
-  statusFingerprint
+
+  get statusFingerprint() {
+    return this.#lastStatus?.fingerprint
+  }
 
   /** @param {string} root @param {string} scope @param {string} gitDir @param {string} commonDir */
   constructor(root, scope, gitDir, commonDir) {
@@ -221,16 +253,23 @@ export class Repository {
   /** @param {boolean} trackFingerprint */
   async #status(trackFingerprint) {
     const bytes = await git(this.root, statusArguments, MAX_STATUS_BYTES)
-    const snapshot = parseStatus(bytes)
-    // Polling also needs HEAD and staged blob changes that keep the same status
-    // letters. Keep this internal instead of resending Git records to the UI.
-    if (trackFingerprint) this.statusFingerprint = bytes.toString('utf8')
+    // The worktree may change without changing Git's status records. Reuse the
+    // parsed result in that case while the session still checks file stamps.
+    // Polling uses the fingerprint to detect exact Git metadata changes as well.
+    const fingerprint = trackFingerprint ? createHash('sha256').update(bytes).digest('base64') : undefined
+    if (this.#lastStatus && this.#lastStatus.fingerprint === fingerprint) return this.#lastStatus.result
+    let snapshot = parseStatus(bytes)
     const scope = path.relative(this.root, this.scope).split(path.sep).join('/')
     /** @param {string} name */
-    const scoped = name => !scope || name === scope || name.startsWith(`${scope}/`)
-    snapshot.files = snapshot.files.filter(
-      file => scoped(file.path) || (file.originalPath !== null && scoped(file.originalPath)),
-    )
+    const scoped = name => name === scope || name.startsWith(`${scope}/`)
+    if (scope)
+      snapshot = {
+        ...snapshot,
+        files: snapshot.files.filter(
+          file => scoped(file.path) || (file.originalPath !== null && scoped(file.originalPath)),
+        ),
+      }
+    if (fingerprint !== undefined) this.#lastStatus = { fingerprint, result: snapshot }
     return snapshot
   }
 
@@ -266,19 +305,20 @@ export class Repository {
   /** @returns {Promise<Checkpoint>} */
   async captureCheckpoint() {
     const status = await this.#status(false)
-    const candidates = this.#checkpointStatusPaths(status)
+    const candidates = [...this.#checkpointStatusPaths(status)]
     const algorithm = status.head
       ? status.head.length === 64
         ? 'sha256'
         : 'sha1'
       : await gitPath(this.root, ['rev-parse', '--show-object-format'])
     const budget = { bytes: 0, previews: 0 }
-    /** @type {Map<string, CheckpointFile | null>} */
-    const paths = new Map()
     // Git already retains clean paths in HEAD. Copy only paths whose working version may differ.
-    for (const filename of candidates)
-      // oxlint-disable-next-line eslint/no-await-in-loop -- The shared checkpoint byte and preview budgets are consumed in sequence.
-      paths.set(filename, await this.#readCheckpointFile(filename, { algorithm, budget, capture: true }))
+    const paths = new Map(
+      await mapCheckpointReads(candidates, async filename => {
+        const captured = await this.#readCheckpointFile(filename, { algorithm, budget, capture: true })
+        return /** @type {const} */ ([filename, captured])
+      }),
+    )
 
     const latest = await this.#status(false)
     const latestPaths = this.#checkpointStatusPaths(latest)
@@ -288,12 +328,11 @@ export class Repository {
       [...paths.keys()].some(filename => !latestPaths.has(filename))
     )
       throw new Error('The working tree changed while capturing the checkpoint. Try again.')
-    for (const [filename, captured] of paths) {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- Keep checkpoint validation bounded to one file descriptor at a time.
+    await mapCheckpointReads([...paths], async ([filename, captured]) => {
       const entry = await this.#checkpointEntry(filename)
       if (entry?.stamp !== captured?.stamp)
         throw new Error('The working tree changed while capturing the checkpoint. Try again.')
-    }
+    })
     return {
       capturedAt: Date.now(),
       head: status.head,
@@ -331,21 +370,24 @@ export class Repository {
     /** @type {StatusFile[]} */
     const files = []
     const budget = { bytes: 0 }
-    for (const filename of [...candidates].toSorted(comparePaths)) {
+    const results = await mapCheckpointReads([...candidates].toSorted(comparePaths), async filename => {
       const captured = checkpoint.paths.has(filename)
-      const before = captured
-        ? (checkpoint.paths.get(filename) ?? null)
-        : (checkpoint.baseline.get(filename) ?? entries.get(filename) ?? null)
-      if (!captured) baseline.set(filename, checkpoint.baseline.get(filename) ?? entries.get(filename) ?? null)
+      const entry = checkpoint.baseline.get(filename) ?? entries.get(filename) ?? null
+      const before = captured ? (checkpoint.paths.get(filename) ?? null) : entry
+      if (!captured) baseline.set(filename, entry)
       const workingStatus = byPath.get(filename)
-      if (before?.mode === '160000' || workingStatus?.submodule) continue
+      if (before?.mode === '160000' || workingStatus?.submodule) return null
       const options = { algorithm: checkpoint.algorithm, budget, cached: checkpoint.current.get(filename) }
-      // oxlint-disable-next-line eslint/no-await-in-loop -- Scan paths in order against a shared byte budget.
       const after = await this.#readCheckpointFile(filename, options).catch((/** @type {unknown} */ error) => {
         if (errorCode(error) !== 'CHECKPOINT_READ_CHANGED') throw error
         // An atomic editor save can replace the path between stat and open.
         return this.#readCheckpointFile(filename, options)
       })
+      return { filename, before, after, conflicted: Boolean(workingStatus?.conflicted) }
+    })
+    for (const result of results) {
+      if (!result) continue
+      const { filename, before, after, conflicted } = result
       if (after) current.set(filename, after)
       if (before?.oid === after?.oid && before?.mode === after?.mode) continue
       const worktree = !before ? 'A' : !after ? 'D' : before.mode.slice(0, 2) !== after.mode.slice(0, 2) ? 'T' : 'M'
@@ -354,9 +396,9 @@ export class Repository {
         originalPath: null,
         index: ' ',
         worktree,
-        conflicted: Boolean(workingStatus?.conflicted),
+        conflicted,
         submodule: false,
-        statusKey: `${workingStatus?.conflicted ? 'conflict:' : ''}${after ? `${after.mode}:${after.oid}` : 'absent'}`,
+        statusKey: `${conflicted ? 'conflict:' : ''}${after ? `${after.mode}:${after.oid}` : 'absent'}`,
       })
     }
     checkpoint.baseline = baseline
@@ -482,6 +524,7 @@ export class Repository {
     const size = Number(metadata.size)
     if (budget && (size > MAX_CHECKPOINT_FILE || budget.bytes + size > MAX_CHECKPOINT_SCAN))
       throw new Error(`Checkpoint scan exceeds its file or total read limit at ${filename}.`)
+    // Reserve from the shared budget synchronously before opening the file.
     if (budget) budget.bytes += size
     const hash = algorithm ? createHash(algorithm).update(`blob ${size}\0`) : undefined
     const streamType = budget ? null : mediaType(filename)

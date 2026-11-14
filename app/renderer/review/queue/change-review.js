@@ -33,6 +33,17 @@ import './change-review.css'
  *   laneStatus?: (file: ReviewFile) => 'shared' | 'unrecorded' | null,
  * }} ChangeReviewOptions
  */
+/**
+ * @typedef {{
+ *   element: HTMLDivElement,
+ *   location: HTMLSpanElement,
+ *   status: HTMLSpanElement,
+ *   symbol: HTMLSpanElement,
+ *   label: HTMLSpanElement,
+ *   projection: number,
+ *   description: string,
+ * }} ReviewRow
+ */
 
 const ROW_HEIGHT = 48
 const OVERSCAN = 4
@@ -161,7 +172,10 @@ export function createChangeReview(
   const progressAnnouncement = requireElement(progressGroup, '.change-review-progress-announcement', HTMLSpanElement)
   const progressStrip = requireElement(progressGroup, '.change-review-progress-strip', HTMLDivElement)
   const filterGroup = requireElement(container, '.change-review-filters', HTMLDivElement)
-  const filters = [...container.querySelectorAll('button')].filter(button => button.dataset.filter)
+  const filters = [...filterGroup.querySelectorAll('button')].map(button => ({
+    button,
+    label: requireElement(button, 'span', HTMLSpanElement),
+  }))
   const list = requireElement(container, '.change-review-list', HTMLDivElement)
   const rows = requireElement(container, '.change-review-rows', HTMLDivElement)
   const empty = requireElement(container, '.change-review-empty', HTMLDivElement)
@@ -182,10 +196,10 @@ export function createChangeReview(
   const headReviewed = new Map()
   /** @type {Map<string, number>} */
   const checkpointReviewed = new Map()
-  /** @type {Map<string, HTMLDivElement>} */
+  /** @type {Map<string, ReviewRow>} */
   const mounted = new Map()
-  /** @type {string[]} */
-  const progressPaths = []
+  /** @type {Map<string, number>} */
+  const progressIndexes = new Map()
   /** @type {HTMLSpanElement[]} */
   const progressSegments = []
   /** @type {HTMLSpanElement | undefined} */
@@ -199,11 +213,11 @@ export function createChangeReview(
   let captureError = ''
   let resetScrollOnUpdate = false
   /** @type {Map<string, ReviewFile>} */
-  let changes = new Map()
+  const changes = new Map()
   /** @type {ReviewFile[]} */
-  let entries = []
-  /** @type {Map<string, number>} */
-  let entryIndex = new Map()
+  const entries = []
+  /** @type {number[]} */
+  const entryIndexes = []
   /** @type {ReviewFilter} */
   let filter = 'pending'
   /** @type {string | null} */
@@ -216,6 +230,7 @@ export function createChangeReview(
   let activePath = null
   /** @type {string | null} */
   let openingPath = null
+  let projection = 0
   let request = 0
   /** @type {number | null} */
   let frame = null
@@ -273,81 +288,108 @@ export function createChangeReview(
     target.focus({ preventScroll: true })
   }
 
+  /** @param {string | null} path */
+  function entryIndex(path) {
+    const progressIndex = path === null ? undefined : progressIndexes.get(path)
+    const index = progressIndex === undefined ? undefined : entryIndexes[progressIndex]
+    return index !== -1 ? index : undefined
+  }
+
   function renderRows() {
     if (container.hidden || disposed) return
-    const start = Math.max(0, Math.floor(list.scrollTop / ROW_HEIGHT) - OVERSCAN)
-    const end = Math.min(entries.length, Math.ceil((list.scrollTop + list.clientHeight) / ROW_HEIGHT) + OVERSCAN)
+    const { scrollTop, clientHeight } = list
+    const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
+    const end = Math.min(entries.length, Math.ceil((scrollTop + clientHeight) / ROW_HEIGHT) + OVERSCAN)
     const indexes = Array.from({ length: end - start }, (_, offset) => start + offset)
-    const activeIndex = activePath === null ? undefined : entryIndex.get(activePath)
+    const activeIndex = entryIndex(activePath)
     // Keep the keyboard cursor accessible when scrolling takes it out of the window.
     if (activeIndex !== undefined) {
       if (activeIndex < start) indexes.unshift(activeIndex)
       else if (activeIndex >= end) indexes.push(activeIndex)
     }
     const retained = new Set()
+    const loadingPath = openingPath ?? (currentState === 'loading' ? currentPath : null)
+    const selectedPath = currentState === null ? null : currentPath
+    const size = String(entries.length)
     let activeId = ''
     let cursor = rows.firstElementChild
     for (const index of indexes) {
       const file = entries[index]
       if (!file) continue
-      const slash = file.path.lastIndexOf('/')
-      const name = file.path.slice(slash + 1)
       retained.add(file.path)
       let row = mounted.get(file.path)
       if (!row) {
-        row = document.createElement('div')
-        row.className = 'change-review-row'
-        row.dataset.path = file.path
-        row.setAttribute('role', 'option')
-        row.innerHTML = `<img class="change-review-file-icon" alt=""><div class="change-review-label"><span class="change-review-name"></span><span class="change-review-location"></span></div><span class="change-review-status" aria-hidden="true"><span class="change-review-status-symbol"></span><span class="change-review-status-label"></span></span>`
-        const image = requireElement(row, 'img', HTMLImageElement)
+        const element = document.createElement('div')
+        element.className = 'change-review-row'
+        element.dataset.path = file.path
+        element.setAttribute('role', 'option')
+        element.innerHTML = `<img class="change-review-file-icon" alt=""><div class="change-review-label"><span class="change-review-name"></span><span class="change-review-location"></span></div><span class="change-review-status" aria-hidden="true"><span class="change-review-status-symbol"></span><span class="change-review-status-label"></span></span>`
+        const name = file.path.slice(file.path.lastIndexOf('/') + 1)
+        const image = requireElement(element, 'img', HTMLImageElement)
         const source = projectIcon({ kind: 'file', name })
         if (source) image.src = source
-        requireElement(row, '.change-review-name', HTMLSpanElement).textContent = name
+        requireElement(element, '.change-review-name', HTMLSpanElement).textContent = name
+        row = {
+          element,
+          location: requireElement(element, '.change-review-location', HTMLSpanElement),
+          status: requireElement(element, '.change-review-status', HTMLSpanElement),
+          symbol: requireElement(element, '.change-review-status-symbol', HTMLSpanElement),
+          label: requireElement(element, '.change-review-status-label', HTMLSpanElement),
+          projection: -1,
+          description: '',
+        }
         mounted.set(file.path, row)
       }
-      if (row !== cursor) rows.insertBefore(row, cursor)
-      cursor = row.nextElementSibling
-      row.id = `${id}-row-${index}`
-      row.style.top = `${index * ROW_HEIGHT}px`
-      row.dataset.active = String(file.path === activePath)
-      const loading = file.path === (openingPath ?? (currentState === 'loading' && currentPath))
-      row.dataset.loading = String(loading)
-      row.setAttribute('aria-selected', String(file.path === currentPath && currentState !== null))
-      row.setAttribute('aria-posinset', String(index + 1))
-      row.setAttribute('aria-setsize', String(entries.length))
-      const status = changeStatus(file)
-      const label = STATUS_LABELS[status] ?? 'Changed'
-      const lane = laneStatus(file)
-      const laneLabel = lane === 'shared' ? 'Shared path' : lane === 'unrecorded' ? 'Lane unknown' : ''
-      const oldPath = file.originalPath
-      const directory = file.path.slice(0, Math.max(0, slash))
-      row.dataset.status = status
-      row.title = oldPath ? `${label} · ${oldPath} → ${file.path}` : `${label} · ${file.path}`
-      row.setAttribute(
-        'aria-label',
-        `${label}, ${file.path}${oldPath ? `, from ${oldPath}` : ''}${laneLabel ? `, ${laneLabel}` : ''}${loading ? ', loading comparison' : ''}`,
-      )
-      requireElement(row, '.change-review-location', HTMLSpanElement).textContent = [
-        laneLabel,
-        directory,
-        oldPath ? `From ${oldPath}` : '',
-      ]
-        .filter(Boolean)
-        .join(' · ')
-      const statusElement = requireElement(row, '.change-review-status', HTMLSpanElement)
-      statusElement.toggleAttribute('data-loading-status', loading)
-      requireElement(statusElement, '.change-review-status-symbol', HTMLSpanElement).textContent = status
-      requireElement(statusElement, '.change-review-status-label', HTMLSpanElement).textContent = label
-      if (file.path === activePath) activeId = row.id
+      const { element } = row
+      if (element !== cursor) rows.insertBefore(element, cursor)
+      cursor = element.nextElementSibling
+      if (row.projection !== projection) {
+        row.projection = projection
+        const rowId = `${id}-row-${index}`
+        if (element.id !== rowId) {
+          element.id = rowId
+          element.style.top = `${index * ROW_HEIGHT}px`
+          element.setAttribute('aria-posinset', String(index + 1))
+        }
+        if (element.getAttribute('aria-setsize') !== size) element.setAttribute('aria-setsize', size)
+        const status = changeStatus(file)
+        const label = STATUS_LABELS[status] ?? 'Changed'
+        const lane = laneStatus(file)
+        const laneLabel = lane === 'shared' ? 'Shared path' : lane === 'unrecorded' ? 'Lane unknown' : ''
+        const oldPath = file.originalPath
+        const directory = file.path.slice(0, Math.max(0, file.path.lastIndexOf('/')))
+        const location = [laneLabel, directory, oldPath ? `From ${oldPath}` : ''].filter(Boolean).join(' · ')
+        row.description = `${label}, ${file.path}${oldPath ? `, from ${oldPath}` : ''}${laneLabel ? `, ${laneLabel}` : ''}`
+        const title = oldPath ? `${label} · ${oldPath} → ${file.path}` : `${label} · ${file.path}`
+        if (element.title !== title) element.title = title
+        if (row.location.textContent !== location) row.location.textContent = location
+        if (element.dataset.status !== status) {
+          element.dataset.status = status
+          row.symbol.textContent = status
+          row.label.textContent = label
+        }
+      }
+      const active = String(file.path === activePath)
+      const loading = String(file.path === loadingPath)
+      const selected = String(file.path === selectedPath)
+      const description = file.path === loadingPath ? `${row.description}, loading comparison` : row.description
+      if (element.dataset.active !== active) element.dataset.active = active
+      if (element.dataset.loading !== loading) {
+        element.dataset.loading = loading
+        row.status.toggleAttribute('data-loading-status', loading === 'true')
+      }
+      if (element.getAttribute('aria-selected') !== selected) element.setAttribute('aria-selected', selected)
+      if (element.getAttribute('aria-label') !== description) element.setAttribute('aria-label', description)
+      if (file.path === activePath) activeId = element.id
     }
-    for (const [path, row] of mounted) {
+    for (const [path, { element }] of mounted) {
       if (retained.has(path)) continue
-      row.remove()
+      element.remove()
       mounted.delete(path)
     }
-    if (activeId) list.setAttribute('aria-activedescendant', activeId)
-    else list.removeAttribute('aria-activedescendant')
+    if (activeId) {
+      if (list.getAttribute('aria-activedescendant') !== activeId) list.setAttribute('aria-activedescendant', activeId)
+    } else list.removeAttribute('aria-activedescendant')
   }
 
   function scheduleRows() {
@@ -359,7 +401,7 @@ export function createChangeReview(
   }
 
   function revealActive() {
-    const index = activePath === null ? undefined : entryIndex.get(activePath)
+    const index = entryIndex(activePath)
     if (index === undefined || container.hidden) return
     const top = index * ROW_HEIGHT
     if (top < list.scrollTop) list.scrollTop = top
@@ -373,7 +415,7 @@ export function createChangeReview(
       !openingPath &&
       currentState === 'ready' &&
       currentPath !== null &&
-      entryIndex.has(currentPath) &&
+      entryIndex(currentPath) !== undefined &&
       Number.isSafeInteger(currentVersion) &&
       changes.get(currentPath)?.reviewVersion === currentVersion
     )
@@ -384,17 +426,16 @@ export function createChangeReview(
   }
 
   function comparisonIndex() {
-    const path = comparisonPath()
-    return path === null ? undefined : entryIndex.get(path)
+    return entryIndex(comparisonPath())
   }
 
   function renderControls() {
     const path = comparisonPath()
-    const progressIndex = path === null ? -1 : progressPaths.indexOf(path)
+    const progressIndex = path === null ? undefined : progressIndexes.get(path)
     const segment =
-      progressIndex < 0
+      progressIndex === undefined
         ? undefined
-        : progressSegments[Math.floor((progressIndex * progressSegments.length) / progressPaths.length)]
+        : progressSegments[Math.floor((progressIndex * progressSegments.length) / progressIndexes.size)]
     if (segment !== currentSegment) {
       currentSegment?.removeAttribute('data-current')
       segment?.setAttribute('data-current', '')
@@ -450,8 +491,9 @@ export function createChangeReview(
   let lastTotal = -1
   let lastDone = -1
 
-  function renderProgressStrip() {
-    const fileCount = progressPaths.length
+  /** @param {number[]} reviewedPositions */
+  function renderProgressStrip(reviewedPositions) {
+    const fileCount = progressIndexes.size
     const segmentCount = Math.min(fileCount, MAX_PROGRESS_SEGMENTS)
     if (progressSegments.length !== segmentCount) {
       progressSegments.length = Math.min(progressSegments.length, segmentCount)
@@ -464,32 +506,26 @@ export function createChangeReview(
     }
 
     // Above the segment limit, fill each group in proportion to its reviewed files.
+    const reviewedPerSegment = new Uint32Array(segmentCount)
+    for (const index of reviewedPositions) {
+      const bucket = Math.floor((index * segmentCount) / fileCount)
+      reviewedPerSegment[bucket] = (reviewedPerSegment[bucket] ?? 0) + 1
+    }
     for (const [index, segment] of progressSegments.entries()) {
       const start = Math.ceil((index * fileCount) / segmentCount)
       const end = Math.ceil(((index + 1) * fileCount) / segmentCount)
-      let done = 0
-      for (let i = start; i < end; i++) {
-        const path = progressPaths[i]
-        if (path !== undefined && reviewed.has(path)) done++
-      }
-      segment.style.setProperty('--reviewed-share', `${(100 * done) / (end - start)}%`)
+      const share = `${(100 * (reviewedPerSegment[index] ?? 0)) / (end - start)}%`
+      if (segment.style.getPropertyValue('--reviewed-share') !== share)
+        segment.style.setProperty('--reviewed-share', share)
     }
   }
 
-  function updateProgress(animate = true) {
-    let total = 0
-    let done = 0
-    const visible = !container.hidden
-    progressPaths.length = 0
-    for (const file of changes.values()) {
-      if (!includeFile(file)) continue
-      total++
-      if (reviewed.has(file.path)) done++
-      if (visible) progressPaths.push(file.path)
-    }
+  /** @param {number} total @param {number[]} reviewedPositions @param {boolean} animate */
+  function updateProgress(total, reviewedPositions, animate) {
+    const done = reviewedPositions.length
     const suffix = ` of ${total.toLocaleString()} reviewed`
     if (countTotal.textContent !== suffix) countTotal.textContent = suffix
-    reviewedCount.animated = animate && visible && !progressGroup.hidden && total > 0
+    reviewedCount.animated = animate && !progressGroup.hidden && total > 0
     if (reviewedCount.value !== done) reviewedCount.update(done)
     const summary = `${done.toLocaleString()}${suffix}`
     if (progressAnnouncement.textContent !== summary) progressAnnouncement.textContent = summary
@@ -497,14 +533,17 @@ export function createChangeReview(
     progress.value = done
     progress.setAttribute('aria-valuetext', summary)
     container.dataset.complete = String(total > 0 && done === total)
-    if (visible) renderProgressStrip()
+    renderProgressStrip(reviewedPositions)
+    reportProgress()
+  }
+
+  function reportProgress() {
     const all = changes.size
     if (lastTotal !== all || lastDone !== reviewed.size) {
       lastTotal = all
       lastDone = reviewed.size
       onProgress({ pending: all - reviewed.size, total: all })
     }
-    return { total, done }
   }
 
   function renderEmpty(scopedTotal = 0) {
@@ -530,35 +569,47 @@ export function createChangeReview(
   }
 
   function project({ resetScroll = false, animateProgress = true } = {}) {
-    const anchor = entries[Math.floor(list.scrollTop / ROW_HEIGHT)]?.path
-    const offset = list.scrollTop % ROW_HEIGHT
-    entries = []
-    entryIndex = new Map()
-    const scoped = updateProgress(animateProgress)
+    const { scrollTop } = list
+    const anchor = entries[Math.floor(scrollTop / ROW_HEIGHT)]?.path
+    const offset = scrollTop % ROW_HEIGHT
+    entries.length = 0
+    entryIndexes.length = 0
+    progressIndexes.clear()
+    projection++
+    const showReviewed = filter === 'reviewed'
+    const reviewedPositions = []
     for (const file of changes.values()) {
-      if (!includeFile(file) || reviewed.has(file.path) !== (filter === 'reviewed')) continue
-      entryIndex.set(file.path, entries.length)
-      entries.push(file)
+      if (!includeFile(file)) continue
+      const index = progressIndexes.size
+      progressIndexes.set(file.path, index)
+      const isReviewed = reviewed.has(file.path)
+      if (isReviewed) reviewedPositions.push(index)
+      const matches = isReviewed === showReviewed
+      entryIndexes.push(matches ? entries.length : -1)
+      if (matches) entries.push(file)
     }
-    const activeRemoved = activePath !== null && !entryIndex.has(activePath)
+    const scopedTotal = progressIndexes.size
+    const done = reviewedPositions.length
+    updateProgress(scopedTotal, reviewedPositions, animateProgress)
+    const activeRemoved = activePath !== null && entryIndex(activePath) === undefined
     if (activePath === null || activeRemoved)
-      activePath = currentPath !== null && entryIndex.has(currentPath) ? currentPath : (entries[0]?.path ?? null)
+      activePath = entryIndex(currentPath) !== undefined ? currentPath : (entries[0]?.path ?? null)
     rows.style.height = `${entries.length * ROW_HEIGHT}px`
     if (resetScroll) list.scrollTop = 0
     else if (anchor !== undefined) {
-      const index = entryIndex.get(anchor)
+      const index = entryIndex(anchor)
       if (index !== undefined) list.scrollTop = index * ROW_HEIGHT + offset
     }
-    for (const button of filters) {
-      const showReviewed = button.dataset.filter === 'reviewed'
-      const total = showReviewed ? scoped.done : scoped.total - scoped.done
+    for (const { button, label } of filters) {
+      const total = button.dataset.filter === 'reviewed' ? done : scopedTotal - done
       button.setAttribute('aria-pressed', String(button.dataset.filter === filter))
-      requireElement(button, 'span', HTMLSpanElement).textContent = total.toLocaleString()
+      const value = total.toLocaleString()
+      if (label.textContent !== value) label.textContent = value
     }
     const focused = document.activeElement
     const isEmpty = entries.length === 0
-    if (isEmpty) renderEmpty(scoped.total)
-    progressGroup.hidden = filterGroup.hidden = scoped.total === 0
+    if (isEmpty) renderEmpty(scopedTotal)
+    progressGroup.hidden = filterGroup.hidden = scopedTotal === 0
     empty.hidden = !isEmpty
     list.hidden = footer.hidden = isEmpty
     if (activeRemoved && focused === list) revealActive()
@@ -589,7 +640,7 @@ export function createChangeReview(
         reportError(result.error, { silent: true })
         error.textContent = result.error.message
         error.hidden = false
-      } else if (result.value === false && currentPath !== null && entryIndex.has(currentPath)) activePath = currentPath
+      } else if (result.value === false && entryIndex(currentPath) !== undefined) activePath = currentPath
     } finally {
       if (generation === request && !disposed) {
         openingPath = null
@@ -628,7 +679,7 @@ export function createChangeReview(
   /** @param {KeyboardEvent} event */
   function navigateList(event) {
     if (event.altKey || event.ctrlKey || event.metaKey || entries.length === 0) return
-    const index = (activePath === null ? undefined : entryIndex.get(activePath)) ?? 0
+    const index = entryIndex(activePath) ?? 0
     const page = Math.max(1, Math.floor(list.clientHeight / ROW_HEIGHT))
     /** @type {Record<string, number>} */
     const movement = {
@@ -662,7 +713,7 @@ export function createChangeReview(
     renderRows()
   }
 
-  for (const button of filters)
+  for (const { button } of filters)
     button.addEventListener('click', () => {
       const selected = button.dataset.filter
       if (selected === 'pending' || selected === 'reviewed') selectFilter(selected)
@@ -731,14 +782,15 @@ export function createChangeReview(
     },
     /** @param {ReviewFile[]} files */
     update(files) {
-      changes = new Map(files.map(file => [file.path, file]))
+      changes.clear()
+      for (const file of files) changes.set(file.path, file)
       for (const [path, version] of reviewed) {
         if (changes.get(path)?.reviewVersion !== version) reviewed.delete(path)
       }
       if (!container.hidden) {
         project({ resetScroll: resetScrollOnUpdate, animateProgress: !resetScrollOnUpdate })
         resetScrollOnUpdate = false
-      } else updateProgress()
+      } else reportProgress()
     },
     /** @param {string | null} path @param {ReviewState | null} state @param {number | null} version */
     setCurrent(path, state, version) {
@@ -747,7 +799,7 @@ export function createChangeReview(
       currentPath = path
       currentState = state
       currentVersion = version
-      if (moved && (container.hidden || (path !== null && entryIndex.has(path)))) {
+      if (moved && (container.hidden || entryIndex(path) !== undefined)) {
         activePath = path
         revealActive()
       }
@@ -769,9 +821,9 @@ export function createChangeReview(
         reviewedCount.animated = false
         if (frame !== null) cancelAnimationFrame(frame)
         frame = null
-        progressPaths.length = 0
-        entries = []
-        entryIndex.clear()
+        progressIndexes.clear()
+        entries.length = 0
+        entryIndexes.length = 0
         mounted.clear()
         rows.replaceChildren()
         list.removeAttribute('aria-activedescendant')

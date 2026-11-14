@@ -200,14 +200,15 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
         if (!bounds) continue
         lane.targets.push(index)
         if (!mark || bounds.start > end) {
+          if (mark) locateMark(mark, start, end)
           mark = document.createElement('span')
           mark.className = 'review-map-mark'
           marks.push(mark)
           start = bounds.start
         }
         end = bounds.end
-        locateMark(mark, start, end)
       }
+      if (mark) locateMark(mark, start, end)
       lane.marks.replaceChildren(...marks)
     }
 

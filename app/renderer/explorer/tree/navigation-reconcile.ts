@@ -30,7 +30,15 @@ export interface NavigationTree {
   searchDirectories?: NavigationNode[]
   inventoryEpoch?: number
 }
+interface ChildChanges {
+  added: NavigationNode[]
+  removed?: Set<NavigationNode>
+}
+type TouchedFolders = Map<NavigationNode, ChildChanges>
+
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+const INCREMENTAL_LIMIT = 8
+
 function order(a: NavigationNode, b: NavigationNode) {
   return a.kind !== b.kind
     ? a.kind === 'directory'
@@ -43,7 +51,16 @@ function entry(tree: NavigationTree, file: NavigationFile) {
   return (file.directory ? tree.directories : tree.files).get(file.path)
 }
 
-function insert(tree: NavigationTree, file: NavigationFile, touched: Set<NavigationNode>) {
+function changesFor(touched: TouchedFolders, parent: NavigationNode) {
+  let changes = touched.get(parent)
+  if (!changes) {
+    changes = { added: [] }
+    touched.set(parent, changes)
+  }
+  return changes
+}
+
+function insert(tree: NavigationTree, file: NavigationFile, touched: TouchedFolders) {
   const existing = entry(tree, file)
   if (existing) {
     existing.file = file
@@ -78,11 +95,9 @@ function insert(tree: NavigationTree, file: NavigationFile, touched: Set<Navigat
         changedCount: 0,
         file: directory ? null : file,
       }
-      if (!parent.children) throw new Error(`Expected a navigation directory at ${parent.path}`)
       tree.nodes.set(key, child)
       if (directory) tree.searchDirectories = undefined
-      parent.children.push(child)
-      touched.add(parent)
+      changesFor(touched, parent).added.push(child)
       if (!directory) tree.files.set(pathname, child)
     }
     parent = child
@@ -93,47 +108,93 @@ function insert(tree: NavigationTree, file: NavigationFile, touched: Set<Navigat
   return parent
 }
 
-function remove(tree: NavigationTree, node: NavigationNode, touched: Set<NavigationNode>) {
+function detach(tree: NavigationTree, node: NavigationNode, touched: TouchedFolders): NavigationNode | undefined {
+  const parent = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
+  if (!parent) return undefined
+  const changes = changesFor(touched, parent)
+  const removed = (changes.removed ??= new Set())
+  removed.add(node)
+  return parent
+}
+
+function remove(tree: NavigationTree, node: NavigationNode, touched: TouchedFolders) {
   if (node.kind === 'file') {
     tree.files.delete(node.path)
     tree.nodes.delete(node.key)
     tree.searchFiles = undefined
+    detach(tree, node, touched)
   } else {
     tree.directories.delete(node.path)
     node.file = null
-    touched.add(node)
+    changesFor(touched, node)
   }
-  const parent = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
-  if (parent) touched.add(parent)
 }
 
-function finish(tree: NavigationTree, touched: Set<NavigationNode>) {
-  // Count surviving children before pruning, then compact each affected array once.
-  const remaining = new Map<NavigationNode, number>()
-  const empty: NavigationNode[] = []
-  for (const parent of touched) {
-    if (!parent.children) continue
-    let count = 0
-    for (const child of parent.children) if (tree.nodes.get(child.key) === child) count++
-    remaining.set(parent, count)
-    if (!count && !parent.file && parent !== tree.root) empty.push(parent)
+function childBoundary(children: NavigationNode[], node: NavigationNode, afterEqual: boolean) {
+  let low = 0
+  let high = children.length
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2)
+    const sibling = children[middle]
+    if (!sibling) break
+    const difference = order(sibling, node)
+    if (difference < 0 || (afterEqual && difference === 0)) low = middle + 1
+    else high = middle
   }
+  return low
+}
+
+function updateChildren(node: NavigationNode, { added, removed }: ChildChanges) {
+  const children = node.children
+  if (!children) return
+  if (!children.length) {
+    const next = removed ? added.filter(child => !removed.has(child)) : added
+    if (next.length > 1) next.sort(order)
+    node.children = next
+    return
+  }
+  // Use the sorted sibling array directly for small edits and compact once for larger batches.
+  if (added.length + (removed?.size ?? 0) > INCREMENTAL_LIMIT) {
+    const next = removed ? children.filter(child => !removed.has(child)) : children
+    if (added.length) {
+      for (const child of added) if (!removed?.has(child)) next.push(child)
+      next.sort(order)
+    }
+    node.children = next
+    return
+  }
+  if (removed)
+    for (const child of removed) {
+      if (added.includes(child)) continue
+      const start = childBoundary(children, child, false)
+      for (let index = start; index < children.length; index++) {
+        const sibling = children[index]
+        if (sibling === child) {
+          children.splice(index, 1)
+          break
+        }
+        if (!sibling || order(sibling, child) !== 0) break
+      }
+    }
+  // Insert after equivalent names to preserve the stable order among collator ties.
+  for (const child of added) if (!removed?.has(child)) children.splice(childBoundary(children, child, true), 0, child)
+}
+
+function canPrune(tree: NavigationTree, node: NavigationNode, changes: ChildChanges | undefined) {
+  if (node === tree.root || node.file || !node.children || !changes) return false
+  return node.children.length + changes.added.length === (changes.removed?.size ?? 0)
+}
+
+function finish(tree: NavigationTree, touched: TouchedFolders) {
+  const empty: NavigationNode[] = []
+  for (const [node, changes] of touched) if (canPrune(tree, node, changes)) empty.push(node)
   for (let node = empty.pop(); node; node = empty.pop()) {
     tree.nodes.delete(node.key)
     tree.searchDirectories = undefined
-    const parent = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
-    if (!parent?.children) continue
-    const count = (remaining.get(parent) ?? parent.children.length) - 1
-    remaining.set(parent, count)
-    touched.add(parent)
-    if (!count && !parent.file && parent !== tree.root) empty.push(parent)
+    const parent = detach(tree, node, touched)
+    if (parent && canPrune(tree, parent, touched.get(parent))) empty.push(parent)
   }
-  for (const node of touched) {
-    if (!node.children || !tree.nodes.has(node.key)) continue
-    if (remaining.get(node) !== node.children.length)
-      node.children = node.children.filter(child => tree.nodes.get(child.key) === child)
-    node.children.sort(order)
-  }
+  for (const [node, changes] of touched) if (tree.nodes.has(node.key)) updateChildren(node, changes)
   return tree
 }
 
@@ -142,7 +203,7 @@ export function reconcileNavigationTree(tree: NavigationTree, inventory: readonl
   if (tree.root.path !== basePath) return null
   const epoch = (tree.inventoryEpoch ?? 0) + 1
   tree.inventoryEpoch = epoch
-  const touched = new Set<NavigationNode>()
+  const touched: TouchedFolders = new Map()
   for (const file of inventory) {
     if (entry(tree, file)?.inventoryEpoch === epoch) continue
     const node = insert(tree, file, touched)
@@ -159,7 +220,7 @@ export function applyNavigationDelta(
   files: readonly NavigationFile[],
   removed: readonly string[],
 ) {
-  const touched = new Set<NavigationNode>()
+  const touched: TouchedFolders = new Map()
   const removePath = (pathname: string) => {
     const file = tree.files.get(pathname)
     const directory = tree.directories.get(pathname)

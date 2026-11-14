@@ -16,8 +16,7 @@ import { drawNotebook } from '../../illustrations/notebook.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { creatureGlyph } from '../assistant/creature-glyph.ts'
-import { mountIdeaEditor } from './idea-editor.ts'
-import type { MarkdownReplacement } from './idea-editor.ts'
+import type { MarkdownReplacement, mountIdeaEditor } from './idea-editor.ts'
 import './ideas.css'
 
 const GLYPHS = {
@@ -408,23 +407,57 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
   let timer: ReturnType<typeof setTimeout> | undefined
   let writing: Promise<Result<void>> | null = null
   let lastPending = false
+  let editor: ReturnType<typeof mountIdeaEditor> | undefined
+  let loadingEditor = false
+  let editorFocus: { id: string; from: Element | null } | undefined
 
   const current = () => (selected ? ideas.get(selected) : undefined)
   const isPending = () => writing !== null || changes.size > 0 || deferredLinks.length > 0
-  const editor = mountIdeaEditor(body, {
-    maxLength: MAX_IDEA_BODY_LENGTH,
-    placeholder: 'Start writing…',
-    onChange: source => edit({ body: source }),
-    onEnter: nextIdeaListItem,
-    onOpenLink: openEditorLink,
-    onLimit: () => notify('This idea has reached the Markdown length limit.'),
-    resolveImage: async href => {
-      const target = markdownTarget('', href)
-      if (!target?.path || !options.media) return null
-      const image = await options.media(target.path)
-      return image.type.startsWith('image/') ? image.url : null
-    },
-  })
+
+  async function loadEditor() {
+    if (editor || loadingEditor || host.hidden || stage.hidden || !current() || lifetime.signal.aborted) return
+    loadingEditor = true
+    body.setAttribute('aria-busy', 'true')
+    try {
+      const { mountIdeaEditor } = await import('./idea-editor.ts')
+      const idea = current()
+      if (lifetime.signal.aborted || !idea || host.hidden || stage.hidden) return
+      editor = mountIdeaEditor(body, {
+        maxLength: MAX_IDEA_BODY_LENGTH,
+        placeholder: 'Start writing…',
+        onChange: source => edit({ body: source }),
+        onEnter: nextIdeaListItem,
+        onOpenLink: openEditorLink,
+        onLimit: () => notify('This idea has reached the Markdown length limit.'),
+        resolveImage: async href => {
+          const target = markdownTarget('', href)
+          if (!target?.path || !options.media) return null
+          const image = await options.media(target.path)
+          return image.type.startsWith('image/') ? image.url : null
+        },
+      })
+      editor.setReadOnly(readOnly)
+      editor.setDocument(idea.id, idea.body)
+      formatText.disabled = readOnly
+      if (editorFocus?.id === idea.id && editorFocus.from === document.activeElement) editor.focus()
+    } finally {
+      loadingEditor = false
+      editorFocus = undefined
+      body.removeAttribute('aria-busy')
+    }
+  }
+
+  function prepareEditor() {
+    if (!loadingEditor) runTask('Load idea editor', loadEditor, { retry: loadEditor })
+  }
+
+  function focusEditor() {
+    if (editor) editor.focus()
+    else if (selected) {
+      editorFocus = { id: selected, from: document.activeElement }
+      prepareEditor()
+    }
+  }
 
   function reportPending() {
     const pending = isPending()
@@ -584,7 +617,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
         options.openMarkdownFile ? options.openMarkdownFile(target) : options.openLink({ path: target.path }),
       )
     } else if (target?.anchor) {
-      if (!editor.goToHeading(target.anchor)) notify('The linked heading could not be found.')
+      if (!editor?.goToHeading(target.anchor)) notify('The linked heading could not be found.')
     } else if (/^(https?:|mailto:)/iu.test(href)) {
       runAction('Open external link', async () => {
         await options.openExternal?.(href)
@@ -596,8 +629,8 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
     const idea = current()
     detail.hidden = !idea
     detailActions.hidden = !idea || confirming || stage.hidden
-    editor.setDocument(idea?.id ?? null, idea?.body ?? '')
-    editor.setReadOnly(readOnly)
+    editor?.setDocument(idea?.id ?? null, idea?.body ?? '')
+    editor?.setReadOnly(readOnly)
     if (!idea || stage.hidden) {
       toolbar.hidePopover()
       return
@@ -608,7 +641,9 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
     date.textContent = NOTE_DATE.format(created)
     title.readOnly = readOnly
     for (const control of toolbar.querySelectorAll('button')) control.disabled = readOnly
-    formatText.disabled = remove.disabled = confirmDelete.disabled = chat.disabled = readOnly
+    remove.disabled = confirmDelete.disabled = chat.disabled = readOnly
+    formatText.disabled = readOnly || !editor
+    if (!editor && !host.hidden) prepareEditor()
     renderLinks(idea)
   }
 
@@ -626,7 +661,10 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
   }
 
   function setMode(mode: 'notebook' | 'dock') {
-    if (host.dataset.ideaMode === mode) return
+    if (host.dataset.ideaMode === mode) {
+      if (!editor && !host.hidden && !stage.hidden && current()) prepareEditor()
+      return
+    }
     host.dataset.ideaMode = mode
     browsing = false
     toolbar.hidePopover()
@@ -899,7 +937,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
   }
 
   function applyFormat(format: Format) {
-    if (readOnly) return
+    if (readOnly || !editor) return
     const { from, to } = editor.getSelection()
     toolbar.hidePopover()
     if (!editor.replace(formatIdeaSelection(editor.getSource(), from, to, format))) editor.focus()
@@ -930,7 +968,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
   }
 
   function handleShortcut(event: KeyboardEvent, binding: ShortcutBinding): boolean {
-    if (readOnly || !editor.contains(event.target)) return false
+    if (readOnly || !editor?.contains(event.target)) return false
     const match = shortcutControls.find(({ format }) => options.getShortcut(FORMATTING_SHORTCUTS[format]) === binding)
     if (!match) return false
     event.preventDefault()
@@ -951,7 +989,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
       renderIndex()
       renderDetail()
       if (browsing) search.focus()
-      else editor.focus()
+      else focusEditor()
     },
     events,
   )
@@ -977,7 +1015,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
       const row = ideaRow(event.target)
       if (!row?.dataset.ideaId) return
       selectIdea(row.dataset.ideaId)
-      if (indexSection.hidden) editor.focus()
+      if (indexSection.hidden) focusEditor()
     },
     events,
   )
@@ -987,7 +1025,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
     event => {
       if (event.key === 'Enter' && !event.isComposing) {
         event.preventDefault()
-        editor.focus()
+        focusEditor()
       }
     },
     events,
@@ -1130,7 +1168,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
       clearTimeout(timer)
       toolbar.hidePopover()
       clearDrop()
-      editor.dispose()
+      editor?.dispose()
       host.replaceChildren()
     },
     attach,
@@ -1144,7 +1182,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
     focus: () => {
       if (current()) {
         if (browsing) search.focus()
-        else editor.focus()
+        else focusEditor()
       } else if (ready) (indexSection.hidden ? addFirst : search).focus()
       else (loadError ? retryLoad : close).focus()
     },

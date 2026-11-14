@@ -300,7 +300,7 @@ export function createNavigator(
   const filters = createSearchFilters(
     requireElement(container, '.navigator-filter-host', HTMLDivElement),
     `navigator-${id}-search-filters`,
-    onSearch,
+    () => onSearch(false),
     languageFor,
   )
   const actions = createFileActions(
@@ -329,16 +329,20 @@ export function createNavigator(
     })
   }
 
-  function refreshProjection(preserve = true) {
+  function refreshProjection(preserve = true, refineSearch = false) {
     rowRevision++
     changeRailDirty = true
     tracedIndex = null
     const index = Math.floor(list.scrollTop / ROW_HEIGHT)
     const anchor = preserve ? visible[index]?.node.key : null
     const offset = list.scrollTop % ROW_HEIGHT
-    visible = flattenNavigationTree(tree, expanded, query, filters.value(), languageFor)
-    if (!searching()) visible.shift()
-    container.dataset.searching = String(searching() || document.activeElement === input)
+    const filterState = filters.value()
+    const showingResults = Boolean(query) || hasFilters(filterState)
+    visible = refineSearch
+      ? visible.filter(({ node }) => node.searchPath?.includes(query))
+      : flattenNavigationTree(tree, expanded, query, filterState, languageFor)
+    if (!showingResults) visible.shift()
+    container.dataset.searching = String(showingResults || document.activeElement === input)
     visibleIndex = new Map()
     for (let position = 0; position < visible.length; position++) {
       const item = visible[position]
@@ -352,7 +356,7 @@ export function createNavigator(
     }
     delete summary.dataset.state
     summary.removeAttribute('title')
-    if (searching())
+    if (showingResults)
       summary.textContent = visible.length
         ? `${visible.length.toLocaleString()} matching ${visible.length === 1 ? 'item' : 'items'}`
         : 'No matching files or folders'
@@ -835,12 +839,16 @@ export function createNavigator(
     scrollToActive()
   }
 
-  function onSearch() {
+  function onSearch(reuseMatches = true) {
+    const previous = query
     query = input.value.trim().toLocaleLowerCase()
     queryPattern = query ? new RegExp(query.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'iu') : null
     list.scrollTop = 0
-    refreshProjection(false)
+    // Extending the text query can only narrow the current results while filters stay the same.
+    refreshProjection(false, reuseMatches && Boolean(previous) && query.startsWith(previous))
   }
+
+  const onSearchInput = () => onSearch()
 
   function onSearchBlur() {
     if (!searching() && summary.dataset.state !== 'error') container.dataset.searching = 'false'
@@ -922,7 +930,7 @@ export function createNavigator(
   list.addEventListener('click', onClick)
   list.addEventListener('keydown', onKey)
   list.addEventListener('focus', schedule)
-  input.addEventListener('input', onSearch)
+  input.addEventListener('input', onSearchInput)
   input.addEventListener('blur', onSearchBlur)
   input.addEventListener('keydown', onSearchKey)
   heading.addEventListener('click', onAction)
@@ -1018,7 +1026,7 @@ export function createNavigator(
       list.removeEventListener('click', onClick)
       list.removeEventListener('keydown', onKey)
       list.removeEventListener('focus', schedule)
-      input.removeEventListener('input', onSearch)
+      input.removeEventListener('input', onSearchInput)
       input.removeEventListener('blur', onSearchBlur)
       input.removeEventListener('keydown', onSearchKey)
       heading.removeEventListener('click', onAction)

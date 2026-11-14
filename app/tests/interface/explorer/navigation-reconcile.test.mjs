@@ -67,6 +67,19 @@ test('incremental deltas preserve node identity across bulk folder moves and pru
   assert.deepEqual(projection(tree), projection(buildNavigationTree([{ path: 'stay.ts' }, { path: 'new' }])))
 })
 
+test('small deltas preserve the order and identity of collator-equivalent siblings', () => {
+  const tree = buildNavigationTree(inventory(['FILE02.txt', 'file2.txt', 'file10.txt']))
+  const stable = tree.files.get('FILE02.txt')
+  applyNavigationDelta(tree, inventory(['File002.txt', 'file1.txt']), ['file2.txt'])
+  assert.deepEqual(
+    tree.root.children?.map(node => node.path),
+    ['file1.txt', 'FILE02.txt', 'File002.txt', 'file10.txt'],
+  )
+  assert.equal(tree.files.get('FILE02.txt'), stable)
+  assert.equal(tree.files.has('file2.txt'), false)
+  assert.equal(tree.nodes.has('file:file2.txt'), false)
+})
+
 test('inventory reconciliation keeps an explicit directory marker and file at the same path', () => {
   const file = { path: 'item', worktree: 'D' }
   const folder = { path: 'item', ignored: true, directory: true }
