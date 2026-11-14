@@ -1,9 +1,12 @@
-export type AgentProvider = 'claude' | 'cursor' | 'codex'
+export type AgentProvider = 'claude' | 'cursor' | 'codex' | 'antigravity'
+
+export type AgentThreadStatus = 'running' | 'idle' | 'recent' | 'unknown'
 
 export const agentProviderNames: Record<AgentProvider, string> = {
   claude: 'Claude Code',
   cursor: 'Cursor',
   codex: 'Codex',
+  antigravity: 'Antigravity',
 }
 
 export interface AgentThread {
@@ -11,8 +14,11 @@ export interface AgentThread {
   provider: AgentProvider
   title: string
   cwd: string
+  projectRoot?: string
   updatedAt: number
   active?: boolean
+  status?: AgentThreadStatus
+  activity?: string
 }
 
 export interface AgentThreadList {

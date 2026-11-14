@@ -93,6 +93,23 @@
   height: 15px;
 }
 
+@container claude (min-width: 350px) {
+  .claude-icon.claude-threads-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: auto;
+    padding-inline: 6px;
+    font-size: var(--text-label);
+  }
+}
+
+@container claude (width < 350px) {
+  .claude-threads-toggle span {
+    display: none;
+  }
+}
+
 .claude-transcript {
   display: flex;
   position: relative;

@@ -2,7 +2,6 @@
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
-import { createAgentThreadPanel } from './agent-threads.ts'
 import { createEditProposal, createToolActivity, renderAssistantMarkdown } from './assistant-content.js'
 import { creatureGlyph } from './creature-glyph.ts'
 import './assistant.css'
@@ -38,6 +37,8 @@ const ICONS = {
 function icon(name) {
   return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
 }
+
+export const agentThreadsGlyph = icon('threads')
 
 /** @template {keyof HTMLElementTagNameMap} Tag
  * @param {Tag} tag
@@ -75,14 +76,14 @@ function fileLabel(file) {
 /**
  * @param {HTMLElement} container
  * @param {HTMLButtonElement} toggle
- * @param {Pick<DiffpaneApi, 'claude' | 'openExternal' | 'agentThreads'>} api
- * @param {{prepareSend: (request: ClaudePrompt) => unknown, getFileContext: () => FileContext | null, openFile?: (target: FileTarget) => unknown, openIdea?: (id: string) => unknown, applyEdit: (proposal: Proposal) => unknown, onOpen?: () => void, colorize?: (text: string, language: string) => string | PromiseLike<string>}} options
+ * @param {Pick<DiffpaneApi, 'claude' | 'openExternal'>} api
+ * @param {{prepareSend: (request: ClaudePrompt) => unknown, getFileContext: () => FileContext | null, openFile?: (target: FileTarget) => unknown, openIdea?: (id: string) => unknown, openAgentThreads?: () => void, applyEdit: (proposal: Proposal) => unknown, onOpen?: () => void, colorize?: (text: string, language: string) => string | PromiseLike<string>}} options
  */
 export function createAssistant(
   container,
   toggle,
-  { claude, openExternal, agentThreads },
-  { prepareSend, getFileContext, openFile, openIdea, applyEdit, onOpen, colorize },
+  { claude, openExternal },
+  { prepareSend, getFileContext, openFile, openIdea, openAgentThreads, applyEdit, onOpen, colorize },
 ) {
   container.className = 'claude-panel'
   container.setAttribute('aria-labelledby', 'claude-title')
@@ -90,7 +91,7 @@ export function createAssistant(
     <header class="claude-heading">
       <h2 id="claude-title"><span class="claude-brand">${creatureGlyph}</span>The Creature</h2>
       <div class="claude-tools">
-        <button type="button" class="claude-icon claude-threads-toggle" data-action="threads" aria-label="Open agent threads" title="Open agent threads" aria-controls="agent-threads" aria-expanded="false">${icon('threads')}<span>Agent threads</span></button>
+        <button type="button" class="claude-icon claude-threads-toggle" data-action="threads" aria-label="Open agent threads" title="Open agent threads" aria-controls="agent-threads" aria-haspopup="dialog"${openAgentThreads ? '' : ' hidden'}>${agentThreadsGlyph}<span>Agent threads</span></button>
         <button type="button" class="claude-icon" data-action="reset" aria-label="New conversation" title="New conversation">${icon('new')}</button>
         <button type="button" class="claude-icon" data-action="settings" aria-label="Creature settings" title="Creature settings" aria-haspopup="dialog">${icon('settings')}</button>
         <button type="button" class="claude-icon" data-action="close" aria-label="Close the Creature panel" title="Close the Creature panel">${icon('close')}</button>
@@ -141,8 +142,7 @@ export function createAssistant(
           </div>
         </div>
       </div>
-    </form>
-    <section id="agent-threads" aria-label="Agent threads" hidden></section>`
+    </form>`
   const settings = node('dialog', 'claude-settings')
   settings.id = 'claude-settings'
   settings.setAttribute('aria-labelledby', 'claude-settings-title')
@@ -202,22 +202,6 @@ export function createAssistant(
   const settingsForm = requireElement(settings, 'form', HTMLFormElement)
   const listeners = new AbortController()
   const listenerOptions = { signal: listeners.signal }
-  const transcript = select('.claude-transcript')
-  const threadsHost = select('#agent-threads')
-  const threadsButton = action('threads')
-  const threads = createAgentThreadPanel(threadsHost, {
-    api: agentThreads,
-    button: threadsButton,
-    openWorkspaceFile: ({ path, line }) => openFile?.({ path, anchor: '', startLine: line, side: 'working' }),
-    changeMode(active) {
-      threadsButton.setAttribute('aria-expanded', String(active))
-      container.toggleAttribute('data-agent-threads', active)
-      transcript.hidden = active
-      action('reset').hidden = active
-      render()
-      if (!active) updateScroll()
-    },
-  })
 
   /** @type {Connection | undefined} */
   let connection
@@ -316,7 +300,7 @@ export function createAssistant(
     ideaLabel.textContent = attachedIdea?.title ?? ''
     ideaLabel.title = ideaLabel.textContent
     action('remove-idea').disabled = locked
-    composer.hidden = !threadsHost.hidden || (!canDraft && !attachedIdea)
+    composer.hidden = !canDraft && !attachedIdea
     composerInput.hidden = !canDraft
     promptInput.readOnly = locked
     promptInput.disabled = !canDraft
@@ -385,7 +369,7 @@ export function createAssistant(
   }
 
   function focusDraft() {
-    if (!listeners.signal.aborted && !container.hidden && !settings.open && threadsHost.hidden)
+    if (!listeners.signal.aborted && !container.hidden && !document.querySelector('dialog[open]'))
       (promptInput.disabled ? action('settings') : promptInput).focus()
   }
 
@@ -590,10 +574,7 @@ export function createAssistant(
       updateScroll()
       focusDraft()
       runTask('Check Creature connection', checkConnection)
-    } else {
-      threads.close()
-      if (restoreFocus) toggle.focus()
-    }
+    } else if (restoreFocus) toggle.focus()
   }
 
   /** @param {Event} event */
@@ -777,6 +758,7 @@ export function createAssistant(
 
   toggle.addEventListener('click', () => togglePanel(), listenerOptions)
   action('close').addEventListener('click', () => togglePanel(false), listenerOptions)
+  if (openAgentThreads) action('threads').addEventListener('click', openAgentThreads, listenerOptions)
   conversation.addEventListener('scroll', syncScroll, { ...listenerOptions, passive: true })
   conversation.addEventListener('toggle', updateScroll, { ...listenerOptions, capture: true })
   jump.addEventListener(
@@ -914,7 +896,6 @@ export function createAssistant(
     attachIdea(idea) {
       if (busy || changingKey || pending)
         throw new Error('Finish the current response or proposal before attaching an idea.')
-      threads.close()
       attachedIdea = { id: idea.id, title: idea.title.trim() || 'Untitled idea' }
       showNotice(notice)
       togglePanel(true)
@@ -931,14 +912,12 @@ export function createAssistant(
     },
     refreshContext: render,
     openEditor: () => {
-      threads.close()
       mode = 'edit'
       togglePanel(true)
     },
     toggle: togglePanel,
     dispose() {
       listeners.abort()
-      threads.dispose()
       viewportObserver.disconnect()
       connectionGeneration++
       unsubscribeActivity()

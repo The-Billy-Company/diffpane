@@ -1143,12 +1143,12 @@ button svg,
   }
 }
 
-@media (max-width: 740px) {
+@media (max-width: 880px) {
   .titlebar-actions {
     gap: 5px;
   }
 
-  .titlebar-actions > button > span:first-of-type {
+  .titlebar-actions > button:not(#agent-threads-toggle) > span:first-of-type {
     display: none;
   }
 }

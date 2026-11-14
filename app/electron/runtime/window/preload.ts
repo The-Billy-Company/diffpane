@@ -8,6 +8,7 @@ import type {
   AgentThreadEvent,
   AgentThreadFile,
   AgentThreadList,
+  AgentThreadStatus,
   AgentThreadUpdate,
 } from '../../../shared/agent-threads.ts'
 import type { BillyClaim, BillyClaimsResult } from '../../../shared/billy/claims.ts'
@@ -340,7 +341,11 @@ function isClaudeStatus(value: unknown): value is ClaudeStatus {
 }
 
 function isAgentProvider(value: unknown): value is AgentProvider {
-  return value === 'claude' || value === 'cursor' || value === 'codex'
+  return value === 'claude' || value === 'cursor' || value === 'codex' || value === 'antigravity'
+}
+
+function isAgentThreadStatus(value: unknown): value is AgentThreadStatus {
+  return value === 'running' || value === 'idle' || value === 'recent' || value === 'unknown'
 }
 
 function isAgentThread(value: unknown): value is AgentThread {
@@ -351,7 +356,10 @@ function isAgentThread(value: unknown): value is AgentThread {
     isString(value.title) &&
     isString(value.cwd) &&
     isTimestamp(value.updatedAt) &&
-    optional(isBoolean)(value.active)
+    optional(isString)(value.projectRoot) &&
+    optional(isBoolean)(value.active) &&
+    optional(isAgentThreadStatus)(value.status) &&
+    optional(isString)(value.activity)
   )
 }
 

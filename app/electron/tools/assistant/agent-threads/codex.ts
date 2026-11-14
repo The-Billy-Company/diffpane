@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { promisify } from 'node:util'
 import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
-import { readJsonLines } from './source.ts'
+import { latestActivity, readJsonLines, recentJsonRecords } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const run = promisify(execFile)
@@ -65,7 +65,7 @@ function edit(changes: unknown, cwd: string): AgentThreadEvent[] {
   return [{ kind: 'edit', text: files.length === 1 ? 'Edited a file' : `Edited ${files.length} files`, files }]
 }
 
-function commandEvent(item: Record<string, unknown>, cwd: string): AgentThreadEvent[] {
+function commandEvent(item: Record<string, unknown>, cwd: string, summary = false): AgentThreadEvent[] {
   const parts = item.parsed_cmd
   const files: AgentThreadFile[] = []
   if (Array.isArray(parts)) {
@@ -75,12 +75,13 @@ function commandEvent(item: Record<string, unknown>, cwd: string): AgentThreadEv
       if (part?.type === 'read' && filename) files.push({ path: path.resolve(string(item.cwd) || cwd, filename) })
     }
   }
+  if (summary) return [{ kind: 'tool', text: 'Shell command', files }]
   const command = Array.isArray(item.command) ? item.command.map(string).join(' ') : string(item.command)
   const text = command.replace(/^.*?\s-lc\s+(?=.)/, '').slice(0, 400)
   return [{ kind: 'tool', text: text || 'Ran a command', files }]
 }
 
-function parseItem(item: Record<string, unknown>, cwd: string): AgentThreadEvent[] {
+function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean): AgentThreadEvent[] {
   switch (item.type) {
     case 'UserMessage':
       return message('user', item.content)
@@ -90,7 +91,7 @@ function parseItem(item: Record<string, unknown>, cwd: string): AgentThreadEvent
       if (item.status === 'failed' || item.status === 'declined') return []
       return edit(item.changes, cwd)
     case 'CommandExecution':
-      return commandEvent(item, cwd)
+      return commandEvent(item, cwd, summary)
     case 'McpToolCall':
       return [
         {
@@ -103,7 +104,7 @@ function parseItem(item: Record<string, unknown>, cwd: string): AgentThreadEvent
   }
 }
 
-function parseRollout(record: unknown, cwd: string): AgentThreadEvent[] {
+function parseRollout(record: unknown, cwd: string, summary = false): AgentThreadEvent[] {
   const entry = object(record)
   const payload = object(entry?.payload)
   // Rollouts also store model context and raw tool payloads. Only the public transcript events are rendered.
@@ -111,7 +112,12 @@ function parseRollout(record: unknown, cwd: string): AgentThreadEvent[] {
   switch (payload.type) {
     case 'item_completed': {
       const item = object(payload.item)
-      return item ? parseItem(item, cwd) : []
+      return item ? parseItem(item, cwd, summary) : []
+    }
+    case 'item_started': {
+      const item = object(payload.item)
+      if (!summary || (item?.type !== 'CommandExecution' && item?.type !== 'McpToolCall')) return []
+      return parseItem(item, cwd, summary)
     }
     case 'user_message':
       return message('user', payload.message)
@@ -120,7 +126,7 @@ function parseRollout(record: unknown, cwd: string): AgentThreadEvent[] {
     case 'patch_apply_end':
       return payload.success === true ? edit(payload.changes, cwd) : []
     case 'exec_command_end':
-      return commandEvent(payload, cwd)
+      return commandEvent(payload, cwd, summary)
     case 'task_started':
     case 'turn_started':
       return [{ kind: 'status', text: 'Turn started' }]
@@ -304,6 +310,7 @@ async function legacyTurnStatus(locator: string): Promise<boolean | undefined> {
 export const codexSource: AgentThreadSource = {
   async list() {
     const root = path.resolve(process.env.CODEX_HOME ?? path.join(homedir(), '.codex'))
+    if (!(await stat(root)).isDirectory()) throw new Error('Codex storage is unavailable.')
     const sessions = path.join(root, 'sessions')
     const [state, history, opened] = await Promise.all([
       databasePath(root, 'state'),
@@ -327,9 +334,10 @@ export const codexSource: AgentThreadSource = {
       [...records.values()].map(async record => {
         const file = await stat(record.locator).catch(() => undefined)
         if (!file?.isFile()) return undefined
-        record.active = ids.has(record.id)
-          ? (statuses.get(record.id) ?? (await legacyTurnStatus(record.locator)))
-          : undefined
+        const isOpen = ids.has(record.id)
+        record.active = isOpen ? (statuses.get(record.id) ?? (await legacyTurnStatus(record.locator))) : undefined
+        record.status =
+          record.active === true ? 'running' : record.active === false ? 'idle' : isOpen ? 'unknown' : 'recent'
         record.updatedAt = Math.max(file.mtimeMs, record.updatedAt)
         return record
       }),
@@ -338,5 +346,9 @@ export const codexSource: AgentThreadSource = {
   },
   open(thread) {
     return readJsonLines(thread.locator, record => parseRollout(record, thread.cwd))
+  },
+  async summarize(thread) {
+    const records = await recentJsonRecords(thread.locator)
+    return latestActivity(records.flatMap(record => parseRollout(record, thread.cwd, true)))
   },
 }

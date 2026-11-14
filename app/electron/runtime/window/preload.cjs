@@ -238,7 +238,10 @@ function isClaudeStatus(value) {
   return isRecord(value) && isBoolean(value.configured) && isBoolean(value.secureStorage)
 }
 function isAgentProvider(value) {
-  return value === 'claude' || value === 'cursor' || value === 'codex'
+  return value === 'claude' || value === 'cursor' || value === 'codex' || value === 'antigravity'
+}
+function isAgentThreadStatus(value) {
+  return value === 'running' || value === 'idle' || value === 'recent' || value === 'unknown'
 }
 function isAgentThread(value) {
   return (
@@ -248,7 +251,10 @@ function isAgentThread(value) {
     isString(value.title) &&
     isString(value.cwd) &&
     isTimestamp(value.updatedAt) &&
-    optional(isBoolean)(value.active)
+    optional(isString)(value.projectRoot) &&
+    optional(isBoolean)(value.active) &&
+    optional(isAgentThreadStatus)(value.status) &&
+    optional(isString)(value.activity)
   )
 }
 function isAgentThreadList(value) {

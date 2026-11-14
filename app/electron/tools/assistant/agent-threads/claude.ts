@@ -3,8 +3,8 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
-import { readJsonLines } from './source.ts'
+import type { AgentThreadEvent, AgentThreadFile, AgentThreadStatus } from '../../../../shared/agent-threads.ts'
+import { latestActivity, readJsonLines, recentJsonRecords } from './source.ts'
 import type { AgentThreadSource } from './source.ts'
 
 const run = promisify(execFile)
@@ -17,6 +17,8 @@ interface ClaudeSessionRecord {
   cwd: string
   title: string
   updatedAt: number
+  status: AgentThreadStatus
+  activity?: string
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -38,11 +40,18 @@ function sessionRecord(input: unknown): ClaudeSessionRecord | undefined {
   const cwd = absoluteDirectory(row.cwd)
   if (!uuid.test(id) || !cwd) return undefined
   const updatedAt = row.updatedAt ?? row.statusUpdatedAt ?? row.startedAt
+  let status: AgentThreadStatus = 'unknown'
+  if (row.state === 'blocked') status = 'idle'
+  else if (row.status === 'busy' || (!row.status && row.state === 'working')) status = 'running'
+  else if (row.status === 'idle' || row.state === 'done' || row.state === 'failed' || row.state === 'stopped')
+    status = 'idle'
   return {
     id,
     cwd,
     title: string(row.name) || string(row.title) || `${path.basename(cwd) || cwd} (${id.slice(0, 8)})`,
     updatedAt: typeof updatedAt === 'number' ? updatedAt : 0,
+    status,
+    activity: row.state === 'blocked' ? 'Waiting for input' : undefined,
   }
 }
 
@@ -90,7 +99,7 @@ async function registrySessions(directory: string): Promise<unknown[]> {
   return rows.filter(Boolean)
 }
 
-async function transcript(directory: string, session: ClaudeSessionRecord) {
+async function transcript(directory: string, session: Pick<ClaudeSessionRecord, 'id' | 'cwd'>) {
   const projects = path.join(directory, 'projects')
   const cwd = await realpath(session.cwd).catch(() => session.cwd)
   const slug = cwd.normalize('NFC').replace(/[^a-zA-Z0-9]/g, '-')
@@ -126,7 +135,7 @@ function fileReference(inputPath: unknown, cwd: string, line?: unknown): AgentTh
     : { path: filename }
 }
 
-function claudeEvents(initialCwd: string) {
+function claudeEvents(initialCwd: string, summary = false) {
   const toolCalls = new Map<string, { name: string; file?: AgentThreadFile }>()
   return (record: unknown): AgentThreadEvent[] => {
     const row = object(record)
@@ -159,7 +168,7 @@ function claudeEvents(initialCwd: string) {
           const oldest = toolCalls.keys().next().value
           if (oldest) toolCalls.delete(oldest)
         }
-        const description = string(input?.description) || (name === 'Bash' ? string(input?.command) : '')
+        const description = summary ? '' : string(input?.description) || (name === 'Bash' ? string(input?.command) : '')
         events.push({ kind: 'tool', text: description ? `${name} · ${description}` : name, files: file && [file] })
       } else if (block.type === 'tool_result') {
         const id = string(block.tool_use_id)
@@ -191,7 +200,9 @@ export const claudeSource: AgentThreadSource = {
   async list() {
     const directory = configDirectory()
     // The CLI checks process ownership itself. The PID registry supports older CLI versions and GUI-only installations.
-    const rows = (await runningClaudeSessions()) ?? (await registrySessions(directory))
+    const running = await runningClaudeSessions()
+    if (!running && !(await stat(directory)).isDirectory()) throw new Error('Claude Code storage is unavailable.')
+    const rows = running ?? (await registrySessions(directory))
     const sessions = new Map<string, ClaudeSessionRecord>()
     for (const row of rows) {
       const session = sessionRecord(row)
@@ -208,6 +219,8 @@ export const claudeSource: AgentThreadSource = {
           locator,
           provider: 'claude',
           active: true,
+          status: session.status,
+          activity: session.activity,
           updatedAt: Math.max(session.updatedAt, modifiedAt),
         }
       }),
@@ -236,5 +249,9 @@ export const claudeSource: AgentThreadSource = {
         return reader.read()
       },
     }
+  },
+  async summarize(thread) {
+    const parse = claudeEvents(thread.cwd, true)
+    return latestActivity((await recentJsonRecords(thread.locator)).flatMap(parse))
   },
 }

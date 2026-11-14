@@ -4,7 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
-import { readJsonLines } from './source.ts'
+import { activityText, latestActivity, readJsonLines, recentJsonRecords } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sessionId = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i
@@ -53,7 +53,7 @@ function fileUri(value: unknown): string {
   return path.isAbsolute(candidate) ? candidate : ''
 }
 
-function toolEvent(block: Record<string, unknown>): AgentThreadEvent[] {
+function toolEvent(block: Record<string, unknown>, summary = false): AgentThreadEvent[] {
   const name = string(block.name)
   if (!name) return []
   const input = object(decode(block.input))
@@ -72,11 +72,11 @@ function toolEvent(block: Record<string, unknown>): AgentThreadEvent[] {
     return files.length ? [{ kind: 'edit', text: name === 'Delete' ? 'Deleted a file' : 'Edited a file', files }] : []
   }
   if (name === 'Read' && files.length) return [{ kind: 'tool', text: 'Read a file', files }]
-  const detail = name === 'Shell' ? string(input.description) || string(input.command).slice(0, 300) : ''
+  const detail = !summary && name === 'Shell' ? string(input.description) || string(input.command).slice(0, 300) : ''
   return [{ kind: 'tool', text: detail || name }]
 }
 
-function transcriptEvents(record: unknown): AgentThreadEvent[] {
+function transcriptEvents(record: unknown, summary = false): AgentThreadEvent[] {
   const row = object(record)
   if (row?.type === 'turn_ended') {
     const text =
@@ -98,7 +98,7 @@ function transcriptEvents(record: unknown): AgentThreadEvent[] {
       const text = string(block.text)
       if (text) events.push({ kind: role, text })
     } else if (role === 'assistant' && block?.type === 'tool_use') {
-      events.push(...toolEvent(block))
+      events.push(...toolEvent(block, summary))
     }
   }
   return events
@@ -168,6 +168,8 @@ interface Header {
   updatedAt: number
   local: boolean
   active?: boolean
+  running: boolean
+  activity?: string
 }
 
 function headers(databasePath: string, ids: string[], roots: Map<string, string>): Map<string, Header> {
@@ -189,6 +191,9 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
     const legacyHeader = database.prepare(
       "SELECT json_extract(value, '$.fullConversationHeadersOnly[#-1]') AS value FROM cursorDiskKV WHERE key = ? AND json_valid(value)",
     )
+    const bubbleText = database.prepare(
+      "SELECT substr(json_extract(value, '$.text'), 1, 512) AS text FROM cursorDiskKV WHERE key = ? AND json_valid(value)",
+    )
     for (const row of matches) {
       if (!row) continue
       const id = string(row.composerId)
@@ -205,23 +210,39 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
       const activityAt = Date.parse(string(last?.createdAt))
       const updatedAt = Math.max(typeof row.lastUpdatedAt === 'number' ? row.lastUpdatedAt : 0, activityAt || 0)
       const grouping = object(last?.grouping)
+      const generating =
+        state?.status === 'generating' ||
+        state?.continuing === 1 ||
+        (typeof state?.generating === 'number' && state.generating > 0)
       // Cursor's live Agent Window worker can persist an aborted composer status during a running turn.
       const freshTurn =
         Date.now() - activityAt < activityWindow &&
         (last?.type === 1 || typeof grouping?.turnDurationMs !== 'number') &&
         (state?.status === 'aborted' || grouping?.toolFormerStatus === 'loading')
+      const toolCase = string(grouping?.toolCallCase)
+      const fileAction = fileToolCases.get(toolCase)
+      const filename = filePath(grouping?.toolDisplayPath)
+      const bubbleId = string(last?.bubbleId)
+      const activity = toolCase
+        ? activityText(
+            fileAction && filename
+              ? `${fileAction} ${path.basename(filename)}`
+              : toolCase === 'shellToolCall'
+                ? 'Shell command'
+                : 'Tool call',
+          )
+        : bubbleId
+          ? activityText(string(bubbleText.get(`bubbleId:${id}:${bubbleId}`)?.text))
+          : undefined
       result.set(id, {
         title: string(data?.name),
         cwd,
         archived: row.isArchived === 1,
         updatedAt,
         local,
-        active:
-          state?.status === 'generating' ||
-          state?.continuing === 1 ||
-          (typeof state?.generating === 'number' && state.generating > 0) ||
-          freshTurn ||
-          undefined,
+        active: generating || freshTurn || undefined,
+        running: generating || (freshTurn && grouping?.toolFormerStatus === 'loading'),
+        activity,
       })
     }
   } catch {
@@ -348,10 +369,13 @@ export const cursorSource: AgentThreadSource = {
     const home = homedir()
     const userDirectory = cursorUserDirectory(home)
     const databasePath = path.join(userDirectory, 'globalStorage', 'state.vscdb')
-    const [transcripts, roots] = await Promise.all([
-      transcriptEntries(path.join(home, '.cursor', 'projects')),
+    const projectsRoot = path.join(home, '.cursor', 'projects')
+    const [transcripts, roots, storage] = await Promise.all([
+      transcriptEntries(projectsRoot),
       workspaces(userDirectory),
+      Promise.allSettled([stat(databasePath), stat(projectsRoot)]),
     ])
+    if (storage.every(result => result.status === 'rejected')) throw new Error('Cursor storage is unavailable.')
     transcripts.sort((left, right) => right.updatedAt - left.updatedAt)
     const index = headers(
       databasePath,
@@ -370,6 +394,8 @@ export const cursorSource: AgentThreadSource = {
               cwd: header.cwd ?? '',
               updatedAt: header.updatedAt,
               active: header.active,
+              status: header.running ? 'running' : 'recent',
+              activity: header.activity,
               locator: databasePath,
             } satisfies AgentThreadRecord,
           ]
@@ -389,6 +415,7 @@ export const cursorSource: AgentThreadSource = {
           cwd: header?.cwd ?? projects.get(thread.project) ?? '',
           updatedAt: thread.updatedAt,
           active: summary.active,
+          status: 'recent',
           locator: thread.locator,
         } satisfies AgentThreadRecord
       }),
@@ -404,5 +431,10 @@ export const cursorSource: AgentThreadSource = {
   open(thread) {
     if (thread.locator.endsWith('state.vscdb')) return composerReader(thread.locator, thread.id)
     return readJsonLines(thread.locator, transcriptEvents)
+  },
+  async summarize(thread) {
+    if (!thread.locator.endsWith('.jsonl')) return undefined
+    const records = await recentJsonRecords(thread.locator)
+    return latestActivity(records.flatMap(record => transcriptEvents(record, true)))
   },
 }

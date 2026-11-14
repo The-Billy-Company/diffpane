@@ -43,7 +43,8 @@ import {
   createAppearanceSettings,
   diffAppearance,
 } from '../../panels/appearance/appearance.ts'
-import { createAssistant } from '../../panels/assistant/assistant.js'
+import { createAgentThreadPanel } from '../../panels/assistant/agent-threads.ts'
+import { agentThreadsGlyph, createAssistant } from '../../panels/assistant/assistant.js'
 import { creatureGlyph } from '../../panels/assistant/creature-glyph.ts'
 import { mountIdeaBuilder } from '../../panels/ideas/ideas.ts'
 import { createSettings } from '../../panels/settings/settings.js'
@@ -191,6 +192,7 @@ app.innerHTML = `
       <button type="button" id="content-search-toggle" class="titlebar-button" aria-label="Search in project" aria-haspopup="dialog" aria-controls="content-search" hidden>${icons.search}<span>Search</span></button>
       <button type="button" id="review-toggle" class="titlebar-button" aria-label="Review changes" aria-controls="change-review" aria-pressed="false" data-pending="false" hidden>${icons.review}<span>Changes</span></button>
       <button type="button" id="review-notes-toggle" class="titlebar-button" aria-label="Review notes" aria-controls="review-notes-panel" aria-expanded="false" hidden>${icons.note}<span>Notes</span></button>
+      <button type="button" id="agent-threads-toggle" class="titlebar-button" aria-label="Agent threads" title="Agent threads" aria-haspopup="dialog" aria-controls="agent-threads" hidden>${agentThreadsGlyph}<span>Agent threads</span></button>
       <button type="button" id="claude-toggle" class="titlebar-button" aria-label="The Creature" aria-controls="claude-panel" aria-expanded="false" hidden>${creatureGlyph}<span>The Creature</span></button>
       <button type="button" id="terminal-toggle" class="titlebar-button" aria-label="Terminal" aria-controls="terminal-dock" aria-expanded="false" hidden>${icons.terminal}<span>Terminal</span></button>
       <button type="button" id="settings-toggle" class="titlebar-button" aria-label="Settings" aria-haspopup="dialog" aria-controls="app-settings" hidden>${icons.settings}</button>
@@ -253,6 +255,7 @@ app.innerHTML = `
   </div>
   <section id="terminal-dock" aria-label="Workspace terminal" hidden></section>
   <footer class="statusbar"><span id="status-text">Opening workspace…</span><span class="statusbar-end" hidden><span class="current-only">Current file contents</span><span class="status-dot"></span><span id="save-state" role="status">Autosave on</span></span></footer>
+  <dialog id="agent-threads"></dialog>
 `
 
 const ui = {
@@ -267,6 +270,8 @@ const ui = {
   reviewToggle: requireElement(app, '#review-toggle', HTMLButtonElement),
   reviewNotesToggle: requireElement(app, '#review-notes-toggle', HTMLButtonElement),
   reviewNotesPanel: requireElement(app, '#review-notes-panel', HTMLElement),
+  agentThreads: requireElement(app, '#agent-threads', HTMLDialogElement),
+  agentThreadsToggle: requireElement(app, '#agent-threads-toggle', HTMLButtonElement),
   claudePanel: requireElement(app, '#claude-panel', HTMLElement),
   claudeToggle: requireElement(app, '#claude-toggle', HTMLButtonElement),
   settingsToggle: requireElement(app, '#settings-toggle', HTMLButtonElement),
@@ -461,6 +466,25 @@ function matchesShortcut(event, action) {
   return matchesBinding(event, shortcutBinding(action), isMac)
 }
 
+const agentThreadPanel =
+  api.agentThreads &&
+  createAgentThreadPanel(ui.agentThreads, {
+    api: api.agentThreads,
+    openWorkspaceFile: async ({ path, line }) => {
+      /** @type {FileAnchor | null} */
+      const anchor = line ? { path, side: 'working', line, endLine: line, excerpt: '', direct: true } : null
+      if (!(await openFile({ path }, { anchor, focusEditor: true })))
+        throw new Error('The linked file could not be opened.')
+    },
+  })
+const openAgentThreads = agentThreadPanel
+  ? () => {
+      if (!closingRequested && !closed) agentThreadPanel.open()
+    }
+  : undefined
+ui.agentThreadsToggle.hidden = !openAgentThreads
+if (openAgentThreads) ui.agentThreadsToggle.addEventListener('click', openAgentThreads)
+
 const assistant =
   api?.claude &&
   createAssistant(ui.claudePanel, ui.claudeToggle, api, {
@@ -470,6 +494,7 @@ const assistant =
       reviewNotes?.close()
     },
     getFileContext: assistantFileContext,
+    openAgentThreads,
     openFile: async ({ path, anchor, startLine, endLine, side }) => {
       const location = startLine
         ? { path, side, line: startLine, endLine: endLine ?? startLine, excerpt: '', direct: true }
@@ -3169,6 +3194,7 @@ Object.assign(window, {
       workspaceDialogs.disconnect()
       unsubscribeTerminal?.()
       howmany?.dispose()
+      agentThreadPanel?.dispose()
       assistant?.dispose()
       reviewNotes?.dispose()
       workspaceLayout.dispose()
