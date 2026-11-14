@@ -336,8 +336,8 @@ let workspaceOpeningTimer
 let recentVersion = 0
 let recentSignature = ''
 let targetOpening = false
-/** @type {string | null} */
-let applyingAssistantPath = null
+/** @type {Set<string>} */
+const applyingAssistantPaths = new Set()
 /** @type {Promise<void> | null} */
 let applyingAssistantEdit = null
 /** @type {'closed' | 'dock' | 'notebook'} */
@@ -459,30 +459,34 @@ const assistant =
     },
     applyEdit: async proposal => {
       if (closingRequested || closed) throw new Error('This window is closing.')
-      const path = proposal.kind === 'idea' ? null : proposal.path
-      applyingAssistantPath = path
-      const card = path ? cards.get(path) : undefined
+      const paths = proposal.kind === 'files' ? proposal.files.map(file => file.path) : []
+      for (const path of paths) applyingAssistantPaths.add(path)
+      const affectedCards = () => paths.flatMap(path => cards.get(path) ?? [])
       const apply = async () => {
-        if (card) applyEditorReadOnly(card)
-        await card?.autosave?.flush()
-        if (proposal.kind === 'idea') await ideas?.flush()
+        const open = affectedCards()
+        for (const card of open) applyEditorReadOnly(card)
+        const saves = await Promise.allSettled([
+          ...open.map(card => card.autosave?.flush()),
+          proposal.kind === 'idea' ? ideas?.flush() : undefined,
+        ])
+        const failed = saves.find(save => save.status === 'rejected')
+        if (failed) throw appError(failed.reason, { operation: 'Save before applying changes' })
         await api.claude.apply(proposal.id)
       }
       applyingAssistantEdit = apply()
       try {
         syncSaveState()
         await applyingAssistantEdit
-        const current = path ? cards.get(path) : undefined
-        if (current) {
-          current.dirty = true
+        const current = affectedCards()
+        if (current.length) {
+          for (const card of current) card.dirty = true
           syncReviewState()
           scheduleDocument()
         }
       } finally {
         applyingAssistantEdit = null
-        applyingAssistantPath = null
-        const current = path ? cards.get(path) : undefined
-        if (current) applyEditorReadOnly(current)
+        applyingAssistantPaths.clear()
+        for (const card of affectedCards()) applyEditorReadOnly(card)
         syncSaveState()
       }
     },
@@ -706,7 +710,7 @@ function editorReadOnly(card) {
   return (
     closingRequested ||
     !card.document?.editable ||
-    applyingAssistantPath === card.file.path ||
+    applyingAssistantPaths.has(card.file.path) ||
     [...mutations].some(mutation => pathAffects(mutation.path, card.file.path))
   )
 }
@@ -928,7 +932,7 @@ function syncReviewState() {
   let state = null
   if (card?.comparing && card.comparison === reviewComparison) {
     if (closingRequested) state = 'closing'
-    else if (applyingAssistantPath === card.file.path) state = 'saving'
+    else if (applyingAssistantPaths.has(card.file.path)) state = 'saving'
     else if (card.autosave?.pending) state = card.saveError ? 'save-failed' : 'saving'
     else if (card.loading || card.dirty) state = 'loading'
     else if (card.documentFailed) state = 'failed'

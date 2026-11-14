@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, open, readdir, readlink, realpath } from 'node:fs/promises'
+import { lstat, open, readdir, readlink, realpath, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { mediaType } from '../../../shared/documents/media-types.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
@@ -10,6 +10,7 @@ import {
   checkClaudeFile,
   claudeFilePath,
   claudeVisiblePath,
+  MAX_CLAUDE_EDIT_FILES,
   MAX_CLAUDE_FILE_BYTES,
 } from '../../tools/assistant/claude-workspace.mjs'
 import {
@@ -38,6 +39,8 @@ import {
 /** @typedef {{algorithm?: string, budget?: CheckpointBudget, cached?: CheckpointFile | null, capture?: boolean}} CheckpointRead */
 /** @typedef {{before: string, after: string, note: string | null, preview?: {before: FileContent, after: FileContent}, workingMissing?: boolean}} RepositoryContents */
 /** @typedef {{code: number | null, signal: NodeJS.Signals | null, limited: boolean, stdout: Buffer, stderr: Buffer}} CommandOutput */
+/** @typedef {{path: string, text: string, expected: string | null}} ClaudeFileChange */
+/** @typedef {{commit: () => Promise<void>, rollback: () => Promise<boolean>, close: () => Promise<void>}} PreparedSave */
 
 const MAX_STATUS_BYTES = 16 * 1024 * 1024
 const GIT_TIMEOUT_MS = 10_000
@@ -89,6 +92,45 @@ function checkpointReadChanged(filename) {
 function saveConflict() {
   return appError('The file changed on disk. Your edits are still open and have not overwritten it.', {
     code: 'SAVE_CONFLICT',
+  })
+}
+
+function batchRecoveryFailure() {
+  return appError('The save was interrupted, and some file changes could not be restored. Review the working files.', {
+    code: 'SAVE_RECOVERY_FAILED',
+  })
+}
+
+/** @param {unknown} changes @returns {ClaudeFileChange[]} */
+export function parseClaudeFileChanges(changes) {
+  if (!Array.isArray(changes) || !changes.length || changes.length > MAX_CLAUDE_EDIT_FILES)
+    throw new Error('Invalid Creature file changes.')
+  const paths = new Set()
+  /** @type {unknown[]} */
+  const entries = changes
+  return Array.from(entries, change => {
+    if (
+      change === null ||
+      typeof change !== 'object' ||
+      !('path' in change) ||
+      !('expected' in change) ||
+      !('text' in change)
+    )
+      throw new Error('Invalid Creature file change.')
+    const { path: filename, expected, text } = change
+    if (
+      !claudeVisiblePath(filename) ||
+      paths.has(filename) ||
+      typeof text !== 'string' ||
+      !text.isWellFormed() ||
+      text.includes('\0') ||
+      Buffer.byteLength(text) > MAX_CLAUDE_FILE_BYTES ||
+      (expected !== null && (typeof expected !== 'string' || expected.length > MAX_CLAUDE_FILE_BYTES))
+    ) {
+      throw new Error('Invalid Creature file change.')
+    }
+    paths.add(filename)
+    return { path: filename, expected, text }
   })
 }
 
@@ -746,11 +788,11 @@ export class Repository {
   }
 
   /** @param {readonly string[]} names @returns {Promise<Set<string>>} */
-  async #ignored(names) {
+  async #ignored(names, untrackedOnly = false) {
     if (!names.length) return new Set()
     const result = await command(
       this.root,
-      ['check-ignore', '--no-index', '-z', '--stdin'],
+      ['check-ignore', ...(untrackedOnly ? [] : ['--no-index']), '-z', '--stdin'],
       MAX_STATUS_BYTES,
       Buffer.from(`${names.join('\0')}\0`),
     )
@@ -946,26 +988,84 @@ export class Repository {
   }
 
   /** @param {unknown} filename @param {unknown} text @param {unknown} expected */
-  async save(filename, text, expected, claude = false) {
+  async save(filename, text, expected) {
     if (typeof text !== 'string' || typeof expected !== 'string' || text.length > MAX_FILE_BYTES)
       throw new Error('Invalid file save request.')
     validatePath(filename)
-    const key = path.resolve(this.root, filename)
-    const previous = this.#saves.get(key)
+    await this.#lockSaves([filename], async () => {
+      const prepared = await this.#prepareSave(filename, text, expected, false)
+      try {
+        await prepared.commit()
+      } finally {
+        await prepared.close()
+      }
+    })
+  }
+
+  /** @param {string} filename */
+  async checkClaudeCreate(filename) {
+    await this.#claudeCreateTarget(filename)
+    if ((await this.#ignored([filename])).has(filename)) throw new Error('Choose a nonignored project text file.')
+  }
+
+  /** @param {readonly ClaudeFileChange[]} changes */
+  async saveClaudeFiles(changes) {
+    const filenames = changes.map(change => change.path)
+    await this.#lockSaves(filenames, async () => {
+      const creations = changes.filter(change => change.expected === null).map(change => change.path)
+      const [ignored, ignoredCreations] = await Promise.all([this.#ignored(filenames, true), this.#ignored(creations)])
+      if (ignored.size || ignoredCreations.size) throw new Error('Choose a nonignored project text file.')
+      // Validate every source and destination before committing the first write.
+      const entries = await Promise.allSettled(
+        changes.map(change =>
+          change.expected === null
+            ? this.#prepareClaudeCreate(change.path, change.text)
+            : this.#prepareSave(change.path, change.text, change.expected, true),
+        ),
+      )
+      const prepared = entries.flatMap(entry => (entry.status === 'fulfilled' ? [entry.value] : []))
+      /** @type {PreparedSave[]} */
+      const committed = []
+      try {
+        const failure = entries.find(entry => entry.status === 'rejected')
+        if (failure) throw appError(failure.reason)
+        for (const edit of prepared) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Apply in order so an interrupted batch can be restored in reverse order.
+          await edit.commit()
+          committed.push(edit)
+        }
+      } catch (error) {
+        let restored = true
+        for (const edit of committed.toReversed()) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Restore the most recent changes first.
+          if (!(await edit.rollback().catch(() => false))) restored = false
+        }
+        if (!restored) throw batchRecoveryFailure()
+        throw error
+      } finally {
+        await Promise.allSettled(prepared.map(edit => edit.close()))
+      }
+    })
+  }
+
+  /** @param {readonly string[]} filenames @param {() => Promise<void>} save */
+  async #lockSaves(filenames, save) {
+    const keys = filenames.map(filename => path.resolve(this.root, filename))
+    const previous = keys.flatMap(key => this.#saves.get(key) ?? [])
     const saving = (async () => {
-      await previous?.catch(() => {})
-      await this.#save(filename, text, expected, claude)
+      await Promise.allSettled(previous)
+      await save()
     })()
-    this.#saves.set(key, saving)
+    for (const key of keys) this.#saves.set(key, saving)
     try {
       await saving
     } finally {
-      if (this.#saves.get(key) === saving) this.#saves.delete(key)
+      for (const key of keys) if (this.#saves.get(key) === saving) this.#saves.delete(key)
     }
   }
 
-  /** @param {string} filename @param {string} text @param {string} expected @param {boolean} claude */
-  async #save(filename, text, expected, claude) {
+  /** @param {string} filename @param {string} text @param {string} expected @param {boolean} claude @returns {Promise<PreparedSave>} */
+  async #prepareSave(filename, text, expected, claude) {
     const resolve = () => (claude ? claudeFilePath(this, filename) : this.#editPath(filename))
     const absolute = await resolve()
     const handle = await open(absolute, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0))
@@ -987,22 +1087,112 @@ export class Repository {
         throw new Error('This file cannot be edited as a complete text document.')
       if (current.value !== expected) throw saveConflict()
       const bytes = encodeText(text, original)
-      if (bytes.length > MAX_FILE_BYTES) throw new Error('The edited file exceeds the 2 MiB text limit.')
-      if (checkpointStamp(metadata) !== (await currentStamp())) throw saveConflict()
-      let written = 0
-      try {
-        await writeSaveBytes(handle, bytes, offset => (written = offset))
-      } catch (error) {
-        if (await restoreSave(handle, original, bytes, written, currentStamp).catch(() => false)) throw error
-        throw appError(
-          'The save failed, and Diffpane could not restore the original file. Your edits are still open.',
-          {
-            code: 'SAVE_RECOVERY_FAILED',
-          },
+      if (bytes.length > (claude ? MAX_CLAUDE_FILE_BYTES : MAX_FILE_BYTES))
+        throw new Error(
+          claude ? 'The edited file exceeds the 512 KiB text limit.' : 'The edited file exceeds the 2 MiB text limit.',
         )
+      if (claude && searchableText(bytes, filename) === null)
+        throw new Error('The edited file must remain a readable text document.')
+      /** @type {string | undefined} */
+      let writtenStamp
+      return {
+        async commit() {
+          if (checkpointStamp(metadata) !== (await currentStamp())) throw saveConflict()
+          let written = 0
+          try {
+            await writeSaveBytes(handle, bytes, offset => (written = offset))
+            if (claude) writtenStamp = checkpointStamp(await handle.stat({ bigint: true }))
+          } catch (error) {
+            if (await restoreSave(handle, original, bytes, written, currentStamp).catch(() => false)) throw error
+            throw appError(
+              'The save failed, and Diffpane could not restore the original file. Your edits are still open.',
+              { code: 'SAVE_RECOVERY_FAILED' },
+            )
+          }
+        },
+        async rollback() {
+          if (writtenStamp === undefined || (await currentStamp()) !== writtenStamp) return false
+          return restoreSave(handle, original, bytes, bytes.length, currentStamp)
+        },
+        close: () => handle.close(),
       }
-    } finally {
+    } catch (error) {
       await handle.close()
+      throw error
+    }
+  }
+
+  /** @param {string} filename */
+  async #claudeCreateTarget(filename) {
+    if (!claudeVisiblePath(filename)) throw new Error('Choose a project text file.')
+    const absolute = path.join(this.root, filename)
+    const parent = path.dirname(absolute)
+    if (
+      !within(this.scope, parent) ||
+      [this.gitDir, this.commonDir].some(directory => within(directory, absolute) || within(absolute, directory))
+    )
+      throw new Error('Choose a project text file in this workspace.')
+    const identity = async () => {
+      const resolved = await realpath(parent).catch(() => undefined)
+      const metadata = await lstat(parent, { bigint: true }).catch(() => undefined)
+      if (resolved !== parent || !metadata?.isDirectory())
+        throw new Error('Choose a path with an existing project directory as its parent.')
+      return `${metadata.dev}:${metadata.ino}`
+    }
+    const parentIdentity = await identity()
+    for (let directory = parent; directory !== this.root; directory = path.dirname(directory)) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Reject a nested worktree before checking the next ancestor.
+      if (await existingEntry(path.join(directory, '.git')))
+        throw new Error('Open the nested repository to change its files.')
+    }
+    if (await existingEntry(absolute)) throw new Error('A file or folder with that path already exists.')
+    return { absolute, parentUnchanged: async () => (await identity()) === parentIdentity }
+  }
+
+  /** @param {string} filename @param {string} text @returns {Promise<PreparedSave>} */
+  async #prepareClaudeCreate(filename, text) {
+    const { absolute, parentUnchanged } = await this.#claudeCreateTarget(filename)
+    const bytes = Buffer.from(text, 'utf8')
+    if (bytes.length && searchableText(bytes, filename) === null) throw new Error('Create a readable text file.')
+    /** @type {FileHandle | undefined} */
+    let handle
+    /** @type {string | undefined} */
+    let writtenStamp
+    let written = 0
+    const rollback = async () => {
+      if (!handle || !(await parentUnchanged())) return false
+      const metadata = await handle.stat({ bigint: true })
+      const stamp = checkpointStamp(metadata)
+      if (metadata.nlink !== 1n || metadata.size !== BigInt(written) || (writtenStamp && writtenStamp !== stamp))
+        return false
+      const actual = await readSaveBytes(handle, written)
+      if (!actual.equals(bytes.subarray(0, written))) return false
+      const current = await lstat(absolute, { bigint: true })
+      if (current.nlink !== 1n || checkpointStamp(current) !== stamp) return false
+      await unlink(absolute)
+      return true
+    }
+    return {
+      async commit() {
+        if (!(await parentUnchanged())) throw saveConflict()
+        try {
+          handle = await open(absolute, constants.O_RDWR | constants.O_CREAT | constants.O_EXCL)
+        } catch (error) {
+          if (errorCode(error) === 'EEXIST') throw saveConflict()
+          throw error
+        }
+        try {
+          if (!(await parentUnchanged())) throw saveConflict()
+          await checkClaudeFile(handle, absolute)
+          await writeSaveBytes(handle, bytes, offset => (written = offset))
+          writtenStamp = checkpointStamp(await handle.stat({ bigint: true }))
+        } catch (error) {
+          if (await rollback().catch(() => false)) throw error
+          throw batchRecoveryFailure()
+        }
+      },
+      rollback,
+      close: async () => handle?.close(),
     }
   }
 
@@ -1196,6 +1386,17 @@ function missing(error) {
 /** @param {unknown} error */
 function errorCode(error) {
   return error instanceof Error && 'code' in error && typeof error.code === 'string' ? error.code : undefined
+}
+
+/** @param {string} absolute */
+async function existingEntry(absolute) {
+  try {
+    await lstat(absolute)
+    return true
+  } catch (error) {
+    if (missing(error)) return false
+    throw error
+  }
 }
 
 /** @param {Buffer} bytes @returns {RepositoryStatus} */

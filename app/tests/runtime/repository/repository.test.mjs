@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -573,6 +573,97 @@ test('Claude can read either side of a file in scope and cannot read private or 
     ),
   )
 })
+
+test('Creature file changes validate the whole batch before writing and preserve the original encoding', async t => {
+  const repo = await fixture(t)
+  const first = 'src/first.txt'
+  const second = 'src/second.txt'
+  const created = 'src/created.txt'
+  await repo.write(first, Buffer.from('\uFEFFfirst\r\n', 'utf16le'))
+  await repo.write(second, 'second\n')
+  await repo.commit()
+  const repository = await repo.open()
+  const changes = [
+    { path: first, expected: 'first\r\n', text: 'updated first\r\n' },
+    { path: created, expected: null, text: 'new text\n' },
+    { path: second, expected: 'second\n', text: 'updated second\n' },
+  ]
+
+  await repository.checkClaudeCreate(created)
+  await repo.write(second, 'external edit\n')
+  await assert.rejects(repository.saveClaudeFiles(changes), { code: 'SAVE_CONFLICT' })
+  assert.equal((await readFile(path.join(repo.root, first))).toString('utf16le'), '\uFEFFfirst\r\n')
+  assert.equal(await readFile(path.join(repo.root, second), 'utf8'), 'external edit\n')
+  await assert.rejects(readFile(path.join(repo.root, created)), { code: 'ENOENT' })
+
+  await repo.write(second, 'second\n')
+  await repository.saveClaudeFiles(changes)
+  assert.equal((await readFile(path.join(repo.root, first))).toString('utf16le'), '\uFEFFupdated first\r\n')
+  assert.equal(await readFile(path.join(repo.root, second), 'utf8'), 'updated second\n')
+  assert.equal(await readFile(path.join(repo.root, created), 'utf8'), 'new text\n')
+  await assert.rejects(repository.checkClaudeCreate(created), /already exists/u)
+})
+
+test('Creature file creation stays in scope and rejects private, ignored, and missing parent paths', async t => {
+  const repo = await fixture(t)
+  await repo.write('.gitignore', 'src/ignored.txt\n')
+  await repo.write('src/existing.txt', 'existing text\n')
+  await repo.commit()
+  const repository = await Repository.open(path.join(repo.root, 'src'))
+  await Promise.all([
+    assert.rejects(repository.checkClaudeCreate('outside.txt'), /in this workspace/u),
+    assert.rejects(repository.checkClaudeCreate('src/.env'), /project text file/u),
+    assert.rejects(repository.checkClaudeCreate('src/missing/new.txt'), /existing project directory/u),
+    assert.rejects(repository.checkClaudeCreate('src/ignored.txt'), /nonignored/u),
+    assert.rejects(repository.checkClaudeCreate('src/existing.txt'), /already exists/u),
+    assert.rejects(
+      repository.saveClaudeFiles([{ path: 'src/ignored.txt', expected: null, text: 'hello\n' }]),
+      /nonignored/u,
+    ),
+  ])
+})
+
+test(
+  'Creature restores earlier edits and creations when a later write fails',
+  { skip: !process.getuid?.() },
+  async t => {
+    const repo = await fixture(t)
+    await repo.write('first.txt', 'baseline\n')
+    const blocked = path.join(repo.root, 'blocked')
+    await mkdir(blocked)
+    const repository = await repo.open()
+    await chmod(blocked, 0o555)
+    try {
+      await assert.rejects(
+        repository.saveClaudeFiles([
+          { path: 'first.txt', expected: 'baseline\n', text: 'updated\n' },
+          { path: 'created.txt', expected: null, text: 'new text\n' },
+          { path: 'blocked/second.txt', expected: null, text: 'cannot create\n' },
+        ]),
+        { code: 'EACCES' },
+      )
+    } finally {
+      await chmod(blocked, 0o755)
+    }
+    assert.equal(await readFile(path.join(repo.root, 'first.txt'), 'utf8'), 'baseline\n')
+    await assert.rejects(readFile(path.join(repo.root, 'created.txt')), { code: 'ENOENT' })
+  },
+)
+
+test(
+  'Creature file creation rejects symlinked parents and nested worktrees',
+  { skip: process.platform === 'win32' },
+  async t => {
+    const repo = await fixture(t)
+    await repo.write('src/nested/.git', 'gitdir: elsewhere\n')
+    await symlink('nested', path.join(repo.root, 'src/linked'))
+    const repository = await repo.open()
+    await Promise.all([
+      assert.rejects(repository.checkClaudeCreate('src/linked/new.txt'), /existing project directory/u),
+      assert.rejects(repository.checkClaudeCreate('src/nested/new.txt'), /nested repository/u),
+    ])
+  },
+)
 
 test('contents use the current HEAD after a commit without retaining old blobs', async t => {
   const repo = await fixture(t)

@@ -992,9 +992,18 @@ const claudeHandlers = {
         },
         read,
         search: async (query, matchCase, signal) =>
-          searchClaudeGist(await session.reviewWorkspace(), query, matchCase, signal, filename =>
-            read(filename, 'working'),
+          searchClaudeGist(
+            await session.reviewWorkspace(),
+            query,
+            matchCase,
+            signal,
+            filename => read(filename, 'working'),
+            undefined,
+            (text, caseSensitive, searchSignal) => searchClaudeWorker(session, text, caseSensitive, searchSignal),
           ),
+        async checkCreate(filename) {
+          await session.call('claude-check-create', [filename])
+        },
         listIdeas: async query => ideaStore.summaries(await session.root(), query),
         readIdea: async id => ideaStore.get(await session.root(), id),
       },
@@ -1004,8 +1013,14 @@ const claudeHandlers = {
   apply: (session, id) => {
     if (typeof id !== 'string') throw new Error('Invalid proposal.')
     return session.claude.apply(id, {
-      saveFile: (filename, text, expected) =>
-        changeFiles(session, [filename], () => session.call('claude-save', [filename, text, expected])),
+      saveFiles: changes =>
+        changeFiles(
+          session,
+          changes.map(change => change.path),
+          async () => {
+            await session.call('claude-save-files', [changes])
+          },
+        ),
       saveIdea: async (idea, expected) => {
         const root = await session.root()
         const saved = await ideaStore.applyDraft(root, idea, expected)
@@ -1020,6 +1035,47 @@ const claudeHandlers = {
   },
   reset: session => session.claude.reset(),
   cancel: session => session.claude.cancel(),
+}
+
+/** @param {WindowSession} session @param {string} query @param {boolean} matchCase @param {AbortSignal} signal */
+async function searchClaudeWorker(session, query, matchCase, signal) {
+  signal.throwIfAborted()
+  const id = randomUUID()
+  const cancel = () => void session.call('claude-search-cancel', [id]).catch(() => {})
+  signal.addEventListener('abort', cancel, { once: true })
+  try {
+    const value = await session.call('claude-search', [id, query, matchCase])
+    if (
+      value === null ||
+      typeof value !== 'object' ||
+      !('matches' in value) ||
+      !Array.isArray(value.matches) ||
+      !('truncated' in value) ||
+      typeof value.truncated !== 'boolean'
+    )
+      throw new Error('The project text search is unavailable.')
+    const matches = /** @type {unknown[]} */ (value.matches)
+    if (!matches.every(isClaudeSearchMatch)) throw new Error('The project text search is unavailable.')
+    return { matches, truncated: value.truncated }
+  } finally {
+    signal.removeEventListener('abort', cancel)
+  }
+}
+
+/** @param {unknown} value @returns {value is import('../../tools/assistant/gist-search.mjs').ClaudeSearchMatch} */
+function isClaudeSearchMatch(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'path' in value &&
+    typeof value.path === 'string' &&
+    'text' in value &&
+    typeof value.text === 'string' &&
+    'line' in value &&
+    typeof value.line === 'number' &&
+    'column' in value &&
+    typeof value.column === 'number'
+  )
 }
 
 /** @param {Awaited<ReturnType<ClaudeCredentials['status']>>} status */

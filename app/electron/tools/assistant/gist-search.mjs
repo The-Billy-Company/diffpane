@@ -13,13 +13,18 @@ const MAX_GIST_OUTPUT_BYTES = 128 * 1024
 const MAX_CANDIDATES = 80
 const MAX_MATCHES = 40
 const MAX_MATCH_CHARS = 12_000
-const MISSING_GIST = 'Gist is unavailable. Install the Gist CLI to search project text.'
 const PRIVATE_GLOB =
   '{.git,.gist,.env,.env.*,.git-credentials,.netrc,.npmrc,.pypirc,.ssh,id_{rsa,dsa,ecdsa,ed25519},id_{rsa,dsa,ecdsa,ed25519}.*,{credentials,secrets}.json,*.{pem,key,p12,pfx,keystore}}'.replace(
     /[a-z]/gu,
     letter => `[${letter}${letter.toUpperCase()}]`,
   )
 const run = promisify(execFile)
+
+/** @typedef {{root: string, scope: string}} SearchWorkspace */
+/** @typedef {{path: string, line: number, column: number, text: string}} ClaudeSearchMatch */
+/** @typedef {{matches: ClaudeSearchMatch[], truncated: boolean}} ClaudeSearchResult */
+/** @typedef {(signal: AbortSignal) => Promise<{paths: readonly string[], truncated: boolean}>} SearchPaths */
+/** @typedef {(query: string, matchCase: boolean, signal: AbortSignal) => Promise<ClaudeSearchResult>} FallbackSearch */
 
 /** @param {NodeJS.ProcessEnv} env */
 function gistBinary(env) {
@@ -58,7 +63,7 @@ function visibleSearchPath(filename) {
  */
 async function gistOutput(scope, query, matchCase, signal, env) {
   const binary = gistBinary(env)
-  if (!binary) throw new Error(MISSING_GIST)
+  if (!binary) return null
   const gistEnv = Object.fromEntries(Object.entries(env).filter(([key]) => !key.startsWith('GIST_')))
   const timeout = AbortSignal.timeout(GIST_TIMEOUT_MS)
   try {
@@ -92,40 +97,57 @@ async function gistOutput(scope, query, matchCase, signal, env) {
         windowsHide: true,
       },
     )
-    return { stdout, truncated: false }
+    return !stdout || stdout.includes('\0') ? { stdout, truncated: false } : null
   } catch (error) {
     signal.throwIfAborted()
     const code = error instanceof Error && 'code' in error ? error.code : undefined
-    if (code === 1) return { stdout: '', truncated: false }
-    if (code === 'ENOENT' || code === 'EACCES') throw new Error(MISSING_GIST, { cause: error })
+    const stderr = error instanceof Error && 'stderr' in error && typeof error.stderr === 'string' ? error.stderr : ''
+    if (code === 1 && !stderr.trim()) return { stdout: '', truncated: false }
     if (timeout.aborted || code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
       const stdout = error instanceof Error && 'stdout' in error && typeof error.stdout === 'string' ? error.stdout : ''
-      return { stdout, truncated: true }
+      if (stdout.includes('\0')) return { stdout, truncated: true }
     }
-    throw new Error('Gist could not search this workspace.', { cause: error })
+    return null
   }
 }
 
+/** @param {SearchWorkspace} workspace @param {string} query @param {AbortSignal} signal */
+async function searchScope(workspace, query, signal) {
+  if (!query.trim() || query.length > MAX_GIST_QUERY_LENGTH || !query.isWellFormed() || /[\r\n\0]/u.test(query))
+    throw new Error(`Use a nonblank, single-line phrase of up to ${MAX_GIST_QUERY_LENGTH} characters.`)
+  signal.throwIfAborted()
+  const scope = path.relative(workspace.root, workspace.scope).split(path.sep).join('/')
+  if (scope && !visibleSearchPath(`${scope}/file`)) return null
+  const resolved = await realpath(workspace.scope).catch(() => null)
+  signal.throwIfAborted()
+  if (resolved !== workspace.scope)
+    throw new Error('The project folder is unavailable. Reopen the workspace to search.')
+  return scope
+}
+
 /**
- * Gist locates candidate files. The assistant's regular reader verifies each match before any source is returned.
- * @param {{root: string, scope: string}} workspace
+ * Gist locates candidate files. The assistant's reader verifies each match.
+ * @param {SearchWorkspace} workspace
  * @param {string} query
  * @param {boolean} matchCase
  * @param {AbortSignal} signal
  * @param {(filename: string) => Promise<string>} read
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {FallbackSearch} [fallback]
+ * @returns {Promise<ClaudeSearchResult>}
  */
-export async function searchClaudeGist(workspace, query, matchCase, signal, read, env = process.env) {
-  if (!query.trim() || query.length > MAX_GIST_QUERY_LENGTH || !query.isWellFormed() || /[\r\n\0]/u.test(query))
-    throw new Error(`Use a nonblank, single-line phrase of up to ${MAX_GIST_QUERY_LENGTH} characters.`)
-  signal.throwIfAborted()
-  const scope = path.relative(workspace.root, workspace.scope).split(path.sep).join('/')
-  if (scope && !visibleSearchPath(`${scope}/file`)) return { matches: [], truncated: false }
-  const resolved = await realpath(workspace.scope).catch(() => null)
-  signal.throwIfAborted()
-  if (resolved !== workspace.scope)
-    throw new Error('The project folder is unavailable. Reopen the workspace to search.')
-  const { stdout, truncated } = await gistOutput(workspace.scope, query, matchCase, signal, env)
+export async function searchClaudeGist(workspace, query, matchCase, signal, read, env = process.env, fallback) {
+  const scope = await searchScope(workspace, query, signal)
+  if (scope === null) return { matches: [], truncated: false }
+  const output = await gistOutput(workspace.scope, query, matchCase, signal, env)
+  if (!output) {
+    signal.throwIfAborted()
+    if (!fallback) throw new Error('Search could not start in this workspace.')
+    const result = await fallback(query, matchCase, signal)
+    signal.throwIfAborted()
+    return result
+  }
+  const { stdout, truncated } = output
   const files = stdout.split('\0')
   const partialPath = Boolean(files.pop())
   /** @type {Set<string>} */
@@ -133,14 +155,48 @@ export async function searchClaudeGist(workspace, query, matchCase, signal, read
   for (const file of files) {
     const relative = file.replace(/^\.\//u, '')
     const filename = scope ? `${scope}/${relative}` : relative
-    if (claudeVisiblePath(relative) && visibleSearchPath(filename)) paths.add(filename)
+    if (visibleSearchPath(relative)) paths.add(filename)
   }
+  return scanFiles(scope, query, matchCase, signal, read, async () => ({
+    paths: [...paths].toSorted((left, right) => left.localeCompare(right)).slice(0, MAX_CANDIDATES),
+    truncated: truncated || partialPath || paths.size > MAX_CANDIDATES,
+  }))
+}
+
+/**
+ * Search Git's project inventory with the same output bounds as Gist.
+ * @param {SearchWorkspace} workspace
+ * @param {string} query
+ * @param {boolean} matchCase
+ * @param {AbortSignal} signal
+ * @param {(filename: string) => Promise<string>} read
+ * @param {SearchPaths} paths
+ */
+export async function searchClaudeFiles(workspace, query, matchCase, signal, read, paths) {
+  const scope = await searchScope(workspace, query, signal)
+  if (scope === null) return { matches: [], truncated: false }
+  return scanFiles(scope, query, matchCase, signal, read, paths)
+}
+
+/**
+ * @param {string} scope
+ * @param {string} query
+ * @param {boolean} matchCase
+ * @param {AbortSignal} signal
+ * @param {(filename: string) => Promise<string>} read
+ * @param {SearchPaths} candidates
+ * @returns {Promise<ClaudeSearchResult>}
+ */
+async function scanFiles(scope, query, matchCase, signal, read, candidates) {
   const results = await searchRepositoryContent(
     {
-      contentSearchPaths: async () => ({
-        paths: [...paths].toSorted((left, right) => left.localeCompare(right)).slice(0, MAX_CANDIDATES),
-        truncated: truncated || partialPath || paths.size > MAX_CANDIDATES,
-      }),
+      async contentSearchPaths(_changed, pathSignal) {
+        const { paths, truncated } = await candidates(pathSignal)
+        return {
+          paths: paths.filter(filename => visibleSearchPath(filename) && (!scope || filename.startsWith(`${scope}/`))),
+          truncated,
+        }
+      },
       async contentSearchFile(filename, readSignal) {
         readSignal.throwIfAborted()
         const source = await read(filename).catch(() => null)

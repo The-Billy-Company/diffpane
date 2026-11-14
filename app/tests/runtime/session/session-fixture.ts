@@ -133,6 +133,9 @@ const RESPONSE_VALIDATORS = {
   performance: isPerformance,
   rename: isString,
   save: isNull,
+  'claude-check-create': isNull,
+  'claude-save-files': isNull,
+  'claude-read': isString,
   'directory-expanded': isNull,
   'language-dispose': isNull,
 }

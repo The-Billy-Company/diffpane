@@ -214,6 +214,7 @@ async function responseMessage(response, onText, signal, timeout) {
   /** @type {'awaiting-start' | 'content' | 'message-delta'} */
   let phase = 'awaiting-start'
   let hasText = false
+  let invalidToolInput = false
   for await (const event of responseEvents(response, signal, timeout)) {
     if (!isRecord(event) || typeof event.type !== 'string') throw invalidStream()
     if (event.type === 'error') {
@@ -268,7 +269,7 @@ async function responseMessage(response, onText, signal, timeout) {
           if (!isRecord(parsed)) throw invalidStream()
           block.input = parsed
         } catch {
-          throw invalidStream()
+          invalidToolInput = true
         }
       }
       openBlock = undefined
@@ -281,6 +282,7 @@ async function responseMessage(response, onText, signal, timeout) {
       }
     } else if (event.type === 'message_stop') {
       if (phase !== 'message-delta' || typeof stopReason !== 'string') throw invalidStream()
+      if (invalidToolInput && stopReason !== 'max_tokens') throw invalidStream()
       return readMessage({ content, stop_reason: stopReason })
     }
   }
@@ -289,11 +291,11 @@ async function responseMessage(response, onText, signal, timeout) {
 
 /**
  * @param {string} key
- * @param {{ system: string, messages: ClaudeMessage[], tools: ClaudeTool[] }} requestOptions
+ * @param {{ system: string, messages: ClaudeMessage[], tools: ClaudeTool[], edit: boolean }} requestOptions
  * @param {AbortSignal} signal
  * @param {(text: string) => void} onText
  */
-export async function requestClaude(key, { system, messages, tools }, signal, onText) {
+export async function requestClaude(key, { system, messages, tools, edit }, signal, onText) {
   const timeout = AbortSignal.timeout(45_000)
   const response = await request(
     '/messages',
@@ -302,7 +304,7 @@ export async function requestClaude(key, { system, messages, tools }, signal, on
       method: 'POST',
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 4096,
+        max_tokens: edit ? 8192 : 4096,
         thinking: { type: 'disabled' },
         stream: true,
         system,

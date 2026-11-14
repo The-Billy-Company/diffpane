@@ -303,7 +303,7 @@ export function createAssistant(
     promptInput.placeholder = pending
       ? 'Review the proposal to continue'
       : mode === 'edit'
-        ? 'Describe a change'
+        ? 'Describe what should change'
         : attachedIdea
           ? 'What should I look for in this idea?'
           : 'What should I look into?'
@@ -443,6 +443,12 @@ export function createAssistant(
   const unsubscribeActivity = claude.onActivity(event => {
     const state = activeSend
     if (!state || event.requestId !== state.id || state.stopping) return
+    if (event.type === 'mode') {
+      mode = event.mode
+      announcement.textContent = 'Switched to Edit mode.'
+      render()
+      return
+    }
     if (event.type === 'text') {
       state.working.hidden = true
       addReplyText(state, event.step, event.text, true)

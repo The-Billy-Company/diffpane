@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test, vi } from 'vite-plus/test'
 import { readClaudeFile } from '../../../electron/tools/assistant/claude-workspace.mjs'
-import { searchClaudeGist } from '../../../electron/tools/assistant/gist-search.mjs'
+import { searchClaudeFiles, searchClaudeGist } from '../../../electron/tools/assistant/gist-search.mjs'
 
 const { run } = vi.hoisted(() => ({
   run: vi.fn<(binary: string, args: string[], options: { cwd: string }) => Promise<{ stdout: string }>>(),
@@ -66,3 +66,36 @@ test.skipIf(process.platform === 'win32')(
     })
   },
 )
+
+test.skipIf(process.platform === 'win32')('falls back to project file search when Gist cannot run', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-gist-fallback-')))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const scope = path.join(root, 'project')
+  const gitDir = path.join(root, '.git')
+  const workspace = { root, scope, gitDir, commonDir: gitDir }
+  const query = '[Needle]'
+  await mkdir(scope)
+  await Promise.all([
+    writeFile(path.join(root, 'gist'), '', { mode: 0o700 }),
+    writeFile(path.join(root, 'outside.txt'), query),
+    writeFile(path.join(scope, '.env'), query),
+    writeFile(path.join(scope, 'source.txt'), '🙂[needle]\n'),
+  ])
+  await symlink(path.join(root, 'outside.txt'), path.join(scope, 'linked.txt'))
+  run.mockReset().mockRejectedValue(Object.assign(new Error('Cannot start Gist'), { code: 'EACCES' }))
+  const read = vi.fn<(filename: string) => Promise<string>>(filename => readClaudeFile(workspace, filename))
+  const fallback = vi.fn<NonNullable<Parameters<typeof searchClaudeGist>[6]>>((phrase, matchCase, signal) =>
+    searchClaudeFiles(workspace, phrase, matchCase, signal, read, async () => ({
+      paths: ['outside.txt', 'project/.env', 'project/.gist/state', 'project/linked.txt', 'project/source.txt'],
+      truncated: true,
+    })),
+  )
+  const signal = new AbortController().signal
+
+  expect(await searchClaudeGist(workspace, query, false, signal, read, { PATH: root }, fallback)).toEqual({
+    matches: [{ path: 'project/source.txt', line: 1, column: 3, text: '🙂[needle]' }],
+    truncated: true,
+  })
+  expect(fallback).toHaveBeenCalledExactlyOnceWith(query, false, signal)
+  expect(read.mock.calls).toEqual([['project/linked.txt'], ['project/source.txt']])
+})

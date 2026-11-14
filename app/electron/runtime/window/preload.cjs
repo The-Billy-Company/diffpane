@@ -224,11 +224,29 @@ function isReviewNote(value) {
 function isClaudeStatus(value) {
   return isRecord(value) && isBoolean(value.configured) && isBoolean(value.secureStorage)
 }
+function isClaudeFileEdit(value) {
+  return isRecord(value) && isString(value.before) && isString(value.after) && isPositive(value.startLine)
+}
 function isClaudeProposal(value) {
-  if (!isRecord(value) || !isString(value.id) || !isString(value.before) || !isString(value.after)) return false
-  if (value.kind === 'file') return isString(value.path) && isPositive(value.startLine)
+  if (!isRecord(value) || !isString(value.id)) return false
+  if (value.kind === 'files')
+    return (
+      Array.isArray(value.files) &&
+      value.files.length > 0 &&
+      value.files.every(
+        file =>
+          isRecord(file) &&
+          isString(file.path) &&
+          (file.action === 'edit' || file.action === 'create') &&
+          Array.isArray(file.edits) &&
+          (file.action === 'create' || file.edits.length > 0) &&
+          file.edits.every(isClaudeFileEdit),
+      )
+    )
   return (
     value.kind === 'idea' &&
+    isString(value.before) &&
+    isString(value.after) &&
     (value.action === 'create' || value.action === 'update') &&
     isString(value.ideaId) &&
     isString(value.title) &&
@@ -239,11 +257,15 @@ function isClaudeReply(value) {
   return isRecord(value) && isString(value.text) && isCount(value.step) && optional(isClaudeProposal)(value.proposal)
 }
 function isClaudeApplied(value) {
-  return isRecord(value) && (isString(value.path) || isIdea(value.idea))
+  return (
+    isRecord(value) &&
+    ((Array.isArray(value.paths) && value.paths.length > 0 && value.paths.every(isString)) || isIdea(value.idea))
+  )
 }
 function isClaudeActivity(value) {
   if (!isRecord(value) || !isString(value.requestId) || !isCount(value.step)) return false
   if (value.type === 'text') return isString(value.text)
+  if (value.type === 'mode') return value.mode === 'edit'
   return (
     value.type === 'tool' &&
     isString(value.id) &&

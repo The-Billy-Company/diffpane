@@ -9,12 +9,13 @@ import { countLines } from '../../../shared/documents/text-lines.ts'
 import { appError, attemptAsync, serializeAppError } from '../../../shared/recovery/app-errors.ts'
 import { HowManyRuntime } from '../../tools/analysis/howmany.mjs'
 import { claudeVisiblePath, readClaudeFile } from '../../tools/assistant/claude-workspace.mjs'
+import { searchClaudeFiles } from '../../tools/assistant/gist-search.mjs'
 import { LanguageRuntime } from '../../tools/languages/language.mjs'
 import { DiffRuntime } from '../../workspace/comparison/diff-runtime.ts'
 import { DocumentCache } from '../../workspace/documents/document-cache.ts'
 import { searchRepositoryContent } from '../../workspace/repository/content-search.mjs'
 import { operationPath, renameEntry } from '../../workspace/repository/file-operations.ts'
-import { Repository } from '../../workspace/repository/repository.mjs'
+import { parseClaudeFileChanges, Repository } from '../../workspace/repository/repository.mjs'
 import { InventoryDelta } from './inventory-delta.ts'
 
 import {
@@ -117,6 +118,8 @@ let shuttingDown = false
 const activeRequests = new Set()
 /** @type {AbortController | undefined} */
 let contentSearchController
+/** @type {Map<string, AbortController>} */
+const claudeSearchControllers = new Map()
 /** @type {Promise<unknown>} */
 let directoryChanges = Promise.resolve()
 /** @type {Set<string>} */
@@ -578,6 +581,7 @@ async function performRefresh() {
     if (
       snapshot &&
       !all &&
+      !refreshInventory &&
       paths.length &&
       checkpoint?.id === snapshot?.checkpoint?.id &&
       !paths.some(file => {
@@ -789,6 +793,21 @@ async function claudeFile(filePath) {
   return file
 }
 
+/** @param {readonly {path: string, type: 'create' | 'update'}[]} saved */
+function notifyFileSaves(saved) {
+  const paths = saved.map(file => file.path)
+  documents.invalidate(paths)
+  for (const file of saved) {
+    const absolute = path.join(repository.root, file.path)
+    changes.add(absolute)
+    languageChanges.set(absolute, { path: absolute, type: file.type })
+  }
+  if (saved.some(file => file.type === 'create' || path.posix.basename(file.path) === '.gitignore'))
+    inventoryDirty = true
+  port.postMessage({ event: 'paths', value: paths })
+  schedule()
+}
+
 /** @param {string} filePath @param {string} comparison @returns {Promise<WorkspaceDocument>} */
 async function document(filePath, comparison, priority = false) {
   if (
@@ -853,6 +872,7 @@ async function dispose() {
   shuttingDown = true
   clearInterval(performanceTimer)
   contentSearchController?.abort()
+  for (const controller of claudeSearchControllers.values()) controller.abort()
   clearTimeout(timer)
   clearTimeout(fallbackTimer)
   clearTimeout(externalReviewTimer)
@@ -946,6 +966,29 @@ async function receive({ id, method, args }) {
         paths.push(file.path)
       }
       value = { paths, truncated }
+    } else if (method === 'claude-search') {
+      const searchId = sessionString(args[0], 'search ID')
+      const query = sessionString(args[1], 'search text')
+      const matchCase = sessionBoolean(args[2], 'search case sensitivity')
+      const controller = new AbortController()
+      claudeSearchControllers.set(searchId, controller)
+      try {
+        value = await searchClaudeFiles(
+          repository,
+          query,
+          matchCase,
+          controller.signal,
+          filename => readClaudeFile(repository, filename),
+          signal => repository.contentSearchPaths(false, signal),
+        )
+      } finally {
+        claudeSearchControllers.delete(searchId)
+      }
+    } else if (method === 'claude-search-cancel') {
+      claudeSearchControllers.get(sessionString(args[0], 'search ID'))?.abort()
+    } else if (method === 'claude-check-create') {
+      await repository.checkClaudeCreate(sessionString(args[0], 'file path'))
+      value = null
     } else if (method === 'claude-read') {
       const filename = sessionString(args[0], 'file path')
       const side = args[1]
@@ -982,21 +1025,31 @@ async function receive({ id, method, args }) {
       value = inventoryDelta.update(base, catalogIndexRevision, catalogIndex)
     } else if (method === 'document')
       value = await document(sessionString(args[0], 'file path'), sessionString(args[1], 'comparison'), true)
-    else if (method === 'save' || method === 'claude-save') {
+    else if (method === 'claude-save-files') {
+      const edited = parseClaudeFileChanges(args[0])
+      await Promise.all(edited.filter(file => file.expected !== null).map(file => claudeFile(file.path)))
+      try {
+        await repository.saveClaudeFiles(edited)
+      } catch (error) {
+        if (errorCode(error) === 'SAVE_RECOVERY_FAILED') {
+          force = true
+          documents.invalidate()
+          port.postMessage({ event: 'paths', value: ['*'] })
+          schedule()
+        }
+        throw error
+      }
+      notifyFileSaves(edited.map(file => ({ path: file.path, type: file.expected === null ? 'create' : 'update' })))
+      value = null
+    } else if (method === 'save') {
       const filePath = sessionString(args[0], 'file path')
       const text = sessionString(args[1], 'file text')
       const expected = sessionString(args[2], 'expected file text')
-      const claude = method === 'claude-save'
-      const file = await (claude ? claudeFile(filePath) : findFile(filePath))
+      const file = await findFile(filePath)
       if (!file || file.submodule)
         throw appError('This file is no longer available in this directory.', { code: 'DOCUMENT_UNAVAILABLE' })
-      await repository.save(filePath, text, expected, claude)
-      documents.invalidate([filePath])
-      const absolute = path.join(repository.root, filePath)
-      changes.add(absolute)
-      languageChanges.set(absolute, { path: absolute, type: 'update' })
-      port.postMessage({ event: 'paths', value: [filePath] })
-      schedule()
+      await repository.save(filePath, text, expected)
+      notifyFileSaves([{ path: filePath, type: 'update' }])
       value = null
     } else if (method === 'media') {
       const file = await findFile(sessionString(args[0], 'file path'))

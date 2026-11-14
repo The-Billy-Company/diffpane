@@ -194,6 +194,24 @@ const injectedWatchSetup = `
       });
     `
 
+test('Creature saves grouped files and publishes a new file to the inventory without a watcher', async t => {
+  const repo = await fixture(t, { fileCount: 1, setup: injectedWatchSetup })
+  const initial = await repo.call('snapshot')
+  const first = 'src/file0.txt'
+  const created = 'src/created.txt'
+  assert.ok(!(await repo.call('files')).some(file => file.path === created))
+  await repo.call('claude-check-create', created)
+  await repo.call('claude-save-files', [
+    { path: first, expected: 'baseline 0\n', text: 'revised\n' },
+    { path: created, expected: null, text: 'new file\n' },
+  ])
+  await repo.waitFor(snapshot => snapshot.inventoryRevision > initial.inventoryRevision)
+  assert.ok((await repo.call('files')).some(file => file.path === created))
+  assert.equal(await repo.call('claude-read', first, 'working'), 'revised\n')
+  assert.equal(await repo.call('claude-read', created, 'working'), 'new file\n')
+  assert.ok(repo.pathEvents.includes(first) && repo.pathEvents.includes(created))
+})
+
 test('workspace request diagnostics correlate failures without exposing request data', async t => {
   const repo = await fixture(t, {
     fileCount: 1,

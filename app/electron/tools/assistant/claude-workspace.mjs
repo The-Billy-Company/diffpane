@@ -7,6 +7,7 @@ import { operationPath } from '../../workspace/repository/file-operations.ts'
 
 export const MAX_CLAUDE_FILE_BYTES = 512 * 1024
 export const MAX_CLAUDE_READ_FILES = 8
+export const MAX_CLAUDE_EDIT_FILES = 16
 const PRIVATE_NAME =
   /^(?:\.env(?:\.|$)|\.git$|\.git-credentials$|\.netrc$|\.npmrc$|\.pypirc$|\.ssh$|id_(?:rsa|dsa|ecdsa|ed25519)(?:\.|$)|(?:credentials|secrets)\.json$)|\.(?:pem|key|p12|pfx|keystore)$/iu
 function unavailable() {
@@ -22,17 +23,22 @@ export function clip(text, limit) {
 
 /** @param {string} text @param {unknown} [start] @param {unknown} [last] @param {number} [limit] */
 export function lineRange(text, start = 1, last, limit = 6500) {
+  return rangeFromLines(text.split(/\r\n?|\n/u), start, last, limit)
+}
+
+/** @param {string[]} lines @param {unknown} [start] @param {unknown} [last] @param {number} [limit] */
+export function rangeFromLines(lines, start = 1, last, limit = 6500) {
   if (typeof start !== 'number' || !Number.isSafeInteger(start) || start < 1)
     throw new ClaudeLineRangeError('Choose a valid line range.')
   const end = last === undefined ? start + 79 : last
   if (typeof end !== 'number' || !Number.isSafeInteger(end) || end < start)
     throw new ClaudeLineRangeError('Choose a valid line range.')
-  const lines = text.split(/\r\n?|\n/u)
   if (start > lines.length) throw new ClaudeLineRangeError(`This text has ${lines.length} lines.`)
   const selected = []
   let remaining = limit
   let clippedLine = false
-  for (const line of lines.slice(start - 1, Math.min(end, start + 119))) {
+  for (let index = start - 1; index < Math.min(end, start + 119, lines.length); index++) {
+    const line = lines[index] ?? ''
     if (remaining <= 0) break
     if (line.length > remaining && selected.length) break
     if (line.length > remaining) clippedLine = true
@@ -47,6 +53,8 @@ export function lineRange(text, start = 1, last, limit = 6500) {
     totalLines: lines.length,
     text: selected.join('\n'),
     truncated: clippedLine || endLine < Math.min(end, lines.length),
+    nextLine: endLine < lines.length ? endLine + 1 : undefined,
+    clippedLine: clippedLine || undefined,
   }
 }
 

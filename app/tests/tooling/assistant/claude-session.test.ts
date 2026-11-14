@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { expect, test, vi } from 'vite-plus/test'
 import { ClaudeSession } from '../../../electron/tools/assistant/claude-session.mjs'
-import type { ClaudeActivity, ClaudeWorkspace } from '../../../electron/tools/assistant/claude-session.mjs'
+import type {
+  ClaudeActivity,
+  ClaudeWorkspace,
+  ProposalWorkspace,
+} from '../../../electron/tools/assistant/claude-session.mjs'
 import { createDiagnostics } from '../../../shared/diagnostics/diagnostics.ts'
 import type { DiagnosticEvent } from '../../../shared/diagnostics/diagnostics.ts'
 
@@ -27,7 +31,7 @@ function toolBlock(index: number, id: string, name: string, ...parts: string[]) 
   ]
 }
 
-function stream(stop_reason: 'tool_use' | 'end_turn', blocks: readonly { type: string }[]) {
+function stream(stop_reason: 'tool_use' | 'end_turn' | 'max_tokens', blocks: readonly { type: string }[]) {
   return eventStream([
     { type: 'message_start', message: { role: 'assistant', content: [] } },
     ...blocks,
@@ -57,6 +61,7 @@ const emptyWorkspace = {
   list: async () => ({ paths: [], truncated: false }),
   read: async () => '',
   search: async () => ({ matches: [], truncated: false }),
+  checkCreate: async () => {},
   listIdeas: async () => [],
   readIdea: async () => undefined,
 } satisfies ClaudeWorkspace
@@ -180,7 +185,11 @@ test('streams ordered activity and fetches attached workspace content only when 
   expect(readIdea).toHaveBeenCalledExactlyOnceWith(idea.id)
   expect(list).not.toHaveBeenCalled()
   expect(
-    activity.map(event => (event.type === 'text' ? [event.step, event.text] : [event.step, event.id, event.status])),
+    activity.map(event => {
+      if (event.type === 'text') return [event.step, event.text]
+      if (event.type === 'mode') return [event.step, event.mode]
+      return [event.step, event.id, event.status]
+    }),
   ).toEqual([
     [0, 'I’ll check '],
     [0, 'both references.'],
@@ -248,8 +257,18 @@ test('reads explicit file ranges in a batch and records the returned working exc
     .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'batch', 'read_files', JSON.stringify({ files }))))
     .mockResolvedValueOnce(
       stream('tool_use', [
-        ...toolBlock(0, 'unread-edit', 'propose_edit', '{"path":"first.txt","before":"Unrequested line","after":"No"}'),
-        ...toolBlock(1, 'read-edit', 'propose_edit', '{"path":"first.txt","before":"Working line","after":"Updated"}'),
+        ...toolBlock(
+          0,
+          'unread-edit',
+          'edit_files',
+          '{"files":[{"path":"first.txt","edits":[{"before":"Unrequested line","after":"No"}]}]}',
+        ),
+        ...toolBlock(
+          1,
+          'read-edit',
+          'edit_files',
+          '{"files":[{"path":"first.txt","edits":[{"before":"Working line","after":"Updated"}]}]}',
+        ),
       ]),
     )
     .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature prepared the edit.')))
@@ -281,7 +300,10 @@ test('reads explicit file ranges in a batch and records the returned working exc
     truncated: false,
   })
   expect(toolResult(fetch.mock.calls[2]?.[1], 'unread-edit').isError).toBe(true)
-  expect(result.proposal).toMatchObject({ kind: 'file', path: 'first.txt', startLine: 2, before: 'Working line' })
+  expect(result.proposal).toMatchObject({
+    kind: 'files',
+    files: [{ path: 'first.txt', edits: [{ startLine: 2, before: 'Working line\n' }] }],
+  })
 })
 
 test('an invalid batch range lets a later batch read see the updated file', async t => {
@@ -318,8 +340,18 @@ test('bounds serialized batch excerpts and excludes omitted text from edit evide
     .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'batch', 'read_files', JSON.stringify({ files }))))
     .mockResolvedValueOnce(
       stream('tool_use', [
-        ...toolBlock(0, 'omitted', 'propose_edit', '{"path":"file0.txt","before":"Omitted suffix","after":"No"}'),
-        ...toolBlock(1, 'visible', 'propose_edit', '{"path":"file7.txt","before":"Visible prefix","after":"Yes"}'),
+        ...toolBlock(
+          0,
+          'omitted',
+          'edit_files',
+          '{"files":[{"path":"file0.txt","edits":[{"before":"Omitted suffix","after":"No"}]}]}',
+        ),
+        ...toolBlock(
+          1,
+          'visible',
+          'edit_files',
+          '{"files":[{"path":"file7.txt","edits":[{"before":"Visible prefix","after":"Yes"}]}]}',
+        ),
       ]),
     )
     .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature prepared the edit.')))
@@ -340,7 +372,7 @@ test('bounds serialized batch excerpts and excludes omitted text from edit evide
     truncated: true,
   })
   expect(toolResult(fetch.mock.calls[2]?.[1], 'omitted').isError).toBe(true)
-  expect(result.proposal).toMatchObject({ kind: 'file', path: 'file7.txt', before: 'Visible prefix' })
+  expect(result.proposal).toMatchObject({ kind: 'files', files: [{ path: 'file7.txt' }] })
 })
 
 test('sends an exact phrase to Gist and exposes its locations without granting edit evidence', async t => {
@@ -356,8 +388,8 @@ test('sends an exact phrase to Gist and exposes its locations without granting e
         ...toolBlock(
           1,
           'edit',
-          'propose_edit',
-          '{"path":"src/example.ts","before":"x --[Needle] y","after":"Updated"}',
+          'edit_files',
+          '{"files":[{"path":"src/example.ts","edits":[{"before":"x --[Needle] y","after":"Updated"}]}]}',
         ),
       ]),
     )
@@ -382,4 +414,182 @@ test('sends an exact phrase to Gist and exposes its locations without granting e
   expect(JSON.parse(toolResult(fetch.mock.calls[1]?.[1], 'search').content)).toEqual({ matches, truncated: true })
   expect(toolResult(fetch.mock.calls[1]?.[1], 'edit').isError).toBe(true)
   expect(result.proposal).toBeUndefined()
+})
+
+test('stages and rereads a multi-file change before applying against its original versions', async t => {
+  const original = 'unchanged\r\nrepeat\r\nmiddle\r\nrepeat\r\nlast\r\n'
+  const read = vi.fn<ClaudeWorkspace['read']>(async () => original)
+  const checkCreate = vi.fn<ClaudeWorkspace['checkCreate']>(async filename => {
+    if (filename === 'occupied.txt') throw new Error('The destination already exists.')
+  })
+  const edit = (index: number, id: string, files: unknown[]) =>
+    toolBlock(index, id, 'edit_files', JSON.stringify({ files }))
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'read-top', 'read_file', '{"path":"old.txt","start_line":2,"end_line":2}'),
+        ...edit(1, 'unread-duplicate', [
+          { path: 'old.txt', edits: [{ before: 'repeat', after: 'bad', start_line: 4 }] },
+        ]),
+        ...edit(2, 'invalid-create', [
+          { path: 'old.txt', edits: [{ before: 'repeat', after: 'bad', start_line: 2 }] },
+          { path: 'occupied.txt', content: 'bad' },
+        ]),
+      ]),
+    )
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'read-bottom', 'read_file', '{"path":"old.txt","start_line":4,"end_line":5}'),
+        ...edit(1, 'stage', [
+          {
+            path: 'old.txt',
+            edits: [
+              { before: 'repeat', after: 'top', start_line: 2 },
+              { before: 'repeat\nlast', after: 'bottom\nlast', start_line: 4 },
+            ],
+          },
+          { path: 'new.txt', content: 'new\n' },
+        ]),
+      ]),
+    )
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'read-staged', 'read_files', '{"files":[{"path":"old.txt"},{"path":"new.txt"}]}'),
+        ...edit(1, 'refine', [{ path: 'old.txt', edits: [{ before: 'top', after: 'first' }] }]),
+      ]),
+    )
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature has two files ready to review.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const session = new ClaudeSession()
+  const result = await session.send({ prompt: 'Update and create text files', proposeEdits: true }, key, {
+    ...emptyWorkspace,
+    checkCreate,
+    read,
+  })
+
+  expect(toolResult(fetch.mock.calls[1]?.[1], 'unread-duplicate')).toMatchObject({ isError: true })
+  expect(toolResult(fetch.mock.calls[1]?.[1], 'invalid-create')).toMatchObject({
+    isError: true,
+    content: 'The destination already exists.',
+  })
+  expect(toolResult(fetch.mock.calls[2]?.[1], 'stage')).toMatchObject({ isError: false })
+  expect(JSON.parse(toolResult(fetch.mock.calls[3]?.[1], 'read-staged').content)).toMatchObject({
+    files: [{ text: 'unchanged\ntop\nmiddle\nbottom\nlast\n' }, { text: 'new\n' }],
+  })
+  expect(read).toHaveBeenCalledExactlyOnceWith('old.txt', 'working')
+  expect(checkCreate.mock.calls).toEqual([['occupied.txt'], ['new.txt']])
+  expect(result.proposal).toMatchObject({
+    kind: 'files',
+    files: [
+      {
+        path: 'old.txt',
+        action: 'edit',
+        edits: [
+          { before: 'repeat\r\n', after: 'first\r\n', startLine: 2 },
+          { before: 'repeat\r\n', after: 'bottom\r\n', startLine: 4 },
+        ],
+      },
+      { path: 'new.txt', action: 'create', edits: [{ before: '', after: 'new\n', startLine: 1 }] },
+    ],
+  })
+  const saveFiles = vi
+    .fn<ProposalWorkspace['saveFiles']>()
+    .mockRejectedValueOnce(new Error('Source changed'))
+    .mockResolvedValueOnce(undefined)
+  const saveIdea = vi.fn<ProposalWorkspace['saveIdea']>()
+  await expect(session.apply(result.proposal?.id, { saveFiles, saveIdea })).rejects.toThrow('Source changed')
+  await expect(session.apply(result.proposal?.id, { saveFiles, saveIdea })).resolves.toEqual({
+    paths: ['old.txt', 'new.txt'],
+  })
+  expect(saveFiles).toHaveBeenLastCalledWith([
+    { path: 'old.txt', expected: original, text: 'unchanged\r\nfirst\r\nmiddle\r\nbottom\r\nlast\r\n' },
+    { path: 'new.txt', expected: null, text: 'new\n' },
+  ])
+})
+
+test('keeps completed drafts when the model runs out of tokens in a later tool call', async t => {
+  const checkCreate = vi.fn<ClaudeWorkspace['checkCreate']>(emptyWorkspace.checkCreate)
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(
+      stream('tool_use', toolBlock(0, 'stage', 'edit_files', '{"files":[{"path":"done.txt","content":"Done"}]}')),
+    )
+    .mockResolvedValueOnce(
+      stream('max_tokens', toolBlock(0, 'cut-off', 'edit_files', '{"files":[{"path":"partial.txt","content":"')),
+    )
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const result = await new ClaudeSession().send({ prompt: 'Create two text files', proposeEdits: true }, key, {
+    ...emptyWorkspace,
+    checkCreate,
+  })
+
+  expect(checkCreate).toHaveBeenCalledExactlyOnceWith('done.txt')
+  expect(result.text).toContain('Creature ran out of room.')
+  expect(result.proposal).toMatchObject({ kind: 'files', files: [{ path: 'done.txt' }] })
+})
+
+test('Ask mode requires a switch before it can run editing tools', async t => {
+  const checkCreate = vi.fn<ClaudeWorkspace['checkCreate']>(emptyWorkspace.checkCreate)
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(
+      stream('tool_use', toolBlock(0, 'create', 'edit_files', '{"files":[{"path":"new.txt","content":"New"}]}')),
+    )
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature can look around in Ask mode.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const result = await new ClaudeSession().send({ prompt: 'Create a file' }, key, {
+    ...emptyWorkspace,
+    checkCreate,
+  })
+
+  const initial = requestBody(fetch.mock.calls[0]?.[1])
+  expect(initial).toContain('Speak like a friendly caveman')
+  expect(initial).toContain('"name":"switch_to_edit_mode"')
+  expect(initial).not.toContain('edit_files')
+  expect(toolResult(fetch.mock.calls[1]?.[1], 'create')).toMatchObject({ isError: true })
+  expect(checkCreate).not.toHaveBeenCalled()
+  expect(result.proposal).toBeUndefined()
+})
+
+test('switches to Edit mode during the same turn and carries forward earlier reads', async t => {
+  const edit = '{"files":[{"path":"file.txt","edits":[{"before":"old","after":"new"}]}]}'
+  const read = vi.fn<ClaudeWorkspace['read']>(async () => 'old\n')
+  const fetch = vi
+    .spyOn(globalThis, 'fetch')
+    .mockResolvedValueOnce(
+      stream('tool_use', [
+        ...toolBlock(0, 'source', 'read_file', '{"path":"file.txt"}'),
+        ...toolBlock(1, 'switch', 'switch_to_edit_mode'),
+        ...toolBlock(2, 'early-edit', 'edit_files', edit),
+      ]),
+    )
+    .mockResolvedValueOnce(stream('tool_use', toolBlock(0, 'edit', 'edit_files', edit)))
+    .mockResolvedValueOnce(stream('end_turn', textBlock(0, 'Creature has a change ready for review.')))
+  t.onTestFinished(() => fetch.mockRestore())
+
+  const events: ClaudeActivity[] = []
+  const reply = await new ClaudeSession().send(
+    { prompt: 'Update file.txt', proposeEdits: false, requestId: 'edit-request' },
+    key,
+    { ...emptyWorkspace, read },
+    activity => events.push(activity),
+  )
+
+  expect(requestBody(fetch.mock.calls[0]?.[1])).not.toContain('"name":"edit_files"')
+  const continuation = requestBody(fetch.mock.calls[1]?.[1])
+  expect(continuation).toContain('"name":"edit_files"')
+  expect(continuation).toContain('Speak like a friendly caveman')
+  expect(continuation).toContain('Update file.txt')
+  expect(toolResult(fetch.mock.calls[1]?.[1], 'switch').isError).toBe(false)
+  expect(toolResult(fetch.mock.calls[1]?.[1], 'early-edit').isError).toBe(true)
+  expect(toolResult(fetch.mock.calls[2]?.[1], 'edit').isError).toBe(false)
+  expect(events.filter(event => event.type === 'mode')).toEqual([
+    { type: 'mode', mode: 'edit', requestId: 'edit-request', step: 0 },
+  ])
+  expect(read).toHaveBeenCalledExactlyOnceWith('file.txt', 'working')
+  expect(reply.proposal).toMatchObject({ kind: 'files', files: [{ path: 'file.txt' }] })
 })

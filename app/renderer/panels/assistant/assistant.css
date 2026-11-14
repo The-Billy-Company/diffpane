@@ -659,7 +659,7 @@
   font-weight: var(--weight-semibold);
 }
 
-.claude-proposal[data-kind='file'] .claude-proposal-path {
+.claude-proposal[data-kind='files'] .claude-proposal-path {
   font: var(--text-label)/var(--leading-ui) var(--editor-font, var(--font-mono));
 }
 
@@ -678,6 +678,41 @@
   padding: 4px 10px;
   color: var(--muted);
   font-size: var(--text-caption);
+}
+
+.claude-proposal-file-status {
+  margin-inline-start: auto;
+  white-space: nowrap;
+}
+
+.claude-proposal-hunks {
+  display: grid;
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+
+.claude-proposal-hunks > .claude-proposal-previous {
+  margin: 2px 0 0;
+}
+
+.claude-proposal-hunk {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.claude-proposal-hunk-heading {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 4px 7px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
+
+.claude-proposal-line {
+  margin: 0;
 }
 
 .claude-proposal-stats {

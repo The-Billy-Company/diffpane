@@ -331,97 +331,163 @@ function appendDiffLines(diff, change, lines) {
   diff.append(row)
 }
 
+/** @param {string} before @param {string} after */
+function proposalDiff(before, after) {
+  const oldText = before.replace(/\r(?!\n)/gu, '\n')
+  const newText = after.replace(/\r(?!\n)/gu, '\n')
+  const changes = diffLines(oldText, newText, { timeout: 50 }) ?? [
+    { value: oldText, count: oldText ? oldText.replace(/\n$/u, '').split('\n').length : 0, removed: true },
+    { value: newText, count: newText ? newText.replace(/\n$/u, '').split('\n').length : 0, added: true },
+  ]
+  const diff = node('div', 'claude-diff')
+  diff.tabIndex = 0
+  diff.setAttribute('role', 'region')
+  diff.setAttribute('aria-label', 'Proposed changes')
+  let added = 0
+  let removed = 0
+  const changedFinalNewline = oldText && newText && oldText.endsWith('\n') !== newText.endsWith('\n')
+  for (const [index, segment] of changes.entries()) {
+    if (!segment.count) continue
+    const lines = segment.value.replace(/\r?\n$/, '').split(/\r?\n/)
+    const type =
+      'added' in segment && segment.added ? 'add' : 'removed' in segment && segment.removed ? 'remove' : 'context'
+    if (type === 'add') added += segment.count
+    if (type === 'remove') removed += segment.count
+    if (type === 'context' && lines.length > 6) {
+      if (index > 0) appendDiffLines(diff, type, lines.slice(0, 2))
+      const end = index > 0 ? 2 : 0
+      const start = index < changes.length - 1 ? 2 : 0
+      appendDiffLines(diff, 'omit', [`${lines.length - end - start} unchanged lines`])
+      if (start) appendDiffLines(diff, type, lines.slice(-start))
+    } else {
+      appendDiffLines(diff, type, lines)
+      if (changedFinalNewline && type !== 'context' && !segment.value.endsWith('\n')) {
+        appendDiffLines(diff, 'omit', ['No newline at end of text'])
+      }
+    }
+  }
+  if (oldText.replaceAll('\r\n', '\n') === newText.replaceAll('\r\n', '\n')) {
+    appendDiffLines(diff, 'omit', ['Line endings changed'])
+  }
+  return { diff, added, removed }
+}
+
+/** @param {number} added @param {number} removed */
+function proposalStats(added, removed) {
+  const stats = node('span', 'claude-proposal-stats')
+  if (added) {
+    const label = node('span', 'claude-proposal-added', `+${added}`)
+    label.setAttribute('aria-label', `${added} lines added`)
+    stats.append(label)
+  }
+  if (removed) {
+    const label = node('span', 'claude-proposal-removed', `−${removed}`)
+    label.setAttribute('aria-label', `${removed} lines removed`)
+    stats.append(label)
+  }
+  return stats
+}
+
+/** @param {string} path @param {number} startLine @param {OpenFile} [openFile] */
+function proposalLocation(path, startLine, openFile) {
+  const label = `Line ${startLine}`
+  return openFile
+    ? button(label, 'claude-proposal-line claude-proposal-target', () => {
+        runTask('Open proposed edit file', () => openFile({ path, anchor: '', startLine }))
+      })
+    : node('p', 'claude-proposal-line', label)
+}
+
+/** @param {Extract<Proposal, {kind: 'files'}>['files'][number]} file @param {boolean} open @param {OpenFile} [openFile] */
+function fileProposalPreview(file, open, openFile) {
+  const preview = node('details', 'claude-proposal-preview')
+  const summary = node('summary', 'claude-proposal-summary')
+  const path = node('span', 'claude-proposal-path', file.path)
+  path.title = file.path
+  const create = file.action === 'create'
+  const number = file.edits.length
+  const label = create ? 'New file' : `${number} ${number === 1 ? 'edit' : 'edits'}`
+  summary.append(path, node('span', 'claude-proposal-file-status', label), icon('claude-chevron', CHEVRON))
+  preview.append(summary)
+
+  function renderChanges() {
+    const changes = node('div', 'claude-proposal-hunks')
+    for (const { startLine, before, after } of file.edits) {
+      if (before === after) continue
+      const { diff, added, removed } = proposalDiff(before, after)
+      const hunk = node('div', 'claude-proposal-hunk')
+      const heading = node('div', 'claude-proposal-hunk-heading')
+      if (!create) heading.append(proposalLocation(file.path, startLine, openFile))
+      heading.append(proposalStats(added, removed))
+      hunk.append(heading, diff)
+      changes.append(hunk)
+    }
+    if (!changes.childElementCount) changes.append(node('p', 'claude-proposal-previous', 'Empty file'))
+    preview.append(changes)
+  }
+
+  preview.open = open
+  if (open) renderChanges()
+  else {
+    const renderWhenOpen = () => {
+      if (!preview.open) return
+      preview.removeEventListener('toggle', renderWhenOpen)
+      renderChanges()
+    }
+    preview.addEventListener('toggle', renderWhenOpen)
+  }
+  return preview
+}
+
 /** @param {Proposal} proposal
  * @param {{onApply?: () => void, onDiscard?: () => void, onOpenFile?: OpenFile, openExternal?: (href: string) => unknown, colorize?: (text: string, language: string) => string | PromiseLike<string>}} [options]
  */
 export function createEditProposal(proposal, { onApply, onDiscard, onOpenFile, openExternal, colorize } = {}) {
   const idea = proposal.kind === 'idea'
   const create = idea && proposal.action === 'create'
-  const label = idea ? (create ? 'New idea' : 'Idea update') : 'File edit'
+  const label = idea
+    ? create
+      ? 'New idea'
+      : 'Idea update'
+    : `${proposal.files.length} ${proposal.files.length === 1 ? 'file' : 'files'} to change`
   const card = node('section', 'claude-proposal')
-  card.dataset.kind = idea ? 'idea' : 'file'
+  card.dataset.kind = proposal.kind
   card.setAttribute('aria-label', label)
   const heading = node('header', 'claude-proposal-heading')
-  const path = idea ? proposal.title : proposal.path
-  const title =
-    onOpenFile && !idea
-      ? button(path, 'claude-proposal-path claude-proposal-target', () => {
-          runTask('Open proposed edit file', () => onOpenFile({ path, anchor: '', startLine: proposal.startLine }))
-        })
-      : node('p', 'claude-proposal-path', path)
-  title.title = path
-  heading.append(node('h3', 'claude-proposal-title', label), title)
+  heading.append(node('h3', 'claude-proposal-title', label))
   card.append(heading)
-  if (idea && proposal.beforeTitle !== undefined && proposal.beforeTitle !== proposal.title) {
-    card.append(node('p', 'claude-proposal-previous', `Current title is “${proposal.beforeTitle}”`))
-  }
-
-  const { before, after } = proposal
-  if (create && after.trim()) {
-    const preview = node('details', 'claude-proposal-preview')
-    preview.open = true
-    const summary = node('summary', 'claude-proposal-summary')
-    summary.append(node('span', '', 'Preview idea'), icon('claude-chevron', CHEVRON))
-    const content = node('div', 'claude-idea-preview claude-turn-content')
-    renderAssistantMarkdown(content, after, { openFile: onOpenFile, openExternal, colorize })
-    preview.append(summary, content)
-    card.append(preview)
-  } else if (before !== after) {
-    const changes = diffLines(before, after, { timeout: 50 }) ?? [
-      { value: before, count: before ? before.split('\n').length : 0, removed: true },
-      { value: after, count: after ? after.split('\n').length : 0, added: true },
-    ]
-    const added = changes.reduce(
-      (count, segment) => count + ('added' in segment && segment.added ? segment.count : 0),
-      0,
-    )
-    const removed = changes.reduce(
-      (count, segment) => count + ('removed' in segment && segment.removed ? segment.count : 0),
-      0,
-    )
-    const preview = node('details', 'claude-proposal-preview')
-    preview.open = added + removed <= 12
-    const summary = node('summary', 'claude-proposal-summary')
-    const stats = node('span', 'claude-proposal-stats')
-    const add = node('span', 'claude-proposal-added', `+${added}`)
-    const remove = node('span', 'claude-proposal-removed', `−${removed}`)
-    add.setAttribute('aria-label', `${added} lines added`)
-    remove.setAttribute('aria-label', `${removed} lines removed`)
-    if (added) stats.append(add)
-    if (removed) stats.append(remove)
-    summary.append(node('span', '', 'Review changes'), stats, icon('claude-chevron', CHEVRON))
-    const diff = node('div', 'claude-diff')
-    diff.tabIndex = 0
-    diff.setAttribute('role', 'region')
-    diff.setAttribute('aria-label', 'Proposed changes')
-    const changedFinalNewline = before && after && before.endsWith('\n') !== after.endsWith('\n')
-    for (const [index, segment] of changes.entries()) {
-      if (!segment.count) continue
-      const lines = segment.value.replace(/\r?\n$/, '').split(/\r?\n/)
-      const type =
-        'added' in segment && segment.added ? 'add' : 'removed' in segment && segment.removed ? 'remove' : 'context'
-      if (type === 'context' && lines.length > 6) {
-        if (index > 0) appendDiffLines(diff, type, lines.slice(0, 2))
-        const end = index > 0 ? 2 : 0
-        const start = index < changes.length - 1 ? 2 : 0
-        appendDiffLines(diff, 'omit', [`${lines.length - end - start} unchanged lines`])
-        if (start) appendDiffLines(diff, type, lines.slice(-start))
-      } else {
-        appendDiffLines(diff, type, lines)
-        if (changedFinalNewline && type !== 'context' && !segment.value.endsWith('\n')) {
-          appendDiffLines(diff, 'omit', ['No newline at end of text'])
-        }
-      }
+  if (proposal.kind === 'files') {
+    for (const file of proposal.files) card.append(fileProposalPreview(file, proposal.files.length === 1, onOpenFile))
+  } else {
+    const title = node('p', 'claude-proposal-path', proposal.title)
+    title.title = proposal.title
+    heading.append(title)
+    if (proposal.beforeTitle !== undefined && proposal.beforeTitle !== proposal.title) {
+      card.append(node('p', 'claude-proposal-previous', `Current title is “${proposal.beforeTitle}”`))
     }
-    if (before.replaceAll('\r\n', '\n') === after.replaceAll('\r\n', '\n')) {
-      appendDiffLines(diff, 'omit', ['Line endings changed'])
+    const { before, after } = proposal
+    if (create && after.trim()) {
+      const preview = node('details', 'claude-proposal-preview')
+      preview.open = true
+      const summary = node('summary', 'claude-proposal-summary')
+      summary.append(node('span', '', 'Preview idea'), icon('claude-chevron', CHEVRON))
+      const content = node('div', 'claude-idea-preview claude-turn-content')
+      renderAssistantMarkdown(content, after, { openFile: onOpenFile, openExternal, colorize })
+      preview.append(summary, content)
+      card.append(preview)
+    } else if (before !== after) {
+      const { diff, added, removed } = proposalDiff(before, after)
+      const preview = node('details', 'claude-proposal-preview')
+      preview.open = added + removed <= 12
+      const summary = node('summary', 'claude-proposal-summary')
+      summary.append(node('span', '', 'Review changes'), proposalStats(added, removed), icon('claude-chevron', CHEVRON))
+      preview.append(summary, diff)
+      card.append(preview)
     }
-    preview.append(summary, diff)
-    card.append(preview)
   }
 
   const controls = node('div', 'claude-proposal-controls')
-  const applyLabel = create ? 'Create idea' : idea ? 'Update idea' : 'Apply edit'
+  const applyLabel = create ? 'Create idea' : idea ? 'Update idea' : 'Apply changes'
   if (onApply) controls.append(button(applyLabel, 'claude-button claude-primary', onApply))
   if (onDiscard) controls.append(button('Discard', 'claude-button', onDiscard))
   if (controls.childElementCount) card.append(controls)

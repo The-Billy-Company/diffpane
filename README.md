@@ -51,9 +51,9 @@ It also includes a file picker, language tools, line counts, and previews for im
 
 The Creature lives in your code and helps you figure things out. Open **The Creature** and select **Creature settings**. Paste a workspace-scoped Claude API key and save it. Diffpane verifies the key before saving it and uses macOS Keychain-backed encryption for the local copy. You can remove the key from the same settings. [Create a Claude API key](https://platform.claude.com/settings/keys)
 
-Use **Ask** to talk through code or find and read ideas. The composer shows the open file and the selected or visible lines the Creature can read. Click the file chip to remove that context from your message. Expand an activity row to see what the Creature inspected, or follow a file reference to jump to the relevant lines.
+Use **Ask** to search the project, talk through code, or find and read ideas. The composer shows the open file and the selected or visible lines the Creature can read. Click the file chip to remove that context from your message. Expand an activity row to see what the Creature inspected, or follow a file reference to jump to the relevant lines.
 
-In **Edit** mode, the Creature can propose a small file edit, create an idea, or revise an existing idea. Preview the change in the conversation and choose whether to apply or discard it. If the source changed after the Creature read it, request a fresh proposal.
+Ask the Creature to make a change and it switches to **Edit** mode in the same turn. In **Edit** mode, it can make related edits across files, create text files in existing project folders, or draft an idea. Expand each file in the proposal to inspect its changes, then apply or discard the set. If a source changed while the Creature was working, request a fresh proposal.
 
 Diffpane calls Claude Haiku directly. Your prompts, context references, and the file or idea excerpts Claude requests go to Anthropic and use your API workspace. Chat history lasts for the window session.
 
