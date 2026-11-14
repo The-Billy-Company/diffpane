@@ -1606,6 +1606,17 @@ function createCard(file, openedAt) {
   }
   if (ideas) addFileAction('Link to an idea', icons.idea, () => attachIdeaLink(captureIdeaLink(card)))
   if (assistant) addFileAction('Ask The Creature about this file', creatureGlyph, () => assistant.toggle(true))
+  if (billyContext && !mediaType(file.path) && !file.submodule) {
+    const siblingAction = documentNode('button', 'file-action-item billy-sibling-action', 'Compare sibling functions')
+    siblingAction.type = 'button'
+    siblingAction.hidden = !billyAvailable
+    siblingAction.insertAdjacentHTML('afterbegin', icons.review)
+    siblingAction.addEventListener('click', () => {
+      actions.hidePopover()
+      if (billyAvailable && !closingRequested && !closed && card.active) billyContext.open('siblings')
+    })
+    actions.append(siblingAction)
+  }
   addFileAction('Reveal in Files', icons.file, () => revealFileInExplorer(card.file.path))
   card.nextChange.addEventListener('click', () => {
     if (!card.editor || card.changes.length === 0) return
@@ -1708,6 +1719,10 @@ function renderSnapshot(next) {
           billyAvailable = available
           review.laneHost.hidden = !available
           billyContext?.setAvailable(available)
+          for (const card of cards.values()) {
+            const action = card.element.querySelector('.billy-sibling-action')
+            if (action instanceof HTMLButtonElement) action.hidden = !available
+          }
           refreshBillyLanes()
         },
         { silent: true },
@@ -2561,7 +2576,7 @@ function setCardEditor(card, state) {
   } else card.editor = monaco.editor.create(card.host, { ...editorOptions(card), model })
   card.noteSide = 'working'
   card.ideaSide = 'working'
-  if (reviewNotes || ideas || assistant || billyContext) {
+  if (reviewNotes || ideas || assistant) {
     const contextActions = card.contextActions
     let contextFrame = 0
     const refreshAssistantContext = () => {
@@ -2574,22 +2589,6 @@ function setCardEditor(card, state) {
     contextActions.push({ dispose: () => cancelAnimationFrame(contextFrame) })
     /** @param {CodeEditor} editor @param {EditorSide} side */
     const bindContext = (editor, side) => {
-      if (billyContext && side === 'working') {
-        const billy = editor.createContextKey('diffpaneBillyReview', billyAvailable)
-        contextActions.push(
-          { dispose: () => billy.reset() },
-          editor.addAction({
-            id: 'diffpane-compare-sibling-function',
-            label: 'Compare sibling functions',
-            precondition: 'diffpaneBillyReview',
-            contextMenuGroupId: 'navigation',
-            contextMenuOrder: 22,
-            run: () => {
-              if (!closingRequested) billyContext.open('siblings', editor.getSelection()?.startLineNumber)
-            },
-          }),
-        )
-      }
       contextActions.push(
         editor.onDidFocusEditorText(() => {
           card.noteSide = side

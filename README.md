@@ -33,7 +33,7 @@ Choose **Capture checkpoint** in Changes before starting an agent pass or making
 
 On a Billy checkout, use **Follow** in Changes to narrow review to an Igor lane. Shared and unrecorded paths stay identifiable in **All changes**. Choose a lane to see its saved checks, then expand a failed check’s retained log.
 
-Open **Review tools** beside a changed file. When Diffpane recognizes a contract or playbook, it offers **Contract** or **What Billy Saw** directly. Use **Doc claims** to jump to declarations about the file. Select a source line and choose **Compare sibling functions** from the editor menu to compare nearby implementations. **What Billy Saw** opens two local Replay `run.json` manifests for comparison.
+Open **Review tools** beside a changed file. When Diffpane recognizes a contract or playbook, it offers **Contract** or **What Billy Saw** directly. Use **Doc claims** to jump to declarations about the file. Select a source line or diff hunk and choose **Compare sibling functions** from **File actions** to compare nearby implementations. **What Billy Saw** opens two local Replay `run.json` manifests for comparison.
 
 Open **Search** with ⌘⇧F to find text across the project. Choose **Changed files** to search the working contents of files Git reports as changed, including new files. Results refresh as files change. Use ↑ and ↓ to move through matching lines, then press Enter to jump to the selected text. Selecting text in the editor first fills in the query.
 

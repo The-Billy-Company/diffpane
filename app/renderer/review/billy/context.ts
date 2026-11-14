@@ -113,9 +113,8 @@ export function createBillyReviewContext(api: Api, navigate: Source) {
   const claims = createBillyClaims(host('claims'), { load: api.readClaims, onOpen: openSource })
   const siblings = createBillySiblings(host('siblings'), { load: api.readSiblings, onOpen: openSource })
 
-  function show(tool?: Tool, line?: number) {
+  function show(tool?: Tool) {
     if (!file || !available || disposed) return
-    if (tool === 'siblings' && line !== undefined && origin?.path !== file.path) origin = file
     origin ??= file
     active = tool ?? null
     disclosure.hidden = false
@@ -131,7 +130,7 @@ export function createBillyReviewContext(api: Api, navigate: Source) {
     if (tool === 'replay') replay.open(origin.path)
     if (tool === 'claims') claims.update(origin.path)
     if (tool === 'siblings') {
-      siblingLine = line ?? origin.line()
+      siblingLine = origin.line()
       siblings.update({ path: origin.path, line: siblingLine, changedPaths })
     }
     syncTrigger()
@@ -240,8 +239,9 @@ export function createBillyReviewContext(api: Api, navigate: Source) {
       file.changed = changed
       syncTrigger()
     },
-    open(tool: Tool, line?: number) {
-      show(tool, line)
+    open(tool: Tool) {
+      origin = file
+      show(tool)
       if (!disclosure.hidden) buttons.get(tool)?.focus()
     },
     clear() {
