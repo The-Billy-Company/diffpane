@@ -47,6 +47,37 @@
   outline-offset: 1px;
 }
 
+.review-hunk-bar .review-hunk-replay {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  margin-inline-start: 2px;
+  background: color-mix(in oklab, var(--accent-surface) 70%, transparent);
+  color: var(--accent);
+}
+
+.review-hunk-bar .review-hunk-replay:hover {
+  background: var(--selection);
+  color: var(--accent);
+}
+
+.review-hunk-replay span {
+  display: none;
+}
+
+@container (min-width: 620px) {
+  .review-hunk-bar .review-hunk-replay {
+    width: auto;
+    padding-inline: 5px 8px;
+    font-weight: var(--weight-semibold);
+  }
+
+  .review-hunk-replay span {
+    display: inline;
+  }
+}
+
 .review-change-map {
   --map-padding: 10px;
   position: relative;

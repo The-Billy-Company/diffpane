@@ -1,4 +1,5 @@
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
+import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createReviewChangeMap } from './review-change-map.ts'
 
@@ -40,12 +41,17 @@ export function createReviewFocus({ onScope }) {
     <button type="button" class="review-hunk-prev" aria-label="Previous change in file" title="Previous change in file">${chevron('up')}</button>
     <span class="review-hunk-position" aria-hidden="true"></span>
     <span class="review-hunk-announcement" role="status"></span>
-    <button type="button" class="review-hunk-next" aria-label="Next change in file" title="Next change in file">${chevron('down')}</button>`
+    <button type="button" class="review-hunk-next" aria-label="Next change in file" title="Next change in file">${chevron('down')}</button>
+    <button type="button" class="review-hunk-replay" aria-label="Replay change" aria-haspopup="dialog" title="Replay change" hidden>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.75a.5.5 0 0 1 .77-.42l6.5 4.25a.5.5 0 0 1 0 .84l-6.5 4.25a.5.5 0 0 1-.77-.42z" fill="currentColor"/></svg>
+      <span aria-hidden="true">Replay</span>
+    </button>`
 
   const position = requireElement(bar, '.review-hunk-position', HTMLSpanElement)
   const announcement = requireElement(bar, '.review-hunk-announcement', HTMLSpanElement)
   const previous = requireElement(bar, '.review-hunk-prev', HTMLButtonElement)
   const next = requireElement(bar, '.review-hunk-next', HTMLButtonElement)
+  const replayButton = requireElement(bar, '.review-hunk-replay', HTMLButtonElement)
   const scopeControl = document.createElement('button')
   scopeControl.type = 'button'
   scopeControl.hidden = true
@@ -64,6 +70,10 @@ export function createReviewFocus({ onScope }) {
   let scope = 'focus'
   /** @type {readonly import('monaco-editor').editor.ILineChange[]} */
   let hunks = []
+  let baseline = 'Git HEAD'
+  let replayPending = false
+  /** @type {HTMLDialogElement | undefined} */
+  let replayDialog
   let index = 0
   let collapsed = false
   let revealOnFirstDiff = false
@@ -78,6 +88,7 @@ export function createReviewFocus({ onScope }) {
     if (position.textContent !== label) position.textContent = label
     if (announcement.textContent !== spoken) announcement.textContent = spoken
     previous.hidden = next.hidden = hunks.length === 0
+    replayButton.hidden = !hunks[index] || Boolean(message)
     previous.disabled = next.disabled = hunks.length < 2
     changeMap.select(index)
     scopeControl.hidden = hunks.length === 0
@@ -174,8 +185,47 @@ export function createReviewFocus({ onScope }) {
   previous.addEventListener('click', () => step(-1))
   next.addEventListener('click', () => step(1))
   scopeControl.addEventListener('click', () => chooseScope(scope === 'focus' ? 'full' : 'focus'))
+  replayButton.addEventListener('click', () => {
+    const model = editor?.getModel()
+    const hunk = hunks[index]
+    if (replayPending || replayDialog?.open || !model || !hunk) return
+    const originalVersion = model.original.getVersionId()
+    const modifiedVersion = model.modified.getVersionId()
+    replayPending = true
+    runTask('Open change replay', async () => {
+      try {
+        const { showChangeReplay } = await import('../change-replay/change-replay.ts')
+        if (
+          !replayButton.isConnected ||
+          document.querySelector('dialog[open]') ||
+          editor?.getModel() !== model ||
+          hunks[index] !== hunk ||
+          model.original.getVersionId() !== originalVersion ||
+          model.modified.getVersionId() !== modifiedVersion
+        )
+          return
+        const dialog = showChangeReplay(model, hunk, baseline, announcement.textContent)
+        replayDialog = dialog
+        dialog.addEventListener(
+          'close',
+          () => {
+            if (replayDialog !== dialog) return
+            replayDialog = undefined
+            if (replayButton.isConnected && !replayButton.closest('[hidden]')) {
+              replayButton.focus({ preventScroll: true })
+            }
+          },
+          { once: true },
+        )
+      } finally {
+        replayPending = false
+      }
+    })
+  })
 
   function detach() {
+    replayDialog?.close()
+    replayDialog = undefined
     if (frame !== null) cancelAnimationFrame(frame)
     frame = null
     listener?.dispose()
@@ -189,6 +239,7 @@ export function createReviewFocus({ onScope }) {
     collapsed = false
     revealOnFirstDiff = false
     bar.hidden = true
+    replayButton.hidden = true
     scopeControl.hidden = true
     changeMap.update([], null)
   }
@@ -196,7 +247,11 @@ export function createReviewFocus({ onScope }) {
   return {
     bar,
     changeMap: changeMap.element,
-    setBaseline: changeMap.setBaseline,
+    /** @param {'HEAD' | 'Checkpoint'} value */
+    setBaseline(value) {
+      baseline = value === 'HEAD' ? 'Git HEAD' : value
+      changeMap.setBaseline(value)
+    },
     scopeControl,
     workingLine() {
       const hunk = hunks[index]

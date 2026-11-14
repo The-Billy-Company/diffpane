@@ -13,3 +13,4 @@ These fragments cover the Changes queue, the comparison view it opens and the pr
 - [Focused comparison](focused-comparison.changed). Open at the first edit and collapse unchanged regions.
 - [Review checkpoint](review-checkpoint.added). Switch baselines between Git HEAD and a captured working tree.
 - [Review notes](review-notes.added). Anchor notes and share excerpts in a Markdown handoff.
+- [Change replay](replay/README.md). Animate between the baseline and working text of a selected change.

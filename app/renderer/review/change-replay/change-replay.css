@@ -1,0 +1,248 @@
+.change-replay {
+  --replay-inset: clamp(12px, 3vw, 20px);
+  --replay-line-padding: 15px;
+  --replay-gutter-edge: var(--removed-edge);
+  --replay-gutter-tint: var(--comparison-base-surface);
+  box-sizing: border-box;
+  width: min(620px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  padding: 0;
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--control-border) 55%, var(--line));
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px var(--shadow);
+  color: var(--text);
+}
+
+.change-replay[data-version='after'] {
+  --replay-gutter-edge: var(--added-edge);
+  --replay-gutter-tint: var(--comparison-working-surface);
+}
+
+.change-replay::backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(2px);
+}
+
+.change-replay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px var(--replay-inset) 14px;
+  border-block-end: 1px solid var(--line);
+  background: linear-gradient(145deg, var(--surface-raised), var(--surface) 64%);
+}
+
+.change-replay-heading {
+  min-width: 0;
+}
+
+.change-replay-heading h2 {
+  margin: 0;
+  font-size: var(--text-subheading);
+  font-weight: var(--weight-semibold);
+  line-height: 1.25;
+}
+
+.change-replay-detail {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-block-start: 5px;
+  color: var(--muted);
+  font-size: var(--text-label);
+}
+
+.change-replay-file {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.change-replay-position,
+.change-replay-limit {
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.change-replay-position {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.change-replay-position::before {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--subtle);
+  content: '';
+}
+
+.change-replay-close {
+  display: grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.change-replay-close:hover,
+.change-replay-versions button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.change-replay-close svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.change-replay-controls {
+  padding: 9px var(--replay-inset);
+  border-block-end: 1px solid var(--line);
+}
+
+.change-replay-versions {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2px;
+  max-width: 100%;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-inset);
+}
+
+.change-replay-versions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+}
+
+.change-replay-versions button::before {
+  color: var(--version-color);
+  font-family: var(--font-mono);
+  content: var(--version-sign) / '';
+}
+
+.change-replay-baseline {
+  --version-color: var(--comparison-base);
+  --version-edge: var(--removed-edge);
+  --version-bg: var(--comparison-base-surface);
+  --version-sign: '−';
+}
+
+.change-replay-working {
+  --version-color: var(--comparison-working);
+  --version-edge: var(--added-edge);
+  --version-bg: var(--comparison-working-surface);
+  --version-sign: '+';
+}
+
+.change-replay-versions button[aria-pressed='true'] {
+  border-color: color-mix(in oklab, var(--version-edge) 55%, var(--line));
+  background: var(--version-bg);
+  color: var(--version-color);
+}
+
+.change-replay-stage {
+  display: grid;
+  grid-template-columns: max-content minmax(max-content, 1fr);
+  align-items: stretch;
+  overflow: auto;
+  max-height: min(50vh, 360px);
+  background: var(--workbench-background);
+  font-family: var(--editor-font, var(--font-mono));
+  font-size: var(--editor-font-size, var(--editor-default-size));
+  line-height: var(--editor-line-height, var(--editor-default-line-height));
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.change-replay-stage:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.change-replay-gutter {
+  position: sticky;
+  z-index: 2;
+  inset-inline-start: 0;
+  min-inline-size: calc(var(--replay-gutter-digits) * 1ch + 23px);
+  padding: var(--replay-line-padding) 10px var(--replay-line-padding) 12px;
+  border-inline-end: 1px solid var(--editor-separator);
+  background: color-mix(in oklab, var(--replay-gutter-tint) 65%, var(--surface-inset));
+  box-shadow: inset 2px 0 var(--replay-gutter-edge);
+  color: var(--editor-line-number);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  user-select: none;
+}
+
+.change-replay-content {
+  position: relative;
+}
+
+.change-replay-code {
+  box-sizing: content-box;
+  min-height: calc(var(--replay-lines) * 1lh);
+  margin: 0;
+  padding: var(--replay-line-padding) var(--replay-inset);
+  color: var(--editor-text);
+  font: inherit;
+  tab-size: 4;
+}
+
+.change-replay-readable {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  pointer-events: none;
+  user-select: none;
+}
+
+.change-replay-empty {
+  position: absolute;
+  inset: var(--replay-line-padding) var(--replay-inset) auto;
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-label);
+}
+
+.change-replay-limit {
+  margin: 0;
+  padding: 7px var(--replay-inset);
+  border-block-start: 1px solid var(--line);
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .change-replay-code * {
+    transition: none;
+  }
+}

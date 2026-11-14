@@ -29,6 +29,8 @@ Git changes are marked beside the line numbers. You can compare files against HE
 
 Open **Changes** with ⌘⇧G to see the review queue and its progress. Select a file to jump to its first edit. Long stretches of unchanged code are collapsed, and you can move between edits or choose **Full file** to restore context. Use **Mark reviewed & next** to advance and **Mark reviewed** to finish the last file. Progress lasts for the window session. From **Reviewed**, you can return a file to **Pending**. New edits also return the file to **Pending**.
 
+In a text **Diff** or **Changes** review, select a change and click the triangular **Replay change** button beside the navigation arrows. Switch between **Working file** and **Git HEAD** or **Checkpoint** to watch the code change. Replay follows your system’s reduced-motion preference.
+
 Choose **Capture checkpoint** in Changes before starting an agent pass or making your own edits. The queue compares tracked files and untracked files covered by Git status against that checkpoint, including edits that get committed during the review. Existing staged, unstaged, and untracked edits are part of the starting point. Use **Compare against** to switch between Git HEAD and the checkpoint. Each keeps its own review progress. **Replace checkpoint** starts a fresh review from the current working tree. A checkpoint lasts until you close the window and leaves your Git index and history untouched.
 
 On a Billy checkout, use **Follow** in Changes to narrow review to an Igor lane. Shared and unrecorded paths stay identifiable in **All changes**. Choose a lane to see its saved checks, then expand a failed check’s retained log.
