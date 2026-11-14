@@ -1,0 +1,234 @@
+.agent-threads {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.claude-panel[data-agent-threads] > .claude-notice {
+  display: none;
+}
+
+@container claude (min-width: 350px) {
+  .claude-icon.claude-threads-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    width: auto;
+    padding-inline: 6px;
+    font-size: var(--text-label);
+  }
+}
+
+@container claude (width < 350px) {
+  .claude-threads-toggle span {
+    display: none;
+  }
+}
+
+.agent-thread-toolbar,
+.agent-thread-heading {
+  flex: none;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-thread-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.agent-thread-toolbar [data-refresh] {
+  margin-inline-start: auto;
+}
+
+.agent-thread-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.agent-thread-heading h3 {
+  margin: 0;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.agent-thread-context,
+.agent-thread-status,
+.agent-thread-live {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: var(--text-label);
+  overflow-wrap: anywhere;
+}
+
+.agent-thread-status:empty {
+  display: none;
+}
+
+.agent-thread-search {
+  flex: none;
+  padding: 10px 12px 2px;
+}
+
+.agent-thread-search input {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface-inset);
+  font: inherit;
+}
+
+.agent-thread-search input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.agent-thread-no-matches {
+  margin: 8px 2px;
+  color: var(--muted);
+  font-size: var(--text-label);
+}
+
+.agent-thread-live {
+  flex: none;
+  color: var(--accent);
+}
+
+.agent-thread-list,
+.agent-thread-events {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.agent-thread-events:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.agent-thread-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  margin-block: 3px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+  text-align: start;
+  background: transparent;
+}
+
+.agent-thread-choice:hover {
+  border-color: var(--line);
+  background: var(--surface-inset);
+}
+
+.agent-thread-choice strong,
+.agent-thread-choice span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-choice span {
+  color: var(--muted);
+  font-size: var(--text-label);
+}
+
+.agent-thread-event {
+  padding: 10px 3px;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-thread-event h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+}
+
+.agent-thread-event[data-kind='edit'] h4 {
+  color: var(--added);
+}
+
+.agent-thread-event p {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agent-thread-file {
+  max-width: 100%;
+  margin: 6px 6px 0 0;
+  padding: 3px 7px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--surface-inset);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-file:hover {
+  text-decoration: underline;
+}
+
+.agent-thread-preview {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  border-top: 1px solid var(--line);
+  background: var(--surface-inset);
+}
+
+.agent-thread-preview header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.agent-thread-preview strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-preview p {
+  margin: 0 12px;
+  color: var(--muted);
+  font-size: var(--text-label);
+}
+
+.agent-thread-preview pre {
+  flex: 1;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 12px;
+  line-height: 1.5;
+  tab-size: 2;
+}

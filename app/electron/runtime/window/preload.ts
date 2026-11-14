@@ -1,6 +1,15 @@
 // MONOLITHIC: The sandboxed preload is emitted from one entrypoint and validates every exposed IPC channel. Extract validators when the generator can inline them without runtime imports.
 import { contextBridge, ipcRenderer } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+import type {
+  AgentFileView,
+  AgentProvider,
+  AgentThread,
+  AgentThreadEvent,
+  AgentThreadFile,
+  AgentThreadList,
+  AgentThreadUpdate,
+} from '../../../shared/agent-threads.ts'
 import type { BillyClaim, BillyClaimsResult } from '../../../shared/billy/claims.ts'
 import type {
   BillyContractDiff,
@@ -308,6 +317,58 @@ function isReviewNote(value: unknown): value is ReviewNote {
 
 function isClaudeStatus(value: unknown): value is ClaudeStatus {
   return isRecord(value) && isBoolean(value.configured) && isBoolean(value.secureStorage)
+}
+
+function isAgentProvider(value: unknown): value is AgentProvider {
+  return value === 'claude' || value === 'cursor' || value === 'codex'
+}
+
+function isAgentThread(value: unknown): value is AgentThread {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isAgentProvider(value.provider) &&
+    isString(value.title) &&
+    isString(value.cwd) &&
+    isTimestamp(value.updatedAt) &&
+    optional(isBoolean)(value.active)
+  )
+}
+
+function isAgentThreadList(value: unknown): value is AgentThreadList {
+  return isRecord(value) && arrayOf(isAgentThread)(value.threads) && arrayOf(isAgentProvider)(value.unavailable)
+}
+
+function isAgentThreadFile(value: unknown): value is AgentThreadFile {
+  return isRecord(value) && isString(value.path) && optional(isPositive)(value.line)
+}
+
+function isAgentThreadEvent(value: unknown): value is AgentThreadEvent {
+  if (!isRecord(value) || !isString(value.text) || !optional(arrayOf(isAgentThreadFile))(value.files)) return false
+  return (
+    value.kind === 'user' ||
+    value.kind === 'assistant' ||
+    value.kind === 'tool' ||
+    value.kind === 'edit' ||
+    value.kind === 'status'
+  )
+}
+
+function isAgentThreadUpdate(value: unknown): value is AgentThreadUpdate {
+  return (
+    isRecord(value) &&
+    isString(value.subscription) &&
+    arrayOf(isAgentThreadEvent)(value.events) &&
+    optional(isString)(value.error)
+  )
+}
+
+function isAgentFileView(value: unknown): value is AgentFileView {
+  return (
+    isRecord(value) &&
+    ((value.kind === 'workspace' && isString(value.path)) ||
+      (value.kind === 'preview' && isString(value.text) && isBoolean(value.limited)))
+  )
 }
 
 function isClaudeFileEdit(value: unknown) {
@@ -865,6 +926,14 @@ const API = {
     cancel: () => invoke('claude-cancel', isVoid),
     onActivity: (callback: (activity: ClaudeActivity) => void) => listen('claude-activity', isClaudeActivity, callback),
     onReset: (callback: (status: ClaudeStatus) => void) => listen('claude-reset', isClaudeStatus, callback),
+  },
+  agentThreads: {
+    list: () => invoke('agent-threads-list', isAgentThreadList),
+    follow: (id: string, subscription: string) => invoke('agent-threads-follow', isVoid, id, subscription),
+    stop: (subscription: string) => invoke('agent-threads-stop', isVoid, subscription),
+    file: (subscription: string, path: string) => invoke('agent-threads-file', isAgentFileView, subscription, path),
+    onUpdate: (callback: (update: AgentThreadUpdate) => void) =>
+      listen('agent-threads-update', isAgentThreadUpdate, callback),
   },
   ideas: {
     list: () => invoke('ideas-list', arrayOf(isIdea)),

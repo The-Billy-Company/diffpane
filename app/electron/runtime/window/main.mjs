@@ -33,6 +33,7 @@ import {
 } from '../../persistence/preferences/ui-preferences.ts'
 import { IdeaStore } from '../../persistence/project/idea-store.ts'
 import { ReviewNotesStore } from '../../persistence/project/review-notes.ts'
+import { AgentThreads } from '../../tools/assistant/agent-threads/threads.ts'
 import { ClaudeCredentials } from '../../tools/assistant/claude-credentials.mjs'
 import { ClaudeSession } from '../../tools/assistant/claude-session.mjs'
 import { searchClaudeGist } from '../../tools/assistant/gist-search.mjs'
@@ -60,6 +61,8 @@ const invokeChannels = new Set()
 const sessions = new Map()
 /** @type {WeakMap<WindowSession, ReturnType<typeof createTerminalDock>>} */
 const terminals = new WeakMap()
+/** @type {WeakMap<WindowSession, AgentThreads>} */
+const agentThreads = new WeakMap()
 /** @type {WeakMap<WindowSession, number>} */
 const rendererNavigationStarts = new WeakMap()
 /** @type {Map<string, WindowSession>} */
@@ -747,6 +750,7 @@ function createWindow(directory = null) {
   })
   window.on('closed', () => {
     resetBillyReview(session)
+    agentThreads.get(session)?.stop()
     sessions.delete(windowId)
     mediaSessions.delete(session.mediaToken)
     session.finishFlush?.(true)
@@ -758,6 +762,8 @@ function createWindow(directory = null) {
     session.rendererReady = false
     runBackground('stop-terminal', () => terminal.reset())
     session.claude.reset()
+    agentThreads.get(session)?.stop()
+    agentThreads.delete(session)
     session.finishFlush?.(false)
     if (directory && wasReady && !fatal)
       runBackground('cancel-workspace-search', () => session.call('content-search-cancel'))
@@ -1094,6 +1100,34 @@ for (const [method, handler] of Object.entries(claudeHandlers)) {
     return handler(session, input)
   })
 }
+
+handle('agent-threads-list', session => {
+  let threads = agentThreads.get(session)
+  if (!threads) {
+    threads = new AgentThreads()
+    agentThreads.set(session, threads)
+  }
+  return threads.list()
+})
+
+handle('agent-threads-follow', (session, _event, id, subscription) => {
+  const threads = agentThreads.get(session)
+  if (!threads || typeof id !== 'string' || typeof subscription !== 'string' || subscription.length !== 36)
+    throw new Error('Choose an available agent thread.')
+  threads.follow(id, subscription, update => send(session.contents, 'agent-threads-update', update))
+})
+
+handle('agent-threads-stop', (session, _event, subscription) => {
+  if (typeof subscription === 'string') agentThreads.get(session)?.stop(subscription)
+})
+
+handle('agent-threads-file', (session, _event, subscription, filename) => {
+  const threads = agentThreads.get(session)
+  if (!threads || typeof subscription !== 'string' || typeof filename !== 'string')
+    throw new Error('Choose an available agent file link.')
+  const { repositoryRoot: root, repositoryScope: scope } = session
+  return threads.file(subscription, filename, root && scope ? { root, scope } : undefined)
+})
 
 /** @type {Record<string, (store: IdeaStore, root: string, input: unknown, sender: WebContents) => unknown>} */
 const ideaHandlers = {

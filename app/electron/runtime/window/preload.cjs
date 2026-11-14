@@ -224,6 +224,51 @@ function isReviewNote(value) {
 function isClaudeStatus(value) {
   return isRecord(value) && isBoolean(value.configured) && isBoolean(value.secureStorage)
 }
+function isAgentProvider(value) {
+  return value === 'claude' || value === 'cursor' || value === 'codex'
+}
+function isAgentThread(value) {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isAgentProvider(value.provider) &&
+    isString(value.title) &&
+    isString(value.cwd) &&
+    isTimestamp(value.updatedAt) &&
+    optional(isBoolean)(value.active)
+  )
+}
+function isAgentThreadList(value) {
+  return isRecord(value) && arrayOf(isAgentThread)(value.threads) && arrayOf(isAgentProvider)(value.unavailable)
+}
+function isAgentThreadFile(value) {
+  return isRecord(value) && isString(value.path) && optional(isPositive)(value.line)
+}
+function isAgentThreadEvent(value) {
+  if (!isRecord(value) || !isString(value.text) || !optional(arrayOf(isAgentThreadFile))(value.files)) return false
+  return (
+    value.kind === 'user' ||
+    value.kind === 'assistant' ||
+    value.kind === 'tool' ||
+    value.kind === 'edit' ||
+    value.kind === 'status'
+  )
+}
+function isAgentThreadUpdate(value) {
+  return (
+    isRecord(value) &&
+    isString(value.subscription) &&
+    arrayOf(isAgentThreadEvent)(value.events) &&
+    optional(isString)(value.error)
+  )
+}
+function isAgentFileView(value) {
+  return (
+    isRecord(value) &&
+    ((value.kind === 'workspace' && isString(value.path)) ||
+      (value.kind === 'preview' && isString(value.text) && isBoolean(value.limited)))
+  )
+}
 function isClaudeFileEdit(value) {
   return isRecord(value) && isString(value.before) && isString(value.after) && isPositive(value.startLine)
 }
@@ -731,6 +776,13 @@ const API = {
     cancel: () => invoke('claude-cancel', isVoid),
     onActivity: callback => listen('claude-activity', isClaudeActivity, callback),
     onReset: callback => listen('claude-reset', isClaudeStatus, callback),
+  },
+  agentThreads: {
+    list: () => invoke('agent-threads-list', isAgentThreadList),
+    follow: (id, subscription) => invoke('agent-threads-follow', isVoid, id, subscription),
+    stop: subscription => invoke('agent-threads-stop', isVoid, subscription),
+    file: (subscription, path) => invoke('agent-threads-file', isAgentFileView, subscription, path),
+    onUpdate: callback => listen('agent-threads-update', isAgentThreadUpdate, callback),
   },
   ideas: {
     list: () => invoke('ideas-list', arrayOf(isIdea)),

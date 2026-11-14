@@ -26,5 +26,6 @@ doc_radar:
 - [`claude-prompt.mjs`](claude-prompt.mjs) keeps the Creature’s voice and workspace guidance together with a short addition for Edit mode.
 - [`claude-workspace.mjs`](claude-workspace.mjs) checks workspace path visibility and bounds single-file and batch reads.
 - [`gist-search.mjs`](gist-search.mjs) searches working files through the assistant’s workspace reader and uses Gist to locate candidates when installed.
+- [`agent-threads/threads.ts`](agent-threads/threads.ts) discovers and follows local agent threads using read-only adapters for Claude Code, Cursor, and Codex. Events become visible as each provider saves them. Structured file references become links to current file contents.
 
 The assistant uses the [repository](../../workspace/repository/README.md) and [project records](../../persistence/project/README.md) as its workspace boundaries. Run `pnpm test app/tests/tooling/assistant` from the repository root.

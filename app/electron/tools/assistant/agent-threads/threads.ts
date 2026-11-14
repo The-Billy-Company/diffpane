@@ -1,0 +1,167 @@
+import { constants } from 'node:fs'
+import { open, realpath } from 'node:fs/promises'
+import path from 'node:path'
+import type {
+  AgentFileView,
+  AgentProvider,
+  AgentThreadEvent,
+  AgentThreadList,
+  AgentThreadUpdate,
+} from '../../../../shared/agent-threads.ts'
+import { claudeSource } from './claude.ts'
+import { codexSource } from './codex.ts'
+import { cursorSource } from './cursor.ts'
+import type { AgentThreadReader, AgentThreadRecord, AgentThreadSource } from './source.ts'
+
+const sources: [AgentProvider, AgentThreadSource][] = [
+  ['claude', claudeSource],
+  ['cursor', cursorSource],
+  ['codex', codexSource],
+]
+const POLL_MS = 350
+const PREVIEW_BYTES = 256 * 1024
+const MAX_LINKS = 4000
+
+interface Stream {
+  subscription: string
+  reader: AgentThreadReader
+  files: Set<string>
+  timer?: ReturnType<typeof setTimeout>
+  error?: string
+}
+
+export class AgentThreads {
+  #threads = new Map<string, [AgentThreadRecord, AgentThreadSource]>()
+  #listing?: Promise<AgentThreadList>
+  #stream?: Stream
+
+  list(): Promise<AgentThreadList> {
+    this.#listing ??= this.#discover().finally(() => {
+      this.#listing = undefined
+    })
+    return this.#listing
+  }
+
+  async #discover(): Promise<AgentThreadList> {
+    const results = await Promise.allSettled(sources.map(([, source]) => source.list()))
+    const threads: AgentThreadList['threads'] = []
+    const unavailable: AgentProvider[] = []
+    for (const [index, [provider, source]] of sources.entries()) {
+      const result = results[index]
+      if (result?.status !== 'fulfilled') {
+        unavailable.push(provider)
+        continue
+      }
+      for (const thread of result.value) {
+        const id = `${provider}:${thread.id}`
+        this.#threads.set(id, [thread, source])
+        threads.push({
+          id,
+          provider,
+          cwd: thread.cwd,
+          title: thread.title,
+          updatedAt: thread.updatedAt,
+          active: thread.active,
+        })
+      }
+    }
+    const ids = new Set(threads.map(thread => thread.id))
+    for (const id of this.#threads.keys()) {
+      if (!ids.has(id)) this.#threads.delete(id)
+    }
+    threads.sort((a, b) => Number(Boolean(b.active)) - Number(Boolean(a.active)) || b.updatedAt - a.updatedAt)
+    return { threads, unavailable }
+  }
+
+  follow(id: string, subscription: string, publish: (update: AgentThreadUpdate) => void) {
+    const selected = this.#threads.get(id)
+    if (!selected) throw new Error('This agent thread is unavailable. Refresh the thread list and try again.')
+    this.stop()
+    const [thread, source] = selected
+    const stream: Stream = { subscription, reader: source.open(thread), files: new Set() }
+    this.#stream = stream
+
+    const poll = async () => {
+      let events: AgentThreadEvent[] = []
+      let error: string | undefined
+      try {
+        events = await stream.reader.read()
+      } catch {
+        error = 'Waiting to reconnect to the agent transcript…'
+      }
+      if (this.#stream !== stream) return
+      events = events.slice(-500)
+      for (const event of events) {
+        event.text = event.text.slice(0, 48 * 1024)
+        if (event.files) {
+          event.files = event.files.slice(0, 100).flatMap(file => {
+            if (
+              !file.path ||
+              file.path.includes('\0') ||
+              file.path.length > 4096 ||
+              (!path.isAbsolute(file.path) && !thread.cwd)
+            )
+              return []
+            const absolute = path.resolve(thread.cwd, file.path)
+            stream.files.delete(absolute)
+            stream.files.add(absolute)
+            if (stream.files.size > MAX_LINKS) {
+              const oldest = stream.files.values().next().value
+              if (oldest !== undefined) stream.files.delete(oldest)
+            }
+            const line =
+              file.line !== undefined && Number.isSafeInteger(file.line) && file.line > 0 ? file.line : undefined
+            return [{ path: absolute, line }]
+          })
+        }
+      }
+      if (events.length || error !== stream.error) publish({ subscription, events, error })
+      stream.error = error
+      stream.timer = setTimeout(() => void poll(), POLL_MS)
+    }
+    stream.timer = setTimeout(() => void poll(), 0)
+  }
+
+  stop(subscription?: string) {
+    if (!this.#stream || (subscription !== undefined && this.#stream.subscription !== subscription)) return
+    clearTimeout(this.#stream.timer)
+    this.#stream.reader.close?.()
+    this.#stream = undefined
+  }
+
+  async file(
+    subscription: string,
+    filename: string,
+    workspace?: { root: string; scope: string },
+  ): Promise<AgentFileView> {
+    if (this.#stream?.subscription !== subscription || !this.#stream.files.has(filename)) {
+      throw new Error('This file link is no longer available in the selected thread.')
+    }
+    const absolute = await realpath(filename)
+    if (absolute.split(path.sep).includes('.git')) throw new Error('This link points to Git metadata.')
+    if (workspace) {
+      const withinScope = path.relative(workspace.scope, absolute)
+      const relative = path.relative(workspace.root, absolute).split(path.sep).join('/')
+      if (
+        withinScope &&
+        withinScope !== '..' &&
+        !withinScope.startsWith(`..${path.sep}`) &&
+        !path.isAbsolute(withinScope)
+      ) {
+        return { kind: 'workspace', path: relative }
+      }
+    }
+    const file = await open(absolute, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+    try {
+      const info = await file.stat()
+      if (!info.isFile()) throw new Error('This link does not point to a regular file.')
+      const buffer = Buffer.allocUnsafe(Math.min(info.size, PREVIEW_BYTES + 1))
+      const { bytesRead } = await file.read(buffer)
+      const text = buffer.subarray(0, Math.min(bytesRead, PREVIEW_BYTES)).toString('utf8')
+      if (text.includes('\0')) throw new Error('Open its Git workspace in Diffpane to view this binary file.')
+      return { kind: 'preview', text, limited: bytesRead > PREVIEW_BYTES }
+    } finally {
+      await file.close()
+    }
+  }
+}
