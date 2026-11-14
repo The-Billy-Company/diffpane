@@ -1,5 +1,6 @@
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createReviewChangeMap } from './review-change-map.ts'
 
 import './review-focus.css'
 
@@ -48,6 +49,7 @@ export function createReviewFocus({ onScope }) {
   const scopeControl = document.createElement('button')
   scopeControl.type = 'button'
   scopeControl.hidden = true
+  const changeMap = createReviewChangeMap(jump)
   /** @type {import('monaco-editor').editor.IDiffEditor | null} */
   let editor = null
   /** @type {{ originalAriaLabel?: string, modifiedAriaLabel?: string }} */
@@ -77,6 +79,7 @@ export function createReviewFocus({ onScope }) {
     if (announcement.textContent !== spoken) announcement.textContent = spoken
     previous.hidden = next.hidden = hunks.length === 0
     previous.disabled = next.disabled = hunks.length < 2
+    changeMap.select(index)
     scopeControl.hidden = hunks.length === 0
     scopeControl.textContent = scope === 'focus' ? 'Show unchanged lines' : 'Hide unchanged lines'
     const hunk = hunks[index]
@@ -115,8 +118,10 @@ export function createReviewFocus({ onScope }) {
   }
 
   function sync() {
+    const model = editor?.getModel()
     const changes = editor?.getLineChanges()
-    if (!changes) {
+    if (!model || !changes) {
+      changeMap.element.hidden = true
       paint('Finding changes…')
       return
     }
@@ -133,6 +138,7 @@ export function createReviewFocus({ onScope }) {
       }
     }
     setCollapsed(scope === 'focus' && hunks.length > 0)
+    changeMap.update(hunks, model.original.getLineCount(), model.modified.getLineCount())
     if (hunks.length) paint()
     else paint('No text changes')
     if (hunks.length && revealOnFirstDiff) {
@@ -144,7 +150,13 @@ export function createReviewFocus({ onScope }) {
   /** @param {-1 | 1} direction */
   function step(direction) {
     if (hunks.length < 2) return
-    index = (index + direction + hunks.length) % hunks.length
+    jump((index + direction + hunks.length) % hunks.length)
+  }
+
+  /** @param {number} target */
+  function jump(target) {
+    if (!hunks[target]) return
+    index = target
     paint()
     reveal()
   }
@@ -178,10 +190,12 @@ export function createReviewFocus({ onScope }) {
     revealOnFirstDiff = false
     bar.hidden = true
     scopeControl.hidden = true
+    changeMap.update([], 1, 1)
   }
 
   return {
     bar,
+    changeMap: changeMap.element,
     scopeControl,
     /**
      * @param {import('monaco-editor').editor.IDiffEditor} diffEditor

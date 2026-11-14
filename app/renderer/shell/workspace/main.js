@@ -1390,6 +1390,7 @@ function createCard(file, openedAt) {
   const actionToggle = requireElement(element, '.file-action-toggle', HTMLButtonElement)
   const actions = requireElement(element, '.file-action-popover', HTMLElement)
   actionToggle.before(reviewFocus.bar)
+  requireElement(element, '.comparison-labels', HTMLElement).before(reviewFocus.changeMap)
   actionToggle.popoverTargetElement = actions
   reviewFocus.scopeControl.classList.add('file-action-item')
   reviewFocus.scopeControl.addEventListener('click', () => actions.hidePopover())
@@ -2356,6 +2357,7 @@ function setCardEditor(card, state) {
       originalEditable: false,
       renderMarginRevertIcon: false,
       renderGutterMenu: false,
+      renderOverviewRuler: false,
       hideUnchangedRegions: { enabled: false },
       maxComputationTime: 150,
       maxFileSize: 2,
