@@ -80,6 +80,8 @@
 
 .review-change-map {
   --map-padding: 10px;
+  --map-viewport-ink: var(--focus-ring);
+  --map-viewport-fill: color-mix(in oklab, var(--map-viewport-ink) 16%, transparent);
   position: relative;
   container-type: inline-size;
   flex: 0 0 auto;
@@ -132,6 +134,25 @@
   color: var(--text);
   font-weight: var(--weight-semibold);
   white-space: nowrap;
+}
+
+.review-map-hint,
+.review-map-viewport-key {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-map-viewport-key::before {
+  display: inline-block;
+  width: 11px;
+  height: 7px;
+  margin-inline-end: 4px;
+  border: 1px solid var(--map-viewport-ink);
+  border-radius: 2px;
+  background: var(--map-viewport-fill);
+  content: '';
 }
 
 .review-map-summary {
@@ -202,6 +223,23 @@
   border-radius: 3px;
   background: color-mix(in oklab, var(--map-ink) 13%, var(--surface-inset));
   content: '';
+}
+
+.review-map-viewport {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.review-map-viewport span {
+  position: absolute;
+  inset-block: 1px;
+  inset-inline-start: min(var(--viewport-start), calc(100% - 6px));
+  inline-size: max(6px, var(--viewport-size));
+  border: 1px solid var(--map-viewport-ink);
+  border-radius: 3px;
+  background: var(--map-viewport-fill);
 }
 
 .review-map-ribbon-track {

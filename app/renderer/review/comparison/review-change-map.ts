@@ -62,11 +62,12 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
       <div class="review-map-heading" aria-hidden="true">
         <span class="review-map-title">Change map</span>
         <span class="review-map-hint">Select a mark to jump</span>
+        <span class="review-map-viewport-key" hidden>In view</span>
         <span class="review-map-summary"></span>
       </div>
       <div class="review-map-row is-original" aria-hidden="true">
         <span class="review-map-row-label">Git HEAD</span>
-        <div class="review-map-lane"><div class="review-map-marks"></div><span class="review-map-active" hidden></span><span class="review-map-preview-mark" hidden></span></div>
+        <div class="review-map-lane"><div class="review-map-viewport"></div><div class="review-map-marks"></div><span class="review-map-active" hidden></span><span class="review-map-preview-mark" hidden></span></div>
         <span class="review-map-row-range"></span>
       </div>
       <div class="review-map-ribbon-track" aria-hidden="true">
@@ -84,7 +85,7 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
       </div>
       <div class="review-map-row is-working" aria-hidden="true">
         <span class="review-map-row-label">Working file</span>
-        <div class="review-map-lane"><div class="review-map-marks"></div><span class="review-map-active" hidden></span><span class="review-map-preview-mark" hidden></span></div>
+        <div class="review-map-lane"><div class="review-map-viewport"></div><div class="review-map-marks"></div><span class="review-map-active" hidden></span><span class="review-map-preview-mark" hidden></span></div>
         <span class="review-map-row-range"></span>
       </div>
     </div>
@@ -105,6 +106,7 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
     </div>`
 
   const control = requireElement(element, '.review-map-control', HTMLDivElement)
+  const viewportKey = requireElement(control, '.review-map-viewport-key', HTMLSpanElement)
   const summary = requireElement(control, '.review-map-summary', HTMLSpanElement)
   const ribbonTrack = requireElement(control, '.review-map-ribbon-track', HTMLDivElement)
   ribbonTrack.style.setProperty('--review-map-gradient', `url(#${gradientId})`)
@@ -121,6 +123,8 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
     return {
       side,
       track,
+      viewport: requireElement(track, '.review-map-viewport', HTMLDivElement),
+      viewportSegments: [] as HTMLSpanElement[],
       marks: requireElement(track, '.review-map-marks', HTMLDivElement),
       active: requireElement(track, '.review-map-active', HTMLSpanElement),
       previewMark: requireElement(track, '.review-map-preview-mark', HTMLSpanElement),
@@ -219,6 +223,32 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
       }),
     )
     paintRibbon(activeRibbon, undefined)
+  }
+
+  function updateViewport(diff: editor.IDiffEditor) {
+    if (element.hidden) return
+    const editors = { original: diff.getOriginalEditor(), modified: diff.getModifiedEditor() }
+    for (const lane of lanes) {
+      const pane = editors[lane.side]
+      const { height, contentWidth } = pane.getLayoutInfo()
+      const text = pane.getModel()
+      // Inline diffs have no original code pane. Its editor is only as wide as the gutter.
+      const ranges = height > 0 && contentWidth > 0 && text?.getValueLength() ? pane.getVisibleRanges() : []
+      const lineCount = text?.getLineCount() ?? 1
+      const segments = lane.viewportSegments
+      while (segments.length > ranges.length) segments.pop()?.remove()
+      for (const [index, { startLineNumber, endLineNumber }] of ranges.entries()) {
+        let segment = segments[index]
+        if (!segment) {
+          segment = document.createElement('span')
+          segments.push(segment)
+          lane.viewport.append(segment)
+        }
+        segment.style.setProperty('--viewport-start', `${(100 * (startLineNumber - 1)) / lineCount}%`)
+        segment.style.setProperty('--viewport-size', `${(100 * (endLineNumber - startLineNumber + 1)) / lineCount}%`)
+      }
+    }
+    viewportKey.hidden = !lanes.some(lane => lane.viewportSegments.length)
   }
 
   function select(index: number) {
@@ -411,5 +441,5 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
     showPreview(target)
   })
 
-  return { element, update, select, setBaseline }
+  return { element, update, updateViewport, select, setBaseline }
 }

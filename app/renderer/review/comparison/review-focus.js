@@ -66,8 +66,8 @@ export function createReviewFocus({ onScope }) {
   let editor = null
   /** @type {{ originalAriaLabel?: string, modifiedAriaLabel?: string }} */
   let labels = {}
-  /** @type {import('monaco-editor').IDisposable | null} */
-  let listener = null
+  /** @type {import('monaco-editor').IDisposable[]} */
+  const listeners = []
   /** @type {import('monaco-editor').editor.IEditorDecorationsCollection | null} */
   let originalMarker = null
   /** @type {import('monaco-editor').editor.IEditorDecorationsCollection | null} */
@@ -85,6 +85,8 @@ export function createReviewFocus({ onScope }) {
   let revealOnFirstDiff = false
   /** @type {number | null} */
   let frame = null
+  /** @type {number | null} */
+  let viewportFrame = null
 
   /** @param {{ message?: string, direction?: -1 | 0 | 1 }} [options] */
   function paint({ message = '', direction = 0 } = {}) {
@@ -142,6 +144,14 @@ export function createReviewFocus({ onScope }) {
     })
   }
 
+  function scheduleViewport() {
+    if (viewportFrame !== null || changeMap.element.hidden) return
+    viewportFrame = requestAnimationFrame(() => {
+      viewportFrame = null
+      if (editor) changeMap.updateViewport(editor)
+    })
+  }
+
   function sync() {
     const model = editor?.getModel()
     const changes = editor?.getLineChanges()
@@ -170,6 +180,7 @@ export function createReviewFocus({ onScope }) {
       revealOnFirstDiff = false
       reveal()
     }
+    scheduleViewport()
   }
 
   /** @param {-1 | 1} direction */
@@ -242,8 +253,9 @@ export function createReviewFocus({ onScope }) {
     replayDialog = undefined
     if (frame !== null) cancelAnimationFrame(frame)
     frame = null
-    listener?.dispose()
-    listener = null
+    if (viewportFrame !== null) cancelAnimationFrame(viewportFrame)
+    viewportFrame = null
+    for (const listener of listeners.splice(0)) listener.dispose()
     originalMarker?.clear()
     workingMarker?.clear()
     originalMarker = workingMarker = null
@@ -286,9 +298,21 @@ export function createReviewFocus({ onScope }) {
       scope = initialScope
       revealOnFirstDiff = revealInitial
       bar.hidden = false
-      originalMarker = editor.getOriginalEditor().createDecorationsCollection()
-      workingMarker = editor.getModifiedEditor().createDecorationsCollection()
-      listener = editor.onDidUpdateDiff(sync)
+      const original = editor.getOriginalEditor()
+      const working = editor.getModifiedEditor()
+      originalMarker = original.createDecorationsCollection()
+      workingMarker = working.createDecorationsCollection()
+      listeners.push(editor.onDidUpdateDiff(sync))
+      for (const pane of [original, working]) {
+        listeners.push(
+          pane.onDidScrollChange(({ scrollTopChanged, scrollHeightChanged }) => {
+            if (scrollTopChanged || scrollHeightChanged) scheduleViewport()
+          }),
+          pane.onDidLayoutChange(scheduleViewport),
+          pane.onDidChangeHiddenAreas(scheduleViewport),
+          pane.onDidChangeViewZones(scheduleViewport),
+        )
+      }
       sync()
     },
     detach,

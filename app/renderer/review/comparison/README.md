@@ -14,6 +14,8 @@ The workspace uses these modules to highlight changed functions and focus a comp
 - [`review-focus.js`](review-focus.js) — Owns the full-file toggle, navigation controls, and the entry point for replaying the selected change.
 - [`review-focus.css`](review-focus.css) — Styles comparison scope and navigation controls.
 
+The blue outlines on the Change map follow the visible lines as you scroll. In focused comparisons, gaps between outlines mark collapsed lines. Inline comparisons show the viewport on the working-file track.
+
 The **Replay change** dialog uses Shiki Magic Move to animate between the selected hunk’s baseline and working excerpts. The gutter shows the source line numbers for the active version. Replay shows up to 16 lines and 180 columns per version and follows the system’s reduced-motion preference.
 
 Run `pnpm test app/tests/interface/review/function-ranges.test.mjs` for function boundaries. Use `pnpm run dev .` to switch between focused and full-file views.
