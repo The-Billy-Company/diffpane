@@ -1997,6 +1997,7 @@ function renderDocument(card, document) {
   const labels = requireElement(card.element, '.comparison-labels', HTMLElement)
   labels.hidden = !card.comparing || Boolean(preview)
   for (const label of labels.querySelectorAll('.is-original')) label.textContent = baseline
+  card.reviewFocus.setBaseline(baseline)
   if (preview) {
     const match = card.dirty ? undefined : (card.pendingMatch ?? undefined)
     if (match) {

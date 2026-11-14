@@ -196,6 +196,7 @@ export function createReviewFocus({ onScope }) {
   return {
     bar,
     changeMap: changeMap.element,
+    setBaseline: changeMap.setBaseline,
     scopeControl,
     workingLine() {
       const hunk = hunks[index]
