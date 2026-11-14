@@ -4,6 +4,7 @@ import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { rendererDiagnostics } from '../../shell/diagnostics/diagnostics.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createChangeRail } from '../change-rail/change-rail.ts'
 import { createSearchFilters, filterPredicate, hasFilters } from '../project-search/search-filters.ts'
 import { createFileActions } from './file-actions.ts'
 import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reconcile.ts'
@@ -13,6 +14,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
  * @import { SearchFilters, LanguageFor } from '../project-search/search-filters.ts'
  * @import { InventoryUpdate } from '../../../electron/runtime/session/inventory-delta.ts'
  * @import { ShortcutAction } from '../../../shared/preferences/shortcuts.ts'
+ * @import { ChangeKind } from '../change-rail/change-rail.ts'
  */
 /** @typedef {{ node: NavigationNode, depth: number }} NavigationRow */
 /** @typedef {{ path: string } & ({ kind: 'file', requested: Set<string> } | { kind: 'directory' | 'selection' })} RevealRequest */
@@ -220,12 +222,16 @@ export function createNavigator(
     </div>
     <div class="navigator-filter-host"></div>
     <div class="navigator-summary" role="status">Reading files…</div>
-    <div class="navigator-tree" role="tree" aria-label="Project files" tabindex="0">
-      <div class="navigator-rows"><div class="navigator-branch-trace" aria-hidden="true"></div></div>
+    <div class="navigator-tree-region">
+      <div class="navigator-tree" id="navigator-${id}-tree" role="tree" aria-label="Project files" tabindex="0">
+        <div class="navigator-rows"><div class="navigator-branch-trace" aria-hidden="true"></div></div>
+      </div>
     </div>
     <details class="navigator-outline"><summary>Outline</summary><div class="symbol-list navigator-symbols"></div></details>
     <div class="navigator-footer"><span>Project files</span><span class="navigator-total"></span></div>`
   const list = requireElement(container, '.navigator-tree', HTMLDivElement)
+  const changeRail = createChangeRail(list, ROW_HEIGHT, index => visible[index]?.node.name)
+  list.after(changeRail.rail)
   const rows = requireElement(container, '.navigator-rows', HTMLDivElement)
   const branchTrace = requireElement(rows, '.navigator-branch-trace', HTMLDivElement)
   const input = requireElement(container, 'input', HTMLInputElement)
@@ -277,6 +283,7 @@ export function createNavigator(
   let queryPattern = null
   let catalogRequests = 0
   let rowRevision = 0
+  let changeRailDirty = true
   /** @type {Map<string, HTMLDivElement>} */
   const mounted = new Map()
   /** @type {WeakMap<HTMLDivElement, number>} */
@@ -315,6 +322,7 @@ export function createNavigator(
 
   function refreshProjection(preserve = true) {
     rowRevision++
+    changeRailDirty = true
     tracedIndex = null
     const index = Math.floor(list.scrollTop / ROW_HEIGHT)
     const anchor = preserve ? visible[index]?.node.key : null
@@ -373,6 +381,39 @@ export function createNavigator(
     branchTrace.replaceChildren(segments)
   }
 
+  /** @returns {Generator<{ row: number; kind: ChangeKind }>} */
+  function* changeMarks() {
+    const folders = new Set()
+    for (const [path, file] of changes) {
+      const node = tree.files.get(path)
+      if (!node) continue
+      const row = visibleIndex.get(node.key)
+      if (row !== undefined) {
+        const status = navigationStatus(file)
+        const kind =
+          status === '!'
+            ? 'conflict'
+            : status === 'D'
+              ? 'removed'
+              : status === 'A' || status === 'U'
+                ? 'added'
+                : 'modified'
+        yield { row, kind }
+        continue
+      }
+
+      // Represent hidden descendants at their nearest visible folder.
+      for (let parent = node.parentKey; parent !== null; parent = tree.nodes.get(parent)?.parentKey ?? null) {
+        if (folders.has(parent)) break
+        const folderRow = visibleIndex.get(parent)
+        if (folderRow === undefined) continue
+        folders.add(parent)
+        yield { row: folderRow, kind: 'folder' }
+        break
+      }
+    }
+  }
+
   function render() {
     if (disposed || container.hidden) return
     const height = list.clientHeight || 400
@@ -380,6 +421,11 @@ export function createNavigator(
     const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
     const end = Math.min(visible.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN)
     const showingResults = searching()
+    if (changeRailDirty) {
+      changeRail.setMarks(visible.length, showingResults ? [] : changeMarks())
+      changeRailDirty = false
+    }
+    changeRail.sync()
     renderBranchTrace(showingResults)
     const retained = new Set()
     let activeId = null
@@ -616,6 +662,7 @@ export function createNavigator(
             ) === true))
     snapshot = next
     rowRevision++
+    changeRailDirty = true
     const titlePath = next.scope?.length ? next.scope : next.root
     project.textContent = lastPathSegment(titlePath) || 'Project'
     rootButton.title = titlePath
@@ -940,6 +987,7 @@ export function createNavigator(
       disposed = true
       if (frame !== null) cancelAnimationFrame(frame)
       resize.disconnect()
+      changeRail.dispose()
       actions.dispose()
       list.removeEventListener('dragstart', onDragStart)
       list.removeEventListener('contextmenu', onContextMenu)

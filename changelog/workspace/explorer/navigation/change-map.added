@@ -1,0 +1,1 @@
+See Git status marks on a scrollable map beside the file tree. Dotted marks show changes inside collapsed folders. Hover for a filename, click or drag to jump through the tree, or focus the map to scroll with the keyboard.

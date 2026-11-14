@@ -1,0 +1,113 @@
+.navigator-tree-region {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.navigator-tree-region .navigator-tree {
+  min-width: 0;
+}
+
+.navigator-tree-region:has(.navigator-change-rail:not([hidden])) .navigator-tree {
+  scrollbar-width: none;
+}
+
+.navigator-change-rail {
+  position: relative;
+  display: flex;
+  flex: 0 0 24px;
+  padding: 3px 3px 3px 2px;
+  border-inline-start: 1px solid var(--line);
+  background: color-mix(in oklab, var(--surface-inset) 75%, var(--surface));
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.navigator-change-rail:focus-visible {
+  outline-offset: -2px;
+}
+
+.navigator-change-track {
+  position: relative;
+  flex: 1;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 4px;
+  background-image: linear-gradient(var(--line), var(--line));
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 1px 100%;
+}
+
+.navigator-change-viewport {
+  --view-size: max(3px, var(--change-view-size));
+  position: absolute;
+  inset-inline: 0;
+  inset-block-start: calc((100% - var(--view-size)) * var(--change-view-progress));
+  block-size: var(--view-size);
+  border: 1px solid color-mix(in oklab, var(--accent) 42%, var(--line));
+  border-radius: 4px;
+  background: var(--accent-surface);
+}
+
+.navigator-change-rail:is(:hover, :focus-visible) .navigator-change-viewport {
+  border-color: var(--accent);
+  background: var(--selection);
+}
+
+.navigator-change-track svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke-linecap: round;
+}
+
+.navigator-change-track path {
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.navigator-change-track [data-kind='folder'] {
+  stroke: var(--subtle);
+  stroke-dasharray: 1 3;
+}
+
+.navigator-change-track [data-kind='modified'] {
+  stroke: var(--modified-edge);
+}
+
+.navigator-change-track [data-kind='added'] {
+  stroke: var(--added-edge);
+}
+
+.navigator-change-track [data-kind='removed'] {
+  stroke: var(--removed-edge);
+}
+
+.navigator-change-track [data-kind='conflict'] {
+  stroke: var(--warning-edge);
+  stroke-width: 3px;
+}
+
+.navigator-change-label {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: clamp(16px, var(--change-label-position), calc(100% - 16px));
+  inset-inline-end: calc(100% + 5px);
+  max-inline-size: min(230px, 65cqi);
+  padding: 3px 8px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  box-shadow: 0 2px 8px var(--shadow);
+  color: var(--text);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  translate: 0 -50%;
+  pointer-events: none;
+}
