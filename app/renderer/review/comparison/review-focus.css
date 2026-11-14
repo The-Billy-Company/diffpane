@@ -495,8 +495,20 @@
   background: var(--removed-surface) !important;
 }
 
-.file-card[data-review-scope] .monaco-editor .review-hunk-active {
-  box-shadow: inset 2px 0 var(--accent);
+.review-hunk-bracket {
+  --hunk-ink: var(--removed-edge);
+  inset: 0 auto auto 5px;
+  border: solid var(--hunk-ink);
+  border-width: 1px 0 1px 2px;
+  border-radius: 4px 0 0 4px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--hunk-ink) 24%, transparent), transparent);
+  mask-image: linear-gradient(90deg, #000 42%, transparent);
+  transform: translateY(var(--hunk-top, 0px));
+  pointer-events: none;
+}
+
+.review-hunk-bracket[data-side='working'] {
+  --hunk-ink: var(--added-edge);
 }
 
 .file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center {

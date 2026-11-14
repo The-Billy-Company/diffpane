@@ -17,21 +17,47 @@ function chevron(direction) {
 }
 
 /**
- * @param {import('monaco-editor').editor.IEditorDecorationsCollection | null} marker
- * @param {number | undefined} line
- * @param {number | undefined} end
+ * @param {import('monaco-editor').editor.ICodeEditor} pane
+ * @param {'original' | 'working' | 'inline-removed'} side
  */
-function markLine(marker, line, end) {
-  marker?.set(
-    end && line !== undefined
-      ? [
-          {
-            range: { startLineNumber: line, endLineNumber: line, startColumn: 1, endColumn: 1 },
-            options: { isWholeLine: true, className: 'review-hunk-active' },
-          },
-        ]
-      : [],
-  )
+function createHunkBracket(pane, side) {
+  const element = document.createElement('div')
+  element.className = 'review-hunk-bracket'
+  element.dataset.side = side
+  element.setAttribute('aria-hidden', 'true')
+  element.hidden = true
+  const widget = { getId: () => `diffpane.hunk.${side}`, getDomNode: () => element, getPosition: () => null }
+  pane.addOverlayWidget(widget)
+
+  return {
+    /** @param {number} [top] @param {number} [bottom] */
+    draw(top = 0, bottom = 0) {
+      const scroll = pane.getScrollTop()
+      const { height, contentLeft } = pane.getLayoutInfo()
+      // Clip offscreen ends past the pane so their caps never look like real hunk boundaries.
+      const first = Math.max(-8, top - scroll) + 1
+      const last = Math.min(height + 8, bottom - scroll) - 1
+      element.hidden = bottom <= top || last <= 0 || first >= height || contentLeft <= 5
+      if (element.hidden) return
+      element.style.setProperty('--hunk-top', `${first}px`)
+      element.style.height = `${last - first}px`
+      element.style.width = `${Math.min(11, contentLeft - 5)}px`
+    },
+    dispose: () => pane.removeOverlayWidget(widget),
+  }
+}
+
+/** @param {import('monaco-editor').editor.ICodeEditor} pane @param {number} nextLine */
+function inlineRemovalBounds(pane, nextLine) {
+  // Monaco inserts the original text as a view zone immediately before the next working line.
+  if (nextLine <= (pane.getModel()?.getLineCount() ?? 0)) {
+    return [pane.getTopForLineNumber(nextLine, true), pane.getTopForLineNumber(nextLine)]
+  }
+  const padding = pane.getOption(monacoEditor.EditorOption.padding)
+  const { width, horizontalScrollbarHeight } = pane.getLayoutInfo()
+  const scrollbar = pane.getScrollWidth() > width ? horizontalScrollbarHeight : 0
+  const bottom = pane.getContentHeight() - padding.bottom - scrollbar
+  return [pane.getBottomForLineNumber(nextLine - 1), bottom]
 }
 
 /** @param {{ onScope: (scope: ReviewScope) => void }} options */
@@ -71,10 +97,8 @@ export function createReviewFocus({ onScope }) {
   let labels = {}
   /** @type {import('monaco-editor').IDisposable[]} */
   const listeners = []
-  /** @type {import('monaco-editor').editor.IEditorDecorationsCollection | null} */
-  let originalMarker = null
-  /** @type {import('monaco-editor').editor.IEditorDecorationsCollection | null} */
-  let workingMarker = null
+  /** @type {{ original: ReturnType<typeof createHunkBracket>, working: ReturnType<typeof createHunkBracket>, inline: ReturnType<typeof createHunkBracket> } | null} */
+  let brackets = null
   /** @type {ReviewScope} */
   let scope = 'focus'
   /** @type {readonly import('monaco-editor').editor.ILineChange[]} */
@@ -118,9 +142,7 @@ export function createReviewFocus({ onScope }) {
     changeMap.select(index)
     scopeControl.hidden = hunks.length === 0
     scopeControl.textContent = scope === 'focus' ? 'Show unchanged lines' : 'Hide unchanged lines'
-    const hunk = hunks[index]
-    markLine(originalMarker, hunk?.originalStartLineNumber, hunk?.originalEndLineNumber)
-    markLine(workingMarker, hunk?.modifiedStartLineNumber, hunk?.modifiedEndLineNumber)
+    scheduleViewport()
   }
 
   /** @param {boolean} enabled */
@@ -154,10 +176,32 @@ export function createReviewFocus({ onScope }) {
   }
 
   function scheduleViewport() {
-    if (viewportFrame !== null || changeMap.element.hidden) return
+    if (viewportFrame !== null) return
     viewportFrame = requestAnimationFrame(() => {
       viewportFrame = null
-      if (editor) changeMap.updateViewport(editor)
+      if (!editor || !brackets) return
+      changeMap.updateViewport(editor)
+      const original = editor.getOriginalEditor()
+      const working = editor.getModifiedEditor()
+      const hunk = hunks[index]
+      const split = original.getLayoutInfo().contentWidth > 0
+      if (hunk?.modifiedEndLineNumber) {
+        brackets.working.draw(
+          working.getTopForLineNumber(hunk.modifiedStartLineNumber),
+          working.getBottomForLineNumber(hunk.modifiedEndLineNumber),
+        )
+      } else brackets.working.draw()
+      if (hunk?.originalEndLineNumber && split) {
+        brackets.original.draw(
+          original.getTopForLineNumber(hunk.originalStartLineNumber),
+          original.getBottomForLineNumber(hunk.originalEndLineNumber),
+        )
+      } else brackets.original.draw()
+      if (hunk?.originalEndLineNumber && !split) {
+        const nextLine = hunk.modifiedStartLineNumber + (hunk.modifiedEndLineNumber ? 0 : 1)
+        const [top, bottom] = inlineRemovalBounds(working, nextLine)
+        brackets.inline.draw(top, bottom)
+      } else brackets.inline.draw()
     })
   }
 
@@ -265,9 +309,8 @@ export function createReviewFocus({ onScope }) {
     if (viewportFrame !== null) cancelAnimationFrame(viewportFrame)
     viewportFrame = null
     for (const listener of listeners.splice(0)) listener.dispose()
-    originalMarker?.clear()
-    workingMarker?.clear()
-    originalMarker = workingMarker = null
+    if (brackets) for (const bracket of Object.values(brackets)) bracket.dispose()
+    brackets = null
     editor = null
     hunks = []
     index = 0
@@ -309,8 +352,11 @@ export function createReviewFocus({ onScope }) {
       bar.hidden = false
       const original = editor.getOriginalEditor()
       const working = editor.getModifiedEditor()
-      originalMarker = original.createDecorationsCollection()
-      workingMarker = working.createDecorationsCollection()
+      brackets = {
+        original: createHunkBracket(original, 'original'),
+        working: createHunkBracket(working, 'working'),
+        inline: createHunkBracket(working, 'inline-removed'),
+      }
       listeners.push(editor.onDidUpdateDiff(sync))
       for (const pane of [original, working]) {
         listeners.push(
