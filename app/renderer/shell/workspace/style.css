@@ -813,13 +813,22 @@ button svg,
   height: 22px;
   flex-shrink: 0;
   display: flex;
-  justify-content: space-between;
   align-items: center;
   gap: 8px;
   padding: 0 15px;
   border-top: 1px solid var(--line);
   color: var(--subtle);
   font-size: var(--text-caption);
+  white-space: nowrap;
+}
+.file-footer :is(.line-count, .howmany-counts) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-footer:has(.howmany-counts:not([hidden])) .line-count {
+  display: none;
 }
 .monaco-editor .diff-gutter-added,
 .monaco-editor .diff-gutter-modified {
@@ -1052,18 +1061,20 @@ button svg,
 .language-meta {
   display: inline-flex;
   align-items: center;
-  flex-shrink: 0;
+  min-width: 0;
   gap: 8px;
-  white-space: nowrap;
+}
+.language-state,
+.file-language {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .language-state {
   color: var(--subtle);
 }
 .language-state[data-status='ready'] {
   color: var(--muted);
-}
-.language-state[data-status='starting'] {
-  color: var(--warning);
 }
 @container (max-width: 540px) {
   .file-header {

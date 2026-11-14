@@ -29,12 +29,13 @@ function isAppearanceField(value: string): value is keyof Appearance {
 }
 
 export function codeAppearance(settings: Appearance, review = false) {
+  const wrap = settings.wordWrap === 'on' || (settings.wordWrap === 'automatic' && review)
   return {
     fontFamily: FONTS[settings.font],
     fontSize: settings.fontSize,
     lineHeight: Math.round((settings.fontSize * editorDefaultLineHeight) / editorDefaultSize),
-    wordWrap:
-      settings.wordWrap === 'on' || (settings.wordWrap === 'automatic' && review) ? ('on' as const) : ('off' as const),
+    wordWrap: wrap ? ('on' as const) : ('off' as const),
+    inlayHints: { enabled: wrap ? ('offUnlessPressed' as const) : ('on' as const), fontSize: 12, padding: true },
     lineNumbers: settings.lineNumbers ? ('on' as const) : ('off' as const),
   }
 }
@@ -149,7 +150,7 @@ export function createAppearanceSettings(
                   <option value="on">On</option>
                   <option value="off">Off</option>
                 </select>
-                <span id="appearance-wrap-help" class="appearance-visually-hidden">Automatic wraps in change review.</span>
+                <span id="appearance-wrap-help" class="appearance-visually-hidden">Automatic wraps in change review. Hold Control and Alt (Option on Mac) to show inline hints in wrapped code.</span>
                 <label for="appearance-line-numbers">Line numbers</label>
                 <input class="appearance-switch" type="checkbox" role="switch" name="lineNumbers" id="appearance-line-numbers">
               </div>

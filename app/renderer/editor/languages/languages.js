@@ -1,4 +1,5 @@
 // MONOLITHIC: Monaco registrations, document versions and language-service cancellation share one editor attachment. Extract providers once their disposer and request ownership can be tested independently.
+import { CancellationError } from 'monaco-editor/base/common/errors.js'
 import 'monaco-editor/editor/contrib/folding/browser/folding.js'
 import 'monaco-editor/editor/contrib/inlayHints/browser/inlayHintsContribution.js'
 import 'monaco-editor/editor/contrib/semanticTokens/browser/documentSemanticTokens.js'
@@ -45,12 +46,17 @@ import {
 /**
  * @template {LanguageModel} Model
  * @typedef {{
- *   languages: Pick<typeof import('monaco-editor').languages, 'registerHoverProvider' | 'registerDocumentSymbolProvider' | 'registerFoldingRangeProvider' | 'registerDocumentSemanticTokensProvider' | 'registerDocumentRangeSemanticTokensProvider' | 'registerInlayHintsProvider'> & { FoldingRangeKind: new (kind: string) => import('monaco-editor').languages.FoldingRangeKind },
+ *   languages: Pick<typeof import('monaco-editor').languages, 'registerHoverProvider' | 'registerDocumentSymbolProvider' | 'registerFoldingRangeProvider' | 'registerDocumentRangeSemanticTokensProvider' | 'registerInlayHintsProvider'> & {
+ *     registerDocumentSemanticTokensProvider: (selector: import('monaco-editor').languages.LanguageSelector, provider: SemanticTokensProvider) => IDisposable,
+ *     FoldingRangeKind: new (kind: string) => import('monaco-editor').languages.FoldingRangeKind,
+ *   },
  *   editor: { setModelMarkers: (model: Model, owner: string, markers: import('monaco-editor').editor.IMarkerData[]) => void },
  *   Uri: Pick<typeof import('monaco-editor').Uri, 'parse'>,
  *   MarkerSeverity: Pick<typeof import('monaco-editor').MarkerSeverity, 'Error' | 'Warning' | 'Info' | 'Hint'>,
  * }} LanguageMonaco
  */
+/** @typedef {Pick<import('monaco-editor').editor.ITextModel, 'getVersionId' | 'getLineCount' | 'getLineMaxColumn'> & Pick<LanguageModel, 'uri'>} SemanticTokensModel */
+/** @typedef {Omit<import('monaco-editor').languages.DocumentSemanticTokensProvider, 'provideDocumentSemanticTokens'> & {provideDocumentSemanticTokens: (model: SemanticTokensModel, lastResultId: string | null, token: CancellationToken) => import('monaco-editor').languages.ProviderResult<import('monaco-editor').languages.SemanticTokens>} } SemanticTokensProvider */
 /**
  * @template {LanguageModel} Model
  * @typedef {{
@@ -160,7 +166,7 @@ function signal() {
 /**
  * @param {unknown} result
  * @param {import('monaco-editor').languages.SemanticTokensLegend | undefined} sourceLegend
- * @param {import('monaco-editor').editor.ITextModel} model
+ * @param {SemanticTokensModel} model
  */
 function semanticTokens(result, sourceLegend, model) {
   if (!isRecord(result) || !isArray(result.data) || !sourceLegend || result.data.length % 5) return null
@@ -303,7 +309,7 @@ export function createLanguageFeatures(monaco, api, { onState = () => {} } = {})
       return opening.version === version && opening.refresh === refresh ? available : open(state)
     }
     const input = documentInput(state)
-    publish(state, state.openVersion === null ? 'starting' : state.status, state.message)
+    publish(state, state.openVersion === null && !state.available ? 'starting' : state.status, state.message)
     const promise = attemptAsync(() => runtime.open(input), { operation: 'Open language document' })
       .then(opened => {
         if (state.closed || disposed || state.refresh !== refresh || state.model.getVersionId() !== input.version)
@@ -439,7 +445,7 @@ export function createLanguageFeatures(monaco, api, { onState = () => {} } = {})
     return result
   }
 
-  /** @param {import('monaco-editor').editor.ITextModel} model */
+  /** @param {{uri: Pick<import('monaco-editor').Uri, 'toString'>}} model */
   function stateFor(model) {
     return states.get(model.uri.toString())
   }
@@ -501,12 +507,26 @@ export function createLanguageFeatures(monaco, api, { onState = () => {} } = {})
       monaco.languages.registerDocumentSemanticTokensProvider(selector, {
         onDidChange: semanticChanged.event,
         getLegend: () => LEGEND,
-        async provideDocumentSemanticTokens(model, _lastResultId, token) {
+        async provideDocumentSemanticTokens(model, lastResultId, token) {
           const state = stateFor(model)
+          const epoch = state?.epoch
+          const resultId = String(model.getVersionId())
           const result = await request(state, 'textDocument/semanticTokens/full', {}, token, true)
+          if (state?.available && !state.closed) {
+            const provider = state.capabilities.semanticTokensProvider
+            // An indexing server can temporarily return null. Keep colors for the same text until replacement tokens arrive.
+            const waitingForTokens =
+              result === null &&
+              lastResultId === resultId &&
+              state.status === 'ready' &&
+              isRecord(provider) &&
+              Boolean(provider.full)
+            if (state.epoch !== epoch || token.isCancellationRequested || waitingForTokens)
+              throw new CancellationError()
+          }
           const tokens = semanticTokens(result, state?.legend, model)
           metrics.semanticTokens += (tokens?.data.length ?? 0) / 5
-          return tokens
+          return tokens && { ...tokens, resultId }
         },
         releaseDocumentSemanticTokens() {},
       }),
@@ -697,7 +717,6 @@ export function createLanguageFeatures(monaco, api, { onState = () => {} } = {})
       folding: true,
       foldingStrategy: 'auto',
       showFoldingControls: 'mouseover',
-      inlayHints: { enabled: 'on', fontSize: 12, padding: true },
       'semanticHighlighting.enabled': true,
       renderValidationDecorations: 'on',
       hover: { enabled: 'on', delay: 350 },

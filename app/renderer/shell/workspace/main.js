@@ -1316,16 +1316,13 @@ function updateLanguageState(state) {
     state.language
   const ready = state.status === 'ready'
   const badge = requireElement(card.element, '.language-state', HTMLElement)
-  badge.textContent = ready ? 'Language ready' : state.status === 'starting' ? 'Loading language…' : 'Syntax'
+  const label = ready ? 'Language ready' : state.status === 'starting' ? 'Loading language…' : 'Syntax'
+  const issues = state.diagnostics ? ` · ${state.diagnostics} ${state.diagnostics === 1 ? 'issue' : 'issues'}` : ''
+  if (badge.textContent !== label + issues) badge.textContent = label + issues
   badge.dataset.status = state.status
-  badge.toggleAttribute('data-loading-status', state.status === 'starting')
   badge.title =
-    state.message ??
+    (state.message?.length ? state.message : undefined) ??
     (ready ? 'Semantic features available for this language server' : 'Language services load when this file is used')
-  if (state.diagnostics !== undefined)
-    badge.textContent += state.diagnostics
-      ? ` · ${state.diagnostics} ${state.diagnostics === 1 ? 'issue' : 'issues'}`
-      : ''
 }
 
 function symbolsPlaceholder() {
@@ -1528,8 +1525,6 @@ function createCard(file, openedAt) {
     <div class="billy-context-slot"></div>
     <div class="file-note" hidden></div>
     <div class="file-errors"></div>
-    <div class="howmany-counts" hidden></div>
-    <div class="howmany-warnings" role="status" hidden></div>
     <div class="comparison-labels" hidden>
       <div class="comparison-original"><span class="comparison-version is-original">HEAD</span></div>
       <div class="comparison-working"><span class="comparison-version is-working">Working file</span></div>
@@ -1537,6 +1532,8 @@ function createCard(file, openedAt) {
     <div class="editor-host"><div class="editor-placeholder" aria-hidden="true"><span class="placeholder-line"></span><span class="placeholder-line"></span><span class="placeholder-line"></span><span class="placeholder-line"></span><span class="placeholder-line"></span></div></div>
     <div class="file-footer">
       <span class="line-count">Loading file…</span>
+      <span class="howmany-counts" hidden></span>
+      <span class="howmany-warnings" role="status" hidden></span>
       <span class="language-meta"><span class="language-state">Syntax</span><span class="file-language"></span></span>
     </div>`
   const reviewFocus = createReviewFocus({

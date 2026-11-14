@@ -9,8 +9,8 @@ vi.mock('monaco-editor/editor/contrib/semanticTokens/browser/viewportSemanticTok
 
 /**
  * @import { TestContext } from 'vite-plus/test'
- * @import { LanguageBridge, LanguageEditor, LanguageModel, LanguageMonaco, LanguageOpenInput, LanguageStateNotice } from '../../../renderer/editor/languages/languages.js'
- * @import { editor } from 'monaco-editor'
+ * @import { LanguageBridge, LanguageEditor, LanguageModel, LanguageMonaco, LanguageOpenInput, LanguageStateNotice, SemanticTokensModel, SemanticTokensProvider } from '../../../renderer/editor/languages/languages.js'
+ * @import { CancellationToken, editor } from 'monaco-editor'
  */
 
 class FoldingRangeKind {
@@ -43,13 +43,17 @@ function fixture(t, open, request, { language = 'typescript' } = {}) {
   const canceled = []
   /** @type {((value: unknown) => void) | undefined} */
   let receive
+  /** @type {SemanticTokensProvider | undefined} */
+  let semanticProvider
   const filename = 'example.ts'
-  /** @type {LanguageModel} */
+  /** @type {LanguageModel & SemanticTokensModel} */
   const model = {
     uri: { toString: () => `file:///${filename}` },
     getLanguageId: () => language,
     getVersionId: () => 1,
     getValue: () => 'const example = 1;',
+    getLineCount: () => 1,
+    getLineMaxColumn: () => 19,
     validateRange: range => range,
     onDidChangeContent: () => disposed,
     onDidChangeLanguage: () => disposed,
@@ -68,7 +72,10 @@ function fixture(t, open, request, { language = 'typescript' } = {}) {
       registerHoverProvider: () => disposed,
       registerDocumentSymbolProvider: () => disposed,
       registerFoldingRangeProvider: () => disposed,
-      registerDocumentSemanticTokensProvider: () => disposed,
+      registerDocumentSemanticTokensProvider: (_selector, provider) => {
+        semanticProvider = provider
+        return disposed
+      },
       registerDocumentRangeSemanticTokensProvider: () => disposed,
       registerInlayHintsProvider: () => disposed,
       FoldingRangeKind,
@@ -113,6 +120,13 @@ function fixture(t, open, request, { language = 'typescript' } = {}) {
   t.onTestFinished(() => features.dispose())
   return {
     symbols: () => features.symbols(filename),
+    /** @param {string | null} lastResultId */
+    semanticTokens: (lastResultId = null) => {
+      assert.ok(semanticProvider)
+      /** @type {CancellationToken} */
+      const token = { isCancellationRequested: false, onCancellationRequested: () => disposed }
+      return semanticProvider.provideDocumentSemanticTokens(model, lastResultId, token)
+    },
     /** @this {void} @param {Record<string, unknown>} event */
     receive(event) {
       assert.ok(receive)
@@ -197,6 +211,46 @@ test('a server refresh during document open fetches the new capabilities', async
   assert.deepEqual(await opening, [])
   assert.equal((await refreshed)[0]?.name, 'enabled')
   assert.equal(opens, 2)
+})
+
+test('a refresh cancels replaced semantic tokens without returning the language to starting', async t => {
+  const started = Promise.withResolvers()
+  const first = Promise.withResolvers()
+  const legend = { tokenTypes: ['namespace'], tokenModifiers: [] }
+  let requests = 0
+  let removeCapability = false
+  const { semanticTokens, receive, events } = fixture(
+    t,
+    async () => ({
+      available: true,
+      capabilities: removeCapability ? {} : { semanticTokensProvider: { full: { delta: true }, legend } },
+    }),
+    async () => {
+      if (++requests === 1) {
+        started.resolve(undefined)
+        return first.promise
+      }
+      if (requests === 3) return null
+      return { data: requests === 4 ? [] : [0, 0, 5, 0, 0] }
+    },
+  )
+
+  const pending = semanticTokens()
+  await started.promise
+  const settledBeforeRefresh = events.length
+  receive({ type: 'refresh' })
+  first.resolve(null)
+  await assert.rejects(Promise.resolve(pending), { name: 'Canceled' })
+  assert.ok(events.slice(settledBeforeRefresh).every(event => event.status === 'ready'))
+  const tokens = await semanticTokens()
+  assert.deepEqual(tokens?.data, Uint32Array.of(0, 0, 5, 0, 0))
+  assert.ok(tokens?.resultId)
+  receive({ type: 'refresh' })
+  await assert.rejects(Promise.resolve(semanticTokens(tokens.resultId)), { name: 'Canceled' })
+  assert.deepEqual((await semanticTokens(tokens.resultId))?.data, new Uint32Array())
+  removeCapability = true
+  receive({ type: 'refresh' })
+  assert.equal(await semanticTokens(tokens.resultId), null)
 })
 
 test('server failure drops cached and pending results and clears language diagnostics', async t => {

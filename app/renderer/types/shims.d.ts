@@ -28,3 +28,9 @@ declare module 'monaco-editor/languages/features/json/tokenization.js' {
   /** The installed Monaco JSON tokenizer returns a synchronous manual token provider. */
   export function createTokenizationSupport(supportsComments: boolean): import('monaco-editor').languages.TokensProvider
 }
+
+declare module 'monaco-editor/base/common/errors.js' {
+  export class CancellationError extends Error {
+    constructor()
+  }
+}

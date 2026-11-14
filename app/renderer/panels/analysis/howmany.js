@@ -400,8 +400,10 @@ export function createHowMany(monaco, api, navigator, statusbar) {
       )
     }
     const warnings = requireElement(card.element, '.howmany-warnings', HTMLElement)
-    const text = diagnostics.map(value => value.message).join(' · ')
+    const total = diagnostics.length
+    const text = total ? count(total, 'warning') : ''
     if (warnings.textContent !== text) warnings.textContent = text
+    warnings.title = diagnostics.map(value => value.message).join('\n')
     warnings.hidden = !text
   }
 
@@ -416,6 +418,7 @@ export function createHowMany(monaco, api, navigator, statusbar) {
     card.howmanyVersion = null
     const counts = requireElement(card.element, '.howmany-counts', HTMLElement)
     counts.textContent = ''
+    counts.title = ''
     counts.hidden = true
     showWarnings(card, [])
     runTask('Release HowMany file', () => runtime.close(card.file.path), { silent: true })
@@ -461,9 +464,7 @@ export function createHowMany(monaco, api, navigator, statusbar) {
     const text = result?.title ?? ''
     if (counts.textContent !== text) counts.textContent = text
     counts.hidden = !text
-    counts.title = result?.live
-      ? 'Counted by HowMany from the displayed file'
-      : 'Counted by HowMany from the saved file'
+    counts.title = text ? `${text}\nCounted by HowMany from the ${result?.live ? 'displayed' : 'saved'} file` : ''
   }
   return {
     start() {

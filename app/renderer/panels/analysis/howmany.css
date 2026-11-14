@@ -147,17 +147,12 @@
   border-right: 1px solid var(--line);
   margin-right: 8px;
 }
-.howmany-counts,
-.howmany-warnings {
-  padding: 5px 22px 5px 68px;
-  font-size: var(--text-caption);
-  line-height: 1.5;
+.howmany-counts {
   color: var(--muted);
-  flex-shrink: 0;
 }
 .howmany-warnings {
+  flex-shrink: 0;
   color: var(--warning);
-  padding-top: 0;
 }
 .howmany-dialog {
   width: min(760px, calc(100vw - 48px));
