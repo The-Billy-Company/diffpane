@@ -25,6 +25,7 @@
   background: var(--selection);
 }
 .markdown-preview {
+  container: markdown-preview / size;
   height: 100%;
   overflow: auto;
   scrollbar-color: var(--scrollbar) transparent;

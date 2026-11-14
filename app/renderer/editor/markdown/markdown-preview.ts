@@ -7,6 +7,8 @@ import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import type { parseMarkdown } from './markdown-document.ts'
 import { markdownTarget } from './markdown-paths.ts'
+import { createReadingRail } from './reading-rail/reading-rail.ts'
+import type { ReadingSection } from './reading-rail/reading-rail.ts'
 import './markdown-preview.css'
 
 interface MarkdownOptions {
@@ -200,11 +202,13 @@ export function showMarkdownPreview(
     metadata.append(node('summary', '', 'Document metadata'), pre)
     article.append(metadata)
   }
-  const headings = new Map<string, HTMLElement>()
+  const headings = new Map<string, HTMLHeadingElement>()
+  const sections: ReadingSection[] = []
   const nextHeadingSuffix = new Map<string, number>()
   for (const heading of article.querySelectorAll<HTMLHeadingElement>('h1, h2, h3, h4, h5, h6')) {
+    const title = heading.textContent
     const base =
-      heading.textContent
+      title
         .toLowerCase()
         .replace(/[^\p{L}\p{N}\s_-]/gu, '')
         .trim()
@@ -218,12 +222,14 @@ export function showMarkdownPreview(
     }
     heading.id = id
     headings.set(id, heading)
+    if (heading.parentElement === article && !heading.hidden && /^H[1-3]$/.test(heading.tagName) && title.trim())
+      sections.push({ heading, title: title.trim() })
     const anchor = node('a', 'md-heading-anchor', '#')
     anchor.href = `#${heading.id}`
-    anchor.setAttribute('aria-label', `Link to ${heading.textContent}`)
+    anchor.setAttribute('aria-label', `Link to ${title}`)
     heading.append(anchor)
   }
-  let anchored: { heading: HTMLElement; top: number } | null = null
+  let anchored: { heading: HTMLHeadingElement; top: number } | null = null
   function scrollToAnchor(anchor: string) {
     const heading = headings.get(anchor)
     if (heading) {
@@ -233,6 +239,7 @@ export function showMarkdownPreview(
       anchored = null
       root.scrollTop = 0
     }
+    readingRail?.refresh()
   }
   function diagramLayout(update: () => void) {
     if (anchored && root.scrollTop !== anchored.top) anchored = null
@@ -439,7 +446,18 @@ export function showMarkdownPreview(
       }
     }
   }
-  root.append(article)
+  const readingRail = createReadingRail(
+    root,
+    article,
+    sections,
+    scrollToAnchor,
+    () => {
+      if (anchored && root.scrollTop !== anchored.top) anchored = null
+      return anchored?.heading
+    },
+    lifetime.signal,
+  )
+  root.append(readingRail?.layout ?? article)
   host.replaceChildren(root)
   if (codeBlocks.length || diagramRenders.length) {
     mountedPreviews.add(recolor)

@@ -14,5 +14,6 @@ Syntax highlights and Mermaid diagrams use the selected appearance palette and u
 - [`markdown-document.ts`](markdown-document.ts) — Parses source, extracts frontmatter, and counts words before the preview builds its DOM.
 - [`markdown-paths.ts`](markdown-paths.ts) — Resolves relative project paths and heading anchors.
 - [`markdown-preview.css`](markdown-preview.css) — Styles the reading view and its code, tables, and diagrams.
+- [Reading rail](reading-rail/reading-rail.ts) shows progress and the current section alongside long documents in wide previews.
 
 Run `pnpm test app/tests/interface/editor/markdown.test.mjs` for path handling. Open a Markdown file with `pnpm run dev .` to exercise the preview.
