@@ -121,7 +121,7 @@ export function createReviewFocus({ onScope }) {
     const model = editor?.getModel()
     const changes = editor?.getLineChanges()
     if (!model || !changes) {
-      changeMap.element.hidden = true
+      changeMap.update([], null)
       paint('Finding changes…')
       return
     }
@@ -138,7 +138,7 @@ export function createReviewFocus({ onScope }) {
       }
     }
     setCollapsed(scope === 'focus' && hunks.length > 0)
-    changeMap.update(hunks, model.original.getLineCount(), model.modified.getLineCount())
+    changeMap.update(hunks, model)
     if (hunks.length) paint()
     else paint('No text changes')
     if (hunks.length && revealOnFirstDiff) {
@@ -190,7 +190,7 @@ export function createReviewFocus({ onScope }) {
     revealOnFirstDiff = false
     bar.hidden = true
     scopeControl.hidden = true
-    changeMap.update([], 1, 1)
+    changeMap.update([], null)
   }
 
   return {
