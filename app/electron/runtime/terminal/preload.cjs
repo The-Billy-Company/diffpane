@@ -35,6 +35,13 @@ const bridge = {
     electron_1.ipcRenderer.on('terminal-exit', receive)
     return () => electron_1.ipcRenderer.removeListener('terminal-exit', receive)
   },
+  onCommandStarted(listener) {
+    const receive = (_event, label) => {
+      if (typeof label === 'string' && label.length <= 120) listener(label)
+    }
+    electron_1.ipcRenderer.on('terminal-command-started', receive)
+    return () => electron_1.ipcRenderer.removeListener('terminal-command-started', receive)
+  },
   onTheme(listener) {
     const receive = (_event, theme) => {
       if (theme === 'light' || theme === 'dark') listener(theme)

@@ -22,10 +22,17 @@ const loginShells = new Set(['ash', 'bash', 'csh', 'dash', 'fish', 'ksh', 'mksh'
 
 type SpawnPty = typeof import('node-pty').spawn
 
+export interface TerminalExecutable {
+  executable: string
+  args: readonly string[]
+  env: NodeJS.ProcessEnv
+}
+
 interface TerminalOptions {
   cwd: string
   cols: number
   rows: number
+  command?: TerminalExecutable
   onData: (data: string, bytes: number) => void
   onExit: (exitCode: number | null, reason?: string) => void
 }
@@ -160,12 +167,15 @@ export class TerminalProcess {
   #forceKill: NodeJS.Timeout | undefined
   #closeDeadline: NodeJS.Timeout | undefined
 
-  constructor({ cwd, cols, rows, onData, onExit }: TerminalOptions, spawnPty?: SpawnPty) {
+  constructor({ cwd, cols, rows, command, onData, onExit }: TerminalOptions, spawnPty?: SpawnPty) {
     if (!path.isAbsolute(cwd) || cwd.includes('\0') || !validTerminalSize(cols, rows))
       throw new Error('Invalid terminal workspace or dimensions.')
 
-    const { shell, args, env } = shellSettings()
-    this.isPowerShell = /^(?:pwsh|powershell)(?:\.exe)?$/i.test(path.basename(shell))
+    const { shell, args, env } = command
+      ? { shell: command.executable, args: [...command.args], env: command.env }
+      : shellSettings()
+    if (!path.isAbsolute(shell) || shell.includes('\0')) throw new Error('Invalid terminal executable.')
+    this.isPowerShell = !command && /^(?:pwsh|powershell)(?:\.exe)?$/i.test(path.basename(shell))
     const spawn = spawnPty ?? loadPty()
     this.#pty = spawn(shell, args, { name: 'xterm-256color', cwd, cols, rows, env })
     this.#onExit = onExit

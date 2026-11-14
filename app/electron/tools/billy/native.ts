@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, lstat, open, realpath } from 'node:fs/promises'
+import { access, lstat, open, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -94,9 +94,9 @@ export async function isBillyWorkspace(root: string) {
   return markers.every(result => result.status === 'fulfilled')
 }
 
-async function executable(root: string, tool: BillyTool): Promise<string> {
+export async function resolveBillyTool(root: string, tool: BillyTool, toolPath = process.env.PATH): Promise<string> {
   const directories = new Set([
-    ...(process.env.PATH ?? '').split(path.delimiter),
+    ...(toolPath ?? '').split(path.delimiter),
     path.join(homedir(), '.local/bin'),
     path.join(homedir(), '.cargo/bin'),
     '/opt/homebrew/bin',
@@ -111,8 +111,8 @@ async function executable(root: string, tool: BillyTool): Promise<string> {
     const candidate = path.join(directory, name)
     try {
       // oxlint-disable-next-line eslint/no-await-in-loop -- Probe the user's tool paths in precedence order.
-      await access(candidate, constants.X_OK)
-      return candidate
+      const [, metadata] = await Promise.all([access(candidate, constants.X_OK), stat(candidate)])
+      if (metadata.isFile()) return candidate
     } catch {
       // Try the next installed tool location.
     }
@@ -163,7 +163,7 @@ export function createBillyContext(root: string, signal: AbortSignal): BillyDocR
     signal.throwIfAborted()
     let binary = binaries.get(tool)
     if (!binary) {
-      binary = executable(root, tool)
+      binary = resolveBillyTool(root, tool)
       binaries.set(tool, binary)
     }
     return run(tool, await binary, args, options, process.env)

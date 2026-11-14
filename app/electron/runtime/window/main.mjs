@@ -37,7 +37,7 @@ import { AgentThreads } from '../../tools/assistant/agent-threads/threads.ts'
 import { ClaudeCredentials } from '../../tools/assistant/claude-credentials.mjs'
 import { ClaudeSession } from '../../tools/assistant/claude-session.mjs'
 import { searchClaudeGist } from '../../tools/assistant/gist-search.mjs'
-import { registerBillyReview, resetBillyReview } from '../../tools/billy/bridge.ts'
+import { prepareBillySetup, registerBillyReview, resetBillyReview } from '../../tools/billy/bridge.ts'
 import { mediaResponse } from '../../workspace/documents/media.ts'
 import { startDesktopMetrics } from '../diagnostics/desktop-metrics.ts'
 import { createDiagnosticLog } from '../diagnostics/diagnostic-log.ts'
@@ -933,6 +933,12 @@ app.on('open-file', (event, filename) => {
 })
 
 registerBillyReview(handle)
+handle('billy-setup-run', async (session, event, action) => {
+  const command = await prepareBillySetup(session, event, action)
+  return (
+    terminals.get(session)?.runCommand(command) ?? { ok: false, message: 'The terminal is unavailable in this window.' }
+  )
+})
 
 handle('open-external', async (_session, _event, href) => {
   if (typeof href !== 'string') throw appError('This link cannot be opened.', { code: 'INVALID_LINK' })

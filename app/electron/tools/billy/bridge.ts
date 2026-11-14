@@ -6,6 +6,7 @@ import { listLanes, readLaneChecks, readLaneLog } from '../billy-lanes/lanes.ts'
 import { createBillyReplayReader } from '../billy-replay/reader.ts'
 import { readBillySiblings } from '../billy-siblings/siblings.ts'
 import { createBillyContext, isBillyPath, isBillyWorkspace } from './native.ts'
+import { billySetupCommand, checkBillySetup } from './setup.ts'
 
 interface BillyWindow {
   root(): Promise<string>
@@ -105,8 +106,16 @@ function checkedPath(value: unknown) {
   return value
 }
 
+export async function prepareBillySetup(window: BillyWindow, event: IpcMainInvokeEvent, action: unknown) {
+  const session = await getBillySession(window, event)
+  const command = await billySetupCommand(session.context.root, action)
+  session.controller.signal.throwIfAborted()
+  return command
+}
+
 export function registerBillyReview(handle: Register) {
   handle('billy-available', async session => Boolean(await billyRoot(session)))
+  register(handle, 'setup-status', ({ context }) => checkBillySetup(context.root, context.signal))
   register(handle, 'lanes', session => listLanes(session.context))
   register(handle, 'lane-checks', (session, [slug]) => {
     if (typeof slug !== 'string') throw new Error('Choose an agent lane.')

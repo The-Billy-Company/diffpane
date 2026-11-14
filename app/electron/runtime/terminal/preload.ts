@@ -37,6 +37,13 @@ const bridge: TerminalBridge = {
     ipcRenderer.on('terminal-exit', receive)
     return () => ipcRenderer.removeListener('terminal-exit', receive)
   },
+  onCommandStarted(listener) {
+    const receive = (_event: IpcRendererEvent, label: unknown) => {
+      if (typeof label === 'string' && label.length <= 120) listener(label)
+    }
+    ipcRenderer.on('terminal-command-started', receive)
+    return () => ipcRenderer.removeListener('terminal-command-started', receive)
+  },
   onTheme(listener) {
     const receive = (_event: IpcRendererEvent, theme: unknown) => {
       if (theme === 'light' || theme === 'dark') listener(theme)

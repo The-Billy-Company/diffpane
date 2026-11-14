@@ -4,9 +4,12 @@ import { pathToFileURL } from 'node:url'
 import { app, dialog, net, session, WebContentsView } from 'electron'
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { colorHex } from '../../../shared/appearance/palette.ts'
+import type { BillySetupStartResult } from '../../../shared/billy/setup.ts'
 import type { ShortcutBinding } from '../../../shared/preferences/shortcuts.ts'
 import { defaultBinding } from '../../../shared/preferences/shortcuts.ts'
 import type { TerminalStartResult } from '../../../shared/terminal/protocol.ts'
+import { terminalInitialColumns, terminalInitialRows } from '../../../shared/terminal/protocol.ts'
+import type { TerminalExecutable } from './pty.ts'
 import { TerminalProcess, validTerminalSize } from './pty.ts'
 
 export const terminalScheme = 'diffpane-terminal'
@@ -58,7 +61,14 @@ interface Surface {
   stopping?: Promise<void>
 }
 
-function denied(message = 'The terminal is unavailable in this window.'): TerminalStartResult {
+export interface TerminalCommand extends TerminalExecutable {
+  cwd: string
+  label: string
+  description: string
+  display: string
+}
+
+function denied(message = 'The terminal is unavailable in this window.'): { ok: false; message: string } {
   return { ok: false, message }
 }
 
@@ -78,6 +88,7 @@ function displayPath(cwd: string) {
 export function createTerminalDock({ window, eligible, workspace, onVisibility }: DockOptions) {
   let surface: Surface | undefined
   let draining: Promise<void> | undefined
+  let commandPrompt: AbortController | undefined
   let layout: { height: number; bottom: number } | undefined
   let theme: 'dark' | 'light' = 'dark'
   let newLineShortcut = defaultBinding('terminalNewLine', process.platform === 'darwin')
@@ -131,6 +142,8 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
   }
 
   function reset() {
+    commandPrompt?.abort()
+    commandPrompt = undefined
     const current = surface
     if (!current) return draining ?? Promise.resolve()
     surface = undefined
@@ -155,8 +168,30 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
     if (surface === current) reset().catch(() => console.warn('Diffpane could not close the terminal view.'))
   }
 
+  function startProcess(current: Surface, cwd: string, cols: number, rows: number, command?: TerminalExecutable) {
+    const process = new TerminalProcess({
+      cwd,
+      cols,
+      rows,
+      ...(command ? { command } : {}),
+      onData: (data, bytes) => {
+        if (surface === current && !current.view.webContents.isDestroyed())
+          current.view.webContents.send('terminal-data', data, bytes)
+      },
+      onExit: (code, reason) => {
+        if (code === null) stop(current).catch(() => console.warn('Diffpane could not stop the terminal process.'))
+        else current.process = undefined
+        if (surface === current && !current.view.webContents.isDestroyed())
+          current.view.webContents.send('terminal-exit', code, reason)
+      },
+    })
+    current.process = process
+    return process
+  }
+
   async function start(current: Surface, cols: unknown, rows: unknown): Promise<TerminalStartResult> {
-    if (!keyboardTarget(current) || current.process || current.prompt || current.stopping || draining) return denied()
+    if (!keyboardTarget(current) || current.process || current.prompt || current.stopping || draining || commandPrompt)
+      return denied()
     if (typeof cols !== 'number' || typeof rows !== 'number' || !validTerminalSize(cols, rows))
       return denied('The terminal is too small to start.')
     const prompt = new AbortController()
@@ -182,28 +217,53 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
       if (prompt.signal.aborted || !active(current)) return denied()
       if (approved.dev !== original.dev || approved.ino !== original.ino)
         return denied('The workspace folder changed. Reopen it before starting a shell.')
-      current.process = new TerminalProcess({
-        cwd,
-        cols,
-        rows,
-        onData: (data, bytes) => {
-          if (surface === current && !current.view.webContents.isDestroyed())
-            current.view.webContents.send('terminal-data', data, bytes)
-        },
-        onExit: (code, reason) => {
-          if (code === null) stop(current).catch(() => console.warn('Diffpane could not stop the terminal shell.'))
-          else current.process = undefined
-          if (surface === current && !current.view.webContents.isDestroyed())
-            current.view.webContents.send('terminal-exit', code, reason)
-        },
-      })
-      return { ok: true, isPowerShell: current.process.isPowerShell }
+      return { ok: true, isPowerShell: startProcess(current, cwd, cols, rows).isPowerShell }
     } catch {
       return denied(
         'Could not start the local shell. Check that your shell and the Diffpane installation are available.',
       )
     } finally {
       current.prompt = undefined
+    }
+  }
+
+  async function runCommand(command: TerminalCommand): Promise<BillySetupStartResult> {
+    if (!canShow() || !window.isFocused()) return denied()
+    if (commandPrompt || draining || surface?.prompt || surface?.stopping || (surface && !surface.loaded))
+      return denied('Wait for the terminal to finish opening or stopping.')
+    if (surface?.process) return denied('Stop the active terminal session before starting a Billy action.')
+    const prompt = new AbortController()
+    commandPrompt = prompt
+    try {
+      const original = await workspaceDirectory(command.cwd)
+      if (prompt.signal.aborted || !canShow() || !window.isFocused()) return denied()
+      const { response } = await dialog.showMessageBox(window, {
+        type: 'question',
+        title: 'Billy Company Diff',
+        message: `Run ${command.label} in this checkout?`,
+        detail: `${command.description}\n\n${command.display}\n${displayPath(command.cwd)}`,
+        buttons: ['Cancel', 'Run in Terminal'],
+        defaultId: 0,
+        cancelId: 0,
+        noLink: true,
+        signal: prompt.signal,
+      })
+      if (prompt.signal.aborted || !canShow()) return denied()
+      if (response !== 1) return denied('Billy action canceled.')
+      if (!surface && !(await open())) return denied()
+      const current = surface
+      const approved = await workspaceDirectory(command.cwd)
+      if (prompt.signal.aborted || !canShow() || !current || surface !== current || !current.loaded) return denied()
+      if (approved.dev !== original.dev || approved.ino !== original.ino)
+        return denied('The Billy checkout changed. Reopen it before starting the action.')
+      visibility(current, true)
+      startProcess(current, command.cwd, terminalInitialColumns, terminalInitialRows, command)
+      current.view.webContents.send('terminal-command-started', command.label)
+      return { ok: true }
+    } catch {
+      return denied('Could not start Igor in the terminal. Check your Billy setup and try again.')
+    } finally {
+      if (commandPrompt === prompt) commandPrompt = undefined
     }
   }
 
@@ -290,6 +350,7 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
   window.on('resize', syncLayout)
   window.on('focus', syncLayout)
   return {
+    runCommand,
     setNewLineShortcut(binding: ShortcutBinding) {
       if (newLineShortcut === binding) return
       newLineShortcut = binding

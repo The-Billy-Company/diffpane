@@ -431,6 +431,8 @@ const settings =
   shortcutApi &&
   createSettings({
     appearance,
+    billySetup: api.billy?.setup,
+    onShowBillyTerminal: exitZenMode,
     platform,
     getBindings: () => shortcutOverrides,
     setBinding: (action, binding) => (binding === null ? shortcutApi.reset(action) : shortcutApi.set(action, binding)),
@@ -1718,7 +1720,8 @@ function renderSnapshot(next) {
   if (snapshot && Number.isFinite(next.revision) && next.revision < snapshot.revision) return
   if (snapshot && next.revision === snapshot.revision && next.inventoryRevision < snapshot.inventoryRevision) return
   const first = !snapshot
-  const allDirty = !next.changedPaths || next.changedPaths.includes('*') || next.root !== snapshot?.root
+  const rootChanged = next.root !== snapshot?.root
+  const allDirty = !next.changedPaths || next.changedPaths.includes('*') || rootChanged
   const watchChanged = next.watchError !== snapshot?.watchError
   const searchChanged = next.revision !== snapshot?.revision || next.inventoryRevision !== snapshot?.inventoryRevision
   snapshot = next
@@ -1729,6 +1732,26 @@ function renderSnapshot(next) {
   ui.startScreen.setAttribute('aria-busy', 'false')
   ui.startScreen.hidden = true
   ui.feedScroll.hidden = false
+  if (rootChanged && api.billy) {
+    settings?.setBillyWorkspace(null)
+    runTask(
+      'Identify Billy workspace',
+      async () => {
+        const available = await api.billy.available()
+        if (closed || snapshot?.root !== next.root) return
+        settings?.setBillyWorkspace(available ? next.root : null)
+        billyAvailable = available
+        review.laneHost.hidden = !available
+        billyContext?.setAvailable(available)
+        for (const card of cards.values()) {
+          const action = card.element.querySelector('.billy-sibling-action')
+          if (action instanceof HTMLButtonElement) action.hidden = !available
+        }
+        refreshBillyLanes()
+      },
+      { silent: true },
+    )
+  }
   if (first) {
     setSidebarVisible(true)
     requireElement(document, '.branch', HTMLElement).hidden = false
@@ -1736,23 +1759,6 @@ function renderSnapshot(next) {
     ui.contentSearchToggle.hidden = !contentSearch
     ui.terminalToggle.hidden = !api.terminal
     ui.reviewToggle.hidden = false
-    if (api.billy)
-      runTask(
-        'Identify Billy workspace',
-        async () => {
-          const available = await api.billy.available()
-          if (closed || snapshot?.root !== next.root) return
-          billyAvailable = available
-          review.laneHost.hidden = !available
-          billyContext?.setAvailable(available)
-          for (const card of cards.values()) {
-            const action = card.element.querySelector('.billy-sibling-action')
-            if (action instanceof HTMLButtonElement) action.hidden = !available
-          }
-          refreshBillyLanes()
-        },
-        { silent: true },
-      )
     reviewNotes?.setContext(true)
     if (ideas) {
       ui.ideasToggle.hidden = false

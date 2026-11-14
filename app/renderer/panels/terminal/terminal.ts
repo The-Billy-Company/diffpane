@@ -7,6 +7,8 @@ import { colorHex } from '../../../shared/appearance/palette.ts'
 import { ariaBinding, bindingFromEvent, defaultBinding } from '../../../shared/preferences/shortcuts.ts'
 import type { TerminalBridge } from '../../../shared/terminal/protocol.ts'
 import {
+  terminalInitialColumns,
+  terminalInitialRows,
   terminalMaximumColumns,
   terminalMaximumInputBytes,
   terminalMaximumRows,
@@ -65,6 +67,7 @@ function mount(bridge: TerminalBridge) {
   let scheme: ColorScheme = themePreference.matches ? 'light' : 'dark'
   let explicitTheme = false
   let active = false
+  let commandLabel: string | undefined
   let transitioning = false
   let receivedExit = false
   let pendingWrites = 0
@@ -119,8 +122,8 @@ function mount(bridge: TerminalBridge) {
 
   function createTerminal() {
     const terminal = new Terminal({
-      cols: 80,
-      rows: 12,
+      cols: terminalInitialColumns,
+      rows: terminalInitialRows,
       fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--font-mono'),
       fontSize: 13,
       scrollback: 3000,
@@ -236,13 +239,14 @@ function mount(bridge: TerminalBridge) {
     if (!active || transitioning) return
     transitioning = true
     syncControls()
-    setStatus('Stopping shell…')
+    setStatus(commandLabel ? `Stopping ${commandLabel}…` : 'Stopping shell…')
     try {
       await bridge.stop()
-      if (active) finish('Shell stopped')
+      if (active) finish(commandLabel ? `${commandLabel} stopped` : 'Shell stopped')
     } catch {
-      if (active) setStatus('Couldn’t stop the shell.')
+      if (active) setStatus(commandLabel ? `Couldn’t stop ${commandLabel}.` : 'Couldn’t stop the shell.')
     } finally {
+      if (!active) commandLabel = undefined
       transitioning = false
       syncControls()
       if (!active) startButton.focus()
@@ -278,9 +282,32 @@ function mount(bridge: TerminalBridge) {
       if (!active && pendingWrites === 0) syncControls()
     })
   })
+  bridge.onCommandStarted(label => {
+    commandLabel = label
+    receivedExit = false
+    fitTerminal()
+    active = true
+    view.terminal.options.disableStdin = false
+    bridge.resize(view.terminal.cols, view.terminal.rows)
+    setStatus(`${label} running`)
+    syncControls()
+    if (document.hasFocus()) view.terminal.focus()
+  })
   bridge.onExit((code, reason) => {
     receivedExit = true
-    finish(reason ?? (code === null ? 'Shell stopped' : `Shell exited (${code})`))
+    finish(
+      reason ??
+        (commandLabel
+          ? code === 0
+            ? `${commandLabel} finished`
+            : code === null
+              ? `${commandLabel} stopped`
+              : `${commandLabel} exited (${code})`
+          : code === null
+            ? 'Shell stopped'
+            : `Shell exited (${code})`),
+    )
+    commandLabel = undefined
   })
   startButton.addEventListener('click', event => {
     if (event.isTrusted) start().catch(() => setStatus('Couldn’t start the shell.'))

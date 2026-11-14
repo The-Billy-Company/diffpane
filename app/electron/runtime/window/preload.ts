@@ -25,6 +25,12 @@ import type {
   BillyReplayRun,
   BillyReplayText,
 } from '../../../shared/billy/replay.ts'
+import type {
+  BillySetupAction,
+  BillySetupCheck,
+  BillySetupStartResult,
+  BillySetupStatus,
+} from '../../../shared/billy/setup.ts'
 import type { BillySiblingExcerpt, BillySiblingMatch, BillySiblingResult } from '../../../shared/billy/siblings.ts'
 import type { DiagnosticEvent } from '../../../shared/diagnostics/diagnostics.ts'
 import type { Idea, IdeaChange, IdeaLink } from '../../../shared/ideas/ideas.ts'
@@ -889,9 +895,30 @@ function isBillyReplayCase(value: unknown): value is BillyReplayCase {
   )
 }
 
+function isBillySetupCheck(value: unknown): value is BillySetupCheck {
+  return (
+    isRecord(value) &&
+    isString(value.label) &&
+    isString(value.detail) &&
+    (value.state === 'ready' || value.state === 'attention' || value.state === 'unavailable')
+  )
+}
+
+function isBillySetupStatus(value: unknown): value is BillySetupStatus {
+  return isRecord(value) && arrayOf(isBillySetupCheck)(value.checks)
+}
+
+function isBillySetupStartResult(value: unknown): value is BillySetupStartResult {
+  return isRecord(value) && (value.ok === true || (value.ok === false && isString(value.message)))
+}
+
 const API = {
   billy: {
     available: () => invoke('billy-available', isBoolean),
+    setup: {
+      status: () => invoke('billy-setup-status', isBillySetupStatus),
+      run: (action: BillySetupAction) => invoke('billy-setup-run', isBillySetupStartResult, action),
+    },
     listLanes: () => invoke('billy-lanes', isBillyLanePage),
     readLaneChecks: (slug: string) => invoke('billy-lane-checks', isBillyLaneChecks, slug),
     readLaneLog: (slug: string, check: string, capture: string) =>

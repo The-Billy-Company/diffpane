@@ -226,3 +226,36 @@ test('closing the view or replacing the folder during consent invalidates a pend
     await rm(scratch, { recursive: true, force: true })
   }
 })
+
+test('a confirmed Billy command runs with fixed arguments in the terminal', async () => {
+  vi.clearAllMocks()
+  const cwd = await realpath(tmpdir())
+  const workspace = fixture(cwd)
+  const terminal = await workspace.open()
+  const command = {
+    executable: path.join(cwd, 'igor'),
+    args: ['auth', 'github', '--workspace', cwd],
+    cwd,
+    env: {},
+    label: 'GitHub CLI',
+    description: 'Sign in for GitHub CLI commands.',
+    display: 'igor auth github',
+  }
+  try {
+    authorize.mockResolvedValueOnce({ response: 0 }).mockResolvedValueOnce({ response: 1 })
+    assert.deepEqual(await workspace.dock.runCommand(command), { ok: false, message: 'Billy action canceled.' })
+    assert.equal(spawn.mock.calls.length, 0)
+    assert.deepEqual(await workspace.dock.runCommand(command), { ok: true })
+    const options = spawn.mock.calls.at(-1)?.[0]
+    assert.equal(options?.cwd, cwd)
+    assert.deepEqual(options?.command?.args, command.args)
+    assert.deepEqual(terminal.contents.send.mock.calls.at(-1), ['terminal-command-started', 'GitHub CLI'])
+    assert.deepEqual(await workspace.dock.runCommand(command), {
+      ok: false,
+      message: 'Stop the active terminal session before starting a Billy action.',
+    })
+    assert.equal(spawn.mock.calls.length, 1)
+  } finally {
+    await workspace.dock.reset()
+  }
+})

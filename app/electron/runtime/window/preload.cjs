@@ -742,9 +742,27 @@ function isBillyReplayCase(value) {
       nullable(arrayOf(isBillyReplayModel))(turn.models),
   )
 }
+function isBillySetupCheck(value) {
+  return (
+    isRecord(value) &&
+    isString(value.label) &&
+    isString(value.detail) &&
+    (value.state === 'ready' || value.state === 'attention' || value.state === 'unavailable')
+  )
+}
+function isBillySetupStatus(value) {
+  return isRecord(value) && arrayOf(isBillySetupCheck)(value.checks)
+}
+function isBillySetupStartResult(value) {
+  return isRecord(value) && (value.ok === true || (value.ok === false && isString(value.message)))
+}
 const API = {
   billy: {
     available: () => invoke('billy-available', isBoolean),
+    setup: {
+      status: () => invoke('billy-setup-status', isBillySetupStatus),
+      run: action => invoke('billy-setup-run', isBillySetupStartResult, action),
+    },
     listLanes: () => invoke('billy-lanes', isBillyLanePage),
     readLaneChecks: slug => invoke('billy-lane-checks', isBillyLaneChecks, slug),
     readLaneLog: (slug, check, capture) => invoke('billy-lane-log', isBillyLaneLog, slug, check, capture),

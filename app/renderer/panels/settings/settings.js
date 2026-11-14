@@ -14,6 +14,7 @@ import {
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createBillySettings } from './billy-settings.ts'
 
 import './settings.css'
 
@@ -23,6 +24,8 @@ import './settings.css'
 /**
  * @typedef {{
  *   appearance: ReturnType<typeof import('../appearance/appearance.ts').createAppearanceSettings>,
+ *   billySetup?: Parameters<typeof createBillySettings>[0],
+ *   onShowBillyTerminal?: () => void,
  *   platform: string,
  *   getBindings: () => ShortcutOverrides,
  *   setBinding: (action: ShortcutAction, binding: ShortcutBinding | null) => Promise<ShortcutOverrides>,
@@ -80,7 +83,16 @@ function createButton(className, text, label) {
 }
 
 /** @param {SettingsOptions} options */
-export function createSettings({ appearance, platform, getBindings, setBinding, resetBindings, setCapturing }) {
+export function createSettings({
+  appearance,
+  billySetup,
+  onShowBillyTerminal,
+  platform,
+  getBindings,
+  setBinding,
+  resetBindings,
+  setCapturing,
+}) {
   const isMac = platform === 'darwin'
   const dialog = node('dialog', 'appearance-dialog')
   dialog.id = 'app-settings'
@@ -97,6 +109,10 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
           <button type="button" data-page="shortcuts" aria-controls="settings-shortcuts">
             <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M6 8h.1m3.9 0h.1m3.9 0h.1M6 11h.1m2.9 0h5"/></svg>
             Keyboard shortcuts
+          </button>
+          <button type="button" data-page="billy" aria-controls="settings-billy">
+            <svg viewBox="0 0 22 22" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="15" height="15" rx="0.75" stroke="currentColor" stroke-width="1.5"/><path d="M9.35 8.95v3.3m3.3-3.3v3.3" stroke="currentColor" stroke-width="1.65" stroke-linecap="round"/></svg>
+            Billy Company Diff
           </button>
         </nav>
       </aside>
@@ -126,8 +142,17 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
     </div>`
 
   const shortcutsPage = requireElement(dialog, '#settings-shortcuts', HTMLElement)
+  const billy =
+    billySetup &&
+    createBillySettings(billySetup, () => {
+      close()
+      onShowBillyTerminal?.()
+    })
+  const billyButton = requireElement(dialog, '[data-page="billy"]', HTMLButtonElement)
+  billyButton.hidden = !billy
   const pageButtons = [...dialog.querySelectorAll('button')].filter(button => button.dataset.page)
   shortcutsPage.before(appearance.page)
+  if (billy) shortcutsPage.after(billy.page)
   const table = requireElement(dialog, 'table', HTMLTableElement)
   const list = requireElement(dialog, '.settings-list', HTMLDivElement)
   const status = requireElement(dialog, '.settings-status', HTMLParagraphElement)
@@ -149,6 +174,8 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
   /** @type {Promise<unknown>} */
   let captureUpdate = Promise.resolve()
   let openVersion = 0
+  /** @type {'appearance' | 'shortcuts' | 'billy'} */
+  let activePage = 'appearance'
 
   /** @param {ShortcutBinding} binding */
   function keyNamesFor(binding) {
@@ -348,20 +375,23 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
     }
   }
 
-  /** @param {'appearance' | 'shortcuts'} page */
+  /** @param {'appearance' | 'shortcuts' | 'billy'} page */
   function showPage(page) {
+    if (page === activePage || (page === 'billy' && !billy)) return
     const showShortcuts = page === 'shortcuts'
-    if (showShortcuts === !shortcutsPage.hidden) return
+    const captureChanged = showShortcuts || activePage === 'shortcuts'
+    activePage = page
     stopRecording()
     showStatus()
     shortcutsPage.hidden = !showShortcuts
-    appearance.page.hidden = showShortcuts
+    appearance.page.hidden = page !== 'appearance'
+    if (billy) billy.page.hidden = page !== 'billy'
     for (const button of pageButtons) {
       if (button.dataset.page === page) button.setAttribute('aria-current', 'page')
       else button.removeAttribute('aria-current')
     }
     if (showShortcuts) list.scrollTop = 0
-    runTask('Change shortcut capture', () => syncCapture(showShortcuts))
+    if (captureChanged) runTask('Change shortcut capture', () => syncCapture(showShortcuts))
   }
 
   function open() {
@@ -391,7 +421,7 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
   for (const button of pageButtons)
     button.addEventListener('click', () => {
       const page = button.dataset.page
-      if (page === 'appearance' || page === 'shortcuts') showPage(page)
+      if (page === 'appearance' || page === 'shortcuts' || page === 'billy') showPage(page)
     })
   chordButton.addEventListener('click', () => {
     if (!recording || pending || !shortcutAllowsChord(recording)) return
@@ -474,6 +504,7 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
   return {
     open,
     refresh,
+    setBillyWorkspace: (/** @type {string | null} */ root) => billy?.setWorkspace(root),
     get isOpen() {
       return dialog.open
     },
