@@ -3,6 +3,7 @@ import { isArray, isDiagnostic, isRecord } from '../../editor/languages/language
 import { afterPaint } from '../../shell/layout/after-paint.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createLanguageTreemap } from './language-treemap.ts'
 
 import './howmany.css'
 
@@ -232,6 +233,14 @@ export function createHowMany(monaco, api, navigator, statusbar) {
         )
       if (!rows.length) continue
       const group = section(label)
+      const treemap = category === 'code' ? createLanguageTreemap(rows) : null
+      const list = treemap ? node('div', 'howmany-language-list') : group
+      if (treemap) {
+        group.classList.add('howmany-languages')
+        const layout = node('div', 'howmany-language-layout')
+        layout.append(treemap.chart, list)
+        group.append(node('p', 'howmany-muted', 'Share of source code lines'), layout)
+      }
       for (const stats of rows) {
         const line = row(
           stats.language,
@@ -239,7 +248,15 @@ export function createHowMany(monaco, api, navigator, statusbar) {
         )
         if (category === 'code')
           line.title = `${source.code_lines ? ((stats.code_lines / source.code_lines) * 100).toFixed(1) : 0}% of source code lines · ${count(stats.total_lines, 'physical line')}`
-        group.append(line)
+        const color = treemap?.colors.get(stats)
+        if (color) {
+          const name = requireElement(line, 'span', HTMLSpanElement)
+          const marker = node('span', 'howmany-series-key howmany-language-key')
+          marker.style.backgroundColor = color
+          marker.setAttribute('aria-hidden', 'true')
+          name.prepend(marker)
+        }
+        list.append(line)
       }
       content.append(group)
     }

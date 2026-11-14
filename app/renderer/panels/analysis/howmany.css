@@ -331,6 +331,66 @@
   height: 7px;
   border-radius: 2px;
 }
+.howmany-languages {
+  grid-column: 1 / -1;
+}
+.howmany-languages h3 {
+  margin-bottom: 4px;
+}
+.howmany-language-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 16px;
+}
+.howmany-language-map {
+  position: relative;
+  aspect-ratio: 12 / 5;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--surface);
+}
+.howmany-language-tile {
+  position: absolute;
+  container-type: size;
+  overflow: hidden;
+  border-radius: 5px;
+  color: var(--text);
+  background: color-mix(in oklab, var(--language-color) 23%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--surface);
+}
+.howmany-language-tile-name,
+.howmany-language-tile-share {
+  display: none;
+  padding-inline: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.howmany-language-tile-name {
+  padding-top: 6px;
+  font-size: var(--text-label);
+  font-weight: var(--weight-semibold);
+}
+.howmany-language-tile-share {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+.howmany-language-key {
+  margin-inline-end: 6px;
+}
+@container (min-width: 62px) and (min-height: 24px) {
+  .howmany-language-tile-name {
+    display: block;
+  }
+}
+@container (min-width: 62px) and (min-height: 44px) {
+  .howmany-language-tile-share {
+    display: block;
+  }
+}
 @media (prefers-reduced-motion: no-preference) {
   .howmany-dialog[open] {
     animation: howmany-report-in 180ms ease-out both;
@@ -362,5 +422,9 @@
 @media (max-width: 700px) {
   .howmany-report-content {
     grid-template-columns: 1fr;
+  }
+  .howmany-language-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
   }
 }
