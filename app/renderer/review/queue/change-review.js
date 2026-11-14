@@ -34,6 +34,7 @@ import './change-review.css'
 
 const ROW_HEIGHT = 48
 const OVERSCAN = 4
+const MAX_PROGRESS_SEGMENTS = 40
 const CHECKPOINT_TIME = new Intl.DateTimeFormat(undefined, {
   month: 'short',
   day: 'numeric',
@@ -109,6 +110,7 @@ export function createChangeReview(
     <div class="change-review-progress" hidden>
       <span class="change-review-count" role="status"></span>
       <progress aria-label="Review progress" max="1" value="0"></progress>
+      <div class="change-review-progress-strip" aria-hidden="true"></div>
     </div>
     <div class="change-review-filters" role="group" aria-label="Review filter" hidden>
       <button type="button" data-filter="pending" aria-label="Pending" aria-describedby="${id}-pending" aria-pressed="true">Pending <span id="${id}-pending"></span></button>
@@ -161,6 +163,7 @@ export function createChangeReview(
   const count = requireElement(container, '.change-review-count', HTMLSpanElement)
   const progress = requireElement(container, 'progress', HTMLProgressElement)
   const progressGroup = requireElement(container, '.change-review-progress', HTMLDivElement)
+  const progressStrip = requireElement(progressGroup, '.change-review-progress-strip', HTMLDivElement)
   const filterGroup = requireElement(container, '.change-review-filters', HTMLDivElement)
   const filters = [...container.querySelectorAll('button')].filter(button => button.dataset.filter)
   const list = requireElement(container, '.change-review-list', HTMLDivElement)
@@ -184,6 +187,12 @@ export function createChangeReview(
   const checkpointReviewed = new Map()
   /** @type {Map<string, HTMLDivElement>} */
   const mounted = new Map()
+  /** @type {string[]} */
+  const progressPaths = []
+  /** @type {HTMLSpanElement[]} */
+  const progressSegments = []
+  /** @type {HTMLSpanElement | undefined} */
+  let currentSegment
   let reviewed = headReviewed
   /** @type {ReviewBaseline} */
   let baseline = 'head'
@@ -373,12 +382,28 @@ export function createChangeReview(
     )
   }
 
+  function comparisonPath() {
+    return openingPath ?? (currentState === null ? null : currentPath)
+  }
+
   function comparisonIndex() {
-    const path = openingPath ?? (currentState === null ? null : currentPath)
+    const path = comparisonPath()
     return path === null ? undefined : entryIndex.get(path)
   }
 
   function renderControls() {
+    const path = comparisonPath()
+    const progressIndex = path === null ? -1 : progressPaths.indexOf(path)
+    const segment =
+      progressIndex < 0
+        ? undefined
+        : progressSegments[Math.floor((progressIndex * progressSegments.length) / progressPaths.length)]
+    if (segment !== currentSegment) {
+      currentSegment?.removeAttribute('data-current')
+      segment?.setAttribute('data-current', '')
+      currentSegment = segment
+    }
+
     const index = comparisonIndex()
     const canNavigate = entries.length > 1 || (entries.length === 1 && index === undefined)
     previous.disabled = !canNavigate
@@ -428,13 +453,42 @@ export function createChangeReview(
   let lastTotal = -1
   let lastDone = -1
 
+  function renderProgressStrip() {
+    const fileCount = progressPaths.length
+    const segmentCount = Math.min(fileCount, MAX_PROGRESS_SEGMENTS)
+    if (progressSegments.length !== segmentCount) {
+      progressSegments.length = Math.min(progressSegments.length, segmentCount)
+      while (progressSegments.length < segmentCount) {
+        const segment = document.createElement('span')
+        segment.className = 'change-review-progress-segment'
+        progressSegments.push(segment)
+      }
+      progressStrip.replaceChildren(...progressSegments)
+    }
+
+    // Above the segment limit, fill each group in proportion to its reviewed files.
+    for (const [index, segment] of progressSegments.entries()) {
+      const start = Math.ceil((index * fileCount) / segmentCount)
+      const end = Math.ceil(((index + 1) * fileCount) / segmentCount)
+      let done = 0
+      for (let i = start; i < end; i++) {
+        const path = progressPaths[i]
+        if (path !== undefined && reviewed.has(path)) done++
+      }
+      segment.style.setProperty('--reviewed-share', `${(100 * done) / (end - start)}%`)
+    }
+  }
+
   function updateProgress() {
     let total = 0
     let done = 0
+    const visible = !container.hidden
+    progressPaths.length = 0
     for (const file of changes.values()) {
       if (!includeFile(file)) continue
       total++
       if (reviewed.has(file.path)) done++
+      if (visible) progressPaths.push(file.path)
     }
     const summary = `${done.toLocaleString()} of ${total.toLocaleString()} reviewed`
     if (count.textContent !== summary) count.textContent = summary
@@ -442,6 +496,7 @@ export function createChangeReview(
     progress.value = done
     progress.setAttribute('aria-valuetext', summary)
     container.dataset.complete = String(total > 0 && done === total)
+    if (visible) renderProgressStrip()
     const all = changes.size
     if (lastTotal !== all || lastDone !== reviewed.size) {
       lastTotal = all
@@ -711,6 +766,7 @@ export function createChangeReview(
       } else {
         if (frame !== null) cancelAnimationFrame(frame)
         frame = null
+        progressPaths.length = 0
         entries = []
         entryIndex.clear()
         mounted.clear()
