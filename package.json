@@ -65,6 +65,7 @@
     "monaco-editor": "^0.57.0",
     "number-flow": "0.6.2",
     "pixelmatch": "8.0.0",
+    "roughjs": "4.6.6",
     "vite": "npm:@voidzero-dev/vite-plus-core@1.1.0",
     "vite-plus": "1.1.0",
     "wavesurfer.js": "7.12.12"

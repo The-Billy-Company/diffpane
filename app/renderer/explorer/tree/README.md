@@ -15,5 +15,6 @@ In a scrolling tree, the change map beside the rows shows where Git changes are.
 - [`navigation-reconcile.ts`](navigation-reconcile.ts) — Reconciles snapshots and incremental inventory changes.
 - [`file-actions.ts`](file-actions.ts) — Provides the contextual menu and actions for files and directories.
 - [`navigator.css`](navigator.css) — Styles tree rows, search, and Git status badges.
+- [`navigator-art.ts`](art/navigator-art.ts) — Sketches empty inventory and filter results.
 
 Run `pnpm test app/tests/interface/explorer/navigator.test.mjs app/tests/interface/explorer/navigation-reconcile.test.mjs`.

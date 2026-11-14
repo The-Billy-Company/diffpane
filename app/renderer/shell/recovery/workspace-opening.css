@@ -1,7 +1,8 @@
 @import './window-mascot.css';
 
 .workspace-opening {
-  --opening-card-width: 382px;
+  --opening-card-width: 396px;
+  --opening-grid: color-mix(in oklab, var(--line) 52%, var(--canvas));
   position: fixed;
   inset: 0;
   z-index: 1001;
@@ -9,10 +10,7 @@
   place-items: safe center;
   padding: 48px 20px 24px;
   overflow: auto;
-  background:
-    radial-gradient(ellipse at 24% 25%, color-mix(in oklab, var(--accent-surface) 48%, transparent), transparent 42%),
-    radial-gradient(ellipse at 80% 77%, color-mix(in oklab, var(--violet-surface) 62%, transparent), transparent 42%),
-    var(--canvas);
+  background: var(--canvas);
   color: var(--text);
   font: var(--text-body)/var(--leading-ui) var(--font-ui);
   text-align: center;
@@ -38,20 +36,30 @@
   pointer-events: none;
 }
 
+.workspace-opening__field::before {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(var(--opening-grid) 1px, transparent 1px) center / 32px 32px,
+    linear-gradient(90deg, var(--opening-grid) 1px, transparent 1px) center / 32px 32px;
+  mask-image: linear-gradient(90deg, transparent, #000 18% 82%, transparent);
+  content: '';
+}
+
 .workspace-opening__graph {
   position: absolute;
   top: 50%;
   left: 50%;
   width: clamp(580px, 92vw, 1480px);
   height: clamp(410px, 76vh, 640px);
-  transform: translate(-50%, -50%) rotate(-12deg);
+  transform: translate(-50%, -50%);
 }
 
 .workspace-opening__trace {
   --trace-color: var(--accent);
   --trace-start: inset(-1px 100% -1px -1px);
   position: absolute;
-  color: color-mix(in oklab, var(--trace-color) 32%, var(--canvas));
+  color: color-mix(in oklab, var(--trace-color) 48%, var(--canvas));
 }
 
 .workspace-opening__trace--main {
@@ -96,8 +104,8 @@
   --commit-color: var(--accent);
   top: var(--commit-row);
   left: var(--commit-column);
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   color: var(--commit-color);
   transform: translate(-50%, -50%);
 }
@@ -108,8 +116,7 @@
   box-sizing: border-box;
   border: 1px solid color-mix(in oklab, currentColor 72%, var(--canvas));
   border-radius: 50%;
-  background: radial-gradient(circle at 44% 40%, currentColor 19%, var(--canvas) 33%);
-  box-shadow: 0 0 15px color-mix(in oklab, currentColor 35%, transparent);
+  background: radial-gradient(circle, currentColor 1px, var(--canvas) 1.7px);
   content: '';
 }
 
@@ -185,16 +192,16 @@
   position: relative;
   box-sizing: border-box;
   width: min(100%, var(--opening-card-width));
-  padding: 25px clamp(16px, 4vw, 36px) 31px;
-  border: 1px solid var(--line);
+  padding: 25px clamp(16px, 4vw, 36px) 29px;
+  border: 1px solid color-mix(in oklab, var(--control-border) 42%, var(--line));
   border-radius: 12px;
   background: var(--surface);
-  box-shadow: 0 12px 36px var(--shadow);
+  box-shadow: 0 4px 0 color-mix(in oklab, var(--shadow) 38%, transparent);
 }
 
 .workspace-opening h1 {
-  margin: 13px 0 0;
-  font-size: clamp(21px, 4vw, var(--text-display));
+  margin: 15px 0 0;
+  font-size: clamp(21px, 4vw, 24px);
   font-weight: var(--weight-semibold);
   line-height: 1.2;
   letter-spacing: -0.025em;
@@ -204,8 +211,8 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 172px;
-  height: 104px;
+  width: min(100%, 214px);
+  height: 118px;
   margin-inline: auto;
   isolation: isolate;
   color: var(--accent);
@@ -213,10 +220,9 @@
 
 .workspace-opening__scene::before {
   position: absolute;
-  inset: 2px 25px 5px;
+  inset: 4px 12px 3px;
   z-index: -1;
-  border-radius: 50%;
-  background: radial-gradient(ellipse, var(--accent-surface) 32%, transparent 74%);
+  background: radial-gradient(circle, var(--line) 0.85px, transparent 1px) center / 12px 12px;
   content: '';
 }
 
@@ -224,31 +230,60 @@
   --mascot-surface: var(--surface);
   --mascot-fill: var(--accent-surface);
   position: relative;
-  transform: translateY(-3px) rotate(-5deg) scale(1.62);
+  transform: translateY(4px);
+}
+
+.workspace-opening .window-mascot {
+  width: 88px;
+  height: 66px;
+}
+
+.workspace-opening .window-mascot:not(.window-mascot--sketched)::before {
+  inset: 6px 0 auto;
+  height: 12px;
+  background:
+    radial-gradient(circle at 9px 4px, currentColor 1.3px, transparent 1.7px),
+    radial-gradient(circle at 16px 4px, currentColor 1.3px, transparent 1.7px),
+    radial-gradient(circle at 23px 4px, currentColor 1.3px, transparent 1.7px);
+}
+
+.workspace-opening .window-mascot:not(.window-mascot--sketched)::after {
+  inset: 18px auto 0 22px;
+}
+
+.workspace-opening .window-mascot__face {
+  inset: 29px 12px 9px 39px;
+}
+
+.workspace-opening .window-mascot__face::before {
+  inset-inline-start: 4px;
+  width: 5px;
+  height: 7px;
+  box-shadow: 20px 0 currentColor;
 }
 
 .workspace-opening .window-mascot__face::after {
-  top: 5px;
-  height: 4px;
+  inset: 11px auto auto 15px;
+  width: 9px;
+  height: 6px;
   border-top: 0;
   border-radius: 0 0 5px 5px;
 }
 
 .workspace-opening__shadow {
   position: absolute;
-  inset: auto 48px 10px;
-  height: 8px;
-  border-radius: 50%;
-  background: color-mix(in oklab, currentColor 20%, transparent);
+  inset: auto 29% 14px;
+  height: 1px;
+  background: color-mix(in oklab, var(--accent) 28%, var(--line));
 }
 
 .workspace-opening__scene .workspace-opening__piece {
-  --peek-size: 40px;
-  --peek-y: -26px;
+  --peek-size: 32px;
+  --peek-y: -24px;
   top: 26px;
-  left: calc(50% - 14px);
-  width: 28px;
-  height: 36px;
+  left: calc(50% - 18px);
+  width: 36px;
+  height: 46px;
   transform: translate(var(--page-x), var(--page-y)) rotate(var(--page-turn));
 }
 
@@ -260,25 +295,36 @@
   border: 1px solid color-mix(in oklab, currentColor 48%, var(--surface));
   border-radius: 5px;
   background:
-    linear-gradient(currentColor, currentColor) 6px 12px / 13px 1px no-repeat,
-    linear-gradient(currentColor, currentColor) 6px 17px / 10px 1px no-repeat,
-    linear-gradient(currentColor, currentColor) 6px 22px / 12px 1px no-repeat,
+    linear-gradient(currentColor, currentColor) 8px 15px / 17px 1px no-repeat,
+    linear-gradient(currentColor, currentColor) 8px 22px / 13px 1px no-repeat,
+    linear-gradient(currentColor, currentColor) 8px 29px / 15px 1px no-repeat,
     var(--selection);
 }
 
+.workspace-opening__page--sketched {
+  border: 0;
+  background: none;
+}
+
+.workspace-opening__page--sketched svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .workspace-opening__page--left {
-  --page-x: -34px;
-  --page-y: -7px;
-  --page-turn: -23deg;
-  --page-delay: 150ms;
+  --page-x: -47px;
+  --page-y: -5px;
+  --page-turn: -13deg;
+  --page-delay: 100ms;
   --peek-x: -12px;
 }
 
 .workspace-opening__page--right {
-  --page-x: 34px;
+  --page-x: 47px;
   --page-y: -12px;
-  --page-turn: 18deg;
-  --page-delay: 310ms;
+  --page-turn: 13deg;
+  --page-delay: 220ms;
   --peek-x: 12px;
 }
 
@@ -296,19 +342,16 @@
   }
 
   .workspace-opening__character {
-    animation: workspace-opening-hop 1.95s cubic-bezier(0.28, 0.65, 0.33, 1) both;
+    animation: workspace-opening-hop 950ms cubic-bezier(0.28, 0.65, 0.33, 1) both;
   }
 
-  .workspace-opening .window-mascot__face::before {
+  .workspace-opening .window-mascot__face::before,
+  .workspace-opening .window-mascot__eyes {
     animation: workspace-opening-blink 1.8s ease-in-out both;
   }
 
   .workspace-opening__scene .workspace-opening__piece {
-    animation: workspace-opening-file 1.2s cubic-bezier(0.25, 0.65, 0.34, 1) var(--page-delay) both;
-  }
-
-  .workspace-opening__shadow {
-    animation: workspace-opening-shadow 1.95s ease-in-out both;
+    animation: workspace-opening-file 680ms cubic-bezier(0.25, 0.65, 0.34, 1) var(--page-delay) both;
   }
 }
 
@@ -342,27 +385,20 @@
 }
 
 @keyframes workspace-opening-commit-in {
-  0% {
+  from {
     opacity: 0;
-    transform: scale(0.5);
-  }
-  65% {
-    transform: scale(1.18);
   }
 }
 
 @keyframes workspace-opening-hop {
   0% {
-    transform: translateY(6px) rotate(-11deg) scale(1.5);
+    transform: translateY(11px);
   }
-  29% {
-    transform: translateY(-12px) rotate(4deg) scale(1.67);
+  40% {
+    transform: translateY(-7px);
   }
-  57% {
-    transform: translateY(1px) rotate(-8deg) scale(1.57);
-  }
-  77% {
-    transform: translateY(-6px) rotate(-3deg) scale(1.64);
+  72% {
+    transform: translateY(6px);
   }
 }
 
@@ -381,20 +417,10 @@
 @keyframes workspace-opening-file {
   0% {
     opacity: 0;
-    transform: translate(0, 14px) rotate(0) scale(0.64);
+    transform: translate(0, 14px);
   }
   60% {
     opacity: 1;
     transform: translate(var(--page-x), calc(var(--page-y) - 10px)) rotate(var(--page-turn));
-  }
-}
-
-@keyframes workspace-opening-shadow {
-  29% {
-    opacity: 0.45;
-    transform: scaleX(0.7);
-  }
-  57% {
-    transform: scaleX(1.08);
   }
 }

@@ -1,4 +1,5 @@
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
+import { createSketch } from '../../illustrations/sketch.ts'
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
@@ -42,6 +43,7 @@ export function createReviewFocus({ onScope }) {
   bar.hidden = true
   bar.innerHTML = `
     <button type="button" class="review-hunk-prev" aria-label="Previous change in file" title="Previous change in file">${chevron('up')}</button>
+    <svg class="review-hunk-aligned" viewBox="0 0 20 20" aria-hidden="true" stroke-linecap="round" hidden></svg>
     <span class="review-hunk-position" aria-hidden="true"></span>
     <span class="review-hunk-announcement" role="status"></span>
     <button type="button" class="review-hunk-next" aria-label="Next change in file" title="Next change in file">${chevron('down')}</button>
@@ -54,6 +56,7 @@ export function createReviewFocus({ onScope }) {
   const positionNumber = createRollingNumber()
   const positionEnd = document.createTextNode('')
   position.append(positionNumber, positionEnd)
+  const aligned = requireElement(bar, '.review-hunk-aligned', SVGSVGElement)
   const announcement = requireElement(bar, '.review-hunk-announcement', HTMLSpanElement)
   const previous = requireElement(bar, '.review-hunk-prev', HTMLButtonElement)
   const next = requireElement(bar, '.review-hunk-next', HTMLButtonElement)
@@ -88,8 +91,8 @@ export function createReviewFocus({ onScope }) {
   /** @type {number | null} */
   let viewportFrame = null
 
-  /** @param {{ message?: string, direction?: -1 | 0 | 1 }} [options] */
-  function paint({ message = '', direction = 0 } = {}) {
+  /** @param {{ message?: string, unchanged?: boolean, direction?: -1 | 0 | 1 }} [options] */
+  function paint({ message = '', unchanged = false, direction = 0 } = {}) {
     const current = index + 1
     const total = positionFormat.format(hunks.length)
     const tail = message || `/${total}`
@@ -103,6 +106,12 @@ export function createReviewFocus({ onScope }) {
       positionNumber.update(current)
     }
     if (announcement.textContent !== spoken) announcement.textContent = spoken
+    aligned.toggleAttribute('hidden', !unchanged)
+    if (unchanged && !aligned.childElementCount) {
+      const sketch = createSketch(aligned)
+      const ink = { stroke: 'currentColor', roughness: 0.65 }
+      aligned.append(sketch.circle(10, 10, 14, ink), sketch.path('M7 8h6m-6 4h6', ink))
+    }
     previous.hidden = next.hidden = hunks.length === 0
     replayButton.hidden = !hunks[index] || Boolean(message)
     previous.disabled = next.disabled = hunks.length < 2
@@ -175,7 +184,7 @@ export function createReviewFocus({ onScope }) {
     setCollapsed(scope === 'focus' && hunks.length > 0)
     changeMap.update(hunks, model)
     if (hunks.length) paint()
-    else paint({ message: 'No text changes' })
+    else paint({ message: 'No text changes', unchanged: true })
     if (hunks.length && revealOnFirstDiff) {
       revealOnFirstDiff = false
       reveal()

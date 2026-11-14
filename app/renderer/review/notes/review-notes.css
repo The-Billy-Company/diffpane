@@ -186,16 +186,19 @@
 }
 
 .review-notes-empty-art {
+  --review-notes-paper-ink: color-mix(in oklab, var(--muted) 58%, var(--surface));
+  --review-notes-mark-fill: color-mix(in oklab, var(--violet) 22%, var(--violet-surface));
   flex: none;
-  width: 76px;
+  width: 84px;
   max-width: 100%;
-  height: 44px;
-  margin-bottom: 14px;
+  height: 56px;
+  margin-bottom: 12px;
   color: var(--violet);
 }
 
-.review-notes-empty-context {
-  color: color-mix(in oklab, var(--muted) 32%, var(--surface));
+.review-notes-empty-art[data-resolved] .review-notes-art-comment,
+.review-notes-empty-art:not([data-resolved]) .review-notes-art-check {
+  display: none;
 }
 
 .review-notes-empty h3 {

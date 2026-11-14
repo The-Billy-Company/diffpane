@@ -6,6 +6,7 @@ import { createSearchFilters, searchableEntries } from '../project-search/search
 import type { LanguageFor, SearchEntry } from '../project-search/search-filters.ts'
 import '../search-dialog.css'
 import '../search-illustration.css'
+import { drawFileSearchArt } from '../search-illustration.ts'
 import './file-picker.css'
 import { createFileSearch } from './search-runtime.ts'
 import type { FileSearchResults } from './search-runtime.ts'
@@ -80,13 +81,7 @@ export function createFilePicker(
       <div id="file-list" class="picker-list search-dialog-list" role="listbox" aria-label="Project files" hidden><div class="picker-rows"></div></div>
       <div class="picker-empty search-dialog-empty" hidden>
         <span class="search-illustration" aria-hidden="true">
-          <svg viewBox="0 0 96 60" fill="none" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 45V19a3 3 0 0 1 3-3h13l5 5h25a3 3 0 0 1 3 3v21" fill="var(--illustration-fill)" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M35 37V15l22-5 9 8v21" fill="var(--surface-raised)" stroke="var(--illustration-light)" stroke-width="1.3"/>
-            <path d="M57 10v10l9-2m-24 7 13-3" stroke="var(--illustration-light)" stroke-width="1.3"/>
-            <path d="m21 45 6-15a4 4 0 0 1 3.7-2.5h41.5a3 3 0 0 1 2.8 4l-5.8 15a4 4 0 0 1-3.7 2.5H24a3 3 0 0 1-3-4Z" fill="var(--illustration-face)" stroke="currentColor" stroke-width="1.5"/>
-            <path d="M31 31h37" stroke="var(--illustration-light)" stroke-width="1.2"/>
-          </svg>
+          <svg viewBox="0 0 96 60" stroke-linecap="round" stroke-linejoin="round"></svg>
         </span>
         <strong></strong><p></p>
         <button type="button" class="open-button picker-retry" hidden>Try again</button>
@@ -104,6 +99,7 @@ export function createFilePicker(
   const retry = requireElement(dialog, '.picker-retry', HTMLButtonElement)
   const closeButton = requireElement(dialog, '.picker-close', HTMLButtonElement)
   const contextLabel = requireElement(dialog, '.picker-context', HTMLParagraphElement)
+  const emptyArt = requireElement(empty, '.search-illustration svg', SVGSVGElement)
   const emptyTitle = requireElement(empty, 'strong', HTMLElement)
   const emptyText = requireElement(empty, 'p', HTMLParagraphElement)
   const search = createFileSearch<PickerFile>()
@@ -206,6 +202,7 @@ export function createFilePicker(
         : `${matches.length.toLocaleString()} ${matches.length === 1 ? 'item' : 'items'}${filtered ? ` found · ${inventory.length.toLocaleString()} in project` : ' in project'}`
     empty.hidden = matches.length > 0
     empty.dataset.state = summary.dataset.state
+    if (!loading && !empty.hidden && !emptyArt.hasChildNodes()) drawFileSearchArt(emptyArt)
     emptyTitle.textContent = loading
       ? 'Reading your project'
       : problem

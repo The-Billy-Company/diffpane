@@ -13,6 +13,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.review-hunk-aligned {
+  width: 16px;
+  height: 16px;
+  margin-inline-end: 3px;
+  color: var(--added);
+}
+
 .review-hunk-announcement {
   position: absolute;
   width: 1px;

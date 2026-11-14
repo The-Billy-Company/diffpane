@@ -16,6 +16,7 @@ import {
   terminalMinimumRows,
 } from '../../../shared/terminal/protocol.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawTerminalPrompt } from '../art/terminal.ts'
 import { terminalPasteText } from './clipboard.ts'
 import './terminal.css'
 
@@ -26,6 +27,14 @@ declare global {
 }
 
 const viewport = requireElement(document, '#terminal-viewport', HTMLElement)
+const promptArt = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+promptArt.classList.add('terminal-idle-art')
+promptArt.setAttribute('viewBox', '4 4 67 46')
+promptArt.setAttribute('aria-hidden', 'true')
+promptArt.setAttribute('stroke-linecap', 'round')
+promptArt.setAttribute('stroke-linejoin', 'round')
+drawTerminalPrompt(promptArt)
+viewport.before(promptArt)
 const status = requireElement(document, '#terminal-status', HTMLElement)
 const startButton = requireElement(document, '#terminal-start', HTMLButtonElement)
 const stopButton = requireElement(document, '#terminal-stop', HTMLButtonElement)

@@ -5,6 +5,7 @@ import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import '../search-dialog.css'
 import '../search-illustration.css'
+import { drawContentSearchArt } from '../search-illustration.ts'
 import './content-search.css'
 
 export interface ContentMatch {
@@ -64,15 +65,7 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
       <div class="content-search-results search-dialog-list" id="content-search-results" role="listbox" aria-label="Matching lines" hidden></div>
       <div class="content-search-empty search-dialog-empty" hidden>
         <span class="search-illustration" aria-hidden="true">
-          <svg viewBox="0 0 96 60" fill="none" stroke-linecap="round">
-            <path class="search-art-context" d="M13 14h27M13 24h45M13 34h31M13 44h35"/>
-            <path d="m67 39 13 13" stroke="currentColor" stroke-width="6"/>
-            <path d="m70 42 9 9" stroke="var(--illustration-light)" stroke-width="1.2"/>
-            <circle cx="56" cy="28" r="16" fill="var(--illustration-fill)" stroke="currentColor" stroke-width="2.6"/>
-            <path d="M46 25a11 11 0 0 1 8-7" stroke="var(--illustration-light)" stroke-width="1.4"/>
-            <path d="M46 29h20m-18 6h12" stroke="var(--illustration-light)" stroke-width="1.5"/>
-            <path d="M52 29h11" stroke="currentColor" stroke-width="3.2"/>
-          </svg>
+          <svg viewBox="0 0 96 60" stroke-linecap="round" stroke-linejoin="round"></svg>
         </span>
         <p></p>
       </div>
@@ -86,6 +79,7 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
   const footer = requireElement(dialog, 'footer', HTMLElement)
   const summary = requireElement(dialog, '.content-search-summary', HTMLElement)
   const empty = requireElement(dialog, '.content-search-empty', HTMLElement)
+  const emptyArt = requireElement(empty, '.search-illustration svg', SVGSVGElement)
   const emptyMessage = requireElement(empty, 'p', HTMLParagraphElement)
   const context = requireElement(dialog, '.content-search-context', HTMLElement)
   const clear = requireElement(dialog, '.content-search-clear', HTMLButtonElement)
@@ -152,6 +146,7 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
     input.setAttribute('aria-expanded', String(!results.hidden))
     footer.dataset.results = String(!results.hidden)
     empty.hidden = !detail
+    if (detail && !emptyArt.hasChildNodes()) drawContentSearchArt(emptyArt)
     emptyMessage.textContent = detail
     summary.textContent = status
     const same = previous ? matches.findIndex(hit => hit.path === previous.path && hit.line === previous.line) : -1

@@ -249,8 +249,11 @@ button svg,
   width: min(100%, 880px);
 }
 .workspace-art {
+  --workspace-sketch-guide: color-mix(in oklab, var(--muted) 42%, var(--surface));
+  --workspace-sketch-paper: color-mix(in oklab, var(--muted) 62%, var(--surface));
   display: block;
   width: 152px;
+  max-width: 100%;
   height: 78px;
   margin-inline: auto;
 }
@@ -258,13 +261,6 @@ button svg,
   display: block;
   width: 100%;
   height: 100%;
-}
-.workspace-art-guide {
-  stroke: color-mix(in oklab, var(--accent) 28%, var(--line));
-  stroke-width: 1.4;
-}
-.workspace-art-branch {
-  stroke-width: 1.6;
 }
 .start-mark {
   margin-block-end: 12px;
@@ -275,7 +271,7 @@ button svg,
   font-weight: var(--weight-medium);
   letter-spacing: -0.7px;
 }
-.start-screen p {
+.start-screen #start-description {
   margin: 12px 0 28px;
   color: var(--muted);
   line-height: var(--leading-prose);
@@ -352,6 +348,8 @@ button svg,
   border-color: var(--control-border);
 }
 .recent-glyph {
+  --recent-sketch-fill: color-mix(in oklab, currentColor 19%, var(--surface-raised));
+  --recent-sketch-hatch: color-mix(in oklab, currentColor 42%, var(--surface-raised));
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -447,7 +445,7 @@ button svg,
   .start-screen h1 {
     font-size: var(--text-heading);
   }
-  .start-screen p {
+  .start-screen #start-description {
     margin: 8px 0 18px;
   }
   .start-actions button {
@@ -481,9 +479,6 @@ button svg,
 .workspace-notices:empty,
 .file-errors:empty {
   display: none;
-}
-.start-screen .error-boundary p {
-  margin: 0;
 }
 #start-error {
   margin-block-end: 16px;

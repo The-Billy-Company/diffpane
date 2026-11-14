@@ -14,6 +14,7 @@ import {
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawKeyboardMark } from '../art/settings.ts'
 import { createBillySettings } from './billy-settings.ts'
 
 import './settings.css'
@@ -107,7 +108,7 @@ export function createSettings({
             Appearance
           </button>
           <button type="button" data-page="shortcuts" aria-controls="settings-shortcuts">
-            <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><rect x="2.5" y="4.5" width="15" height="11" rx="2"/><path d="M6 8h.1m3.9 0h.1m3.9 0h.1M6 11h.1m2.9 0h5"/></svg>
+            <svg viewBox="0 0 20 20" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
             Keyboard shortcuts
           </button>
           <button type="button" data-page="billy" aria-controls="settings-billy">
@@ -142,6 +143,7 @@ export function createSettings({
     </div>`
 
   const shortcutsPage = requireElement(dialog, '#settings-shortcuts', HTMLElement)
+  const keyboardMark = requireElement(dialog, '[data-page="shortcuts"] svg', SVGSVGElement)
   const billy =
     billySetup &&
     createBillySettings(billySetup, () => {
@@ -396,6 +398,7 @@ export function createSettings({
 
   function open() {
     if (dialog.open || document.querySelector('dialog[open]')) return
+    if (!keyboardMark.childElementCount) drawKeyboardMark(keyboardMark)
     showStatus()
     refresh()
     dialog.showModal()

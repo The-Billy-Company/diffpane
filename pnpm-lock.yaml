@@ -284,6 +284,9 @@ importers:
       pixelmatch:
         specifier: 8.0.0
         version: 8.0.0
+      roughjs:
+        specifier: 4.6.6
+        version: 4.6.6
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@1.1.0
         version: '@voidzero-dev/vite-plus-core@1.1.0(@types/node@24.19.2)(typescript@6.0.3)(yaml@2.9.1)'

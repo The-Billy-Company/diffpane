@@ -162,11 +162,42 @@
   font-size: var(--text-label);
   color: var(--muted);
 }
+.preview-note-fallback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.preview-note-fallback .document-state-art {
+  flex: none;
+  width: 25px;
+  height: 20px;
+  color: var(--warning);
+}
 .preview-body {
   flex: 1;
   min-height: 0;
   overflow: auto;
   scrollbar-color: var(--scrollbar) transparent;
+}
+.preview-empty {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 32px 12px;
+  color: var(--muted);
+  font-size: var(--text-label);
+  text-align: center;
+}
+.preview-empty .document-state-art {
+  --document-paper-ink: color-mix(in oklab, var(--muted) 58%, var(--surface));
+  --document-hatch: color-mix(in oklab, var(--subtle) 34%, var(--surface));
+  width: 76px;
+  max-width: 100%;
+  height: 54px;
+  color: var(--subtle);
+}
+.preview-empty p {
+  margin: 0;
 }
 .preview-text {
   padding: 16px;

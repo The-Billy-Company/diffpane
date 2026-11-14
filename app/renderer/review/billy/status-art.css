@@ -1,0 +1,18 @@
+.billy-status-art {
+  --billy-art-paper: color-mix(in oklab, var(--muted) 66%, var(--surface));
+  display: block;
+  flex: none;
+  width: 24px;
+  height: 20px;
+  color: var(--billy-art-ink, var(--accent));
+}
+
+p:has(> .billy-status-art) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+:is(.billy-claims, .billy-siblings) .billy-status-art {
+  --billy-art-ink: var(--violet);
+}

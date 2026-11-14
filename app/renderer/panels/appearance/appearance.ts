@@ -7,6 +7,7 @@ import type { Appearance } from '../../../electron/persistence/preferences/ui-pr
 import type { ColorScheme } from '../../../shared/appearance/palette.ts'
 import { editorDefaultLineHeight, editorDefaultSize, monoFont } from '../../../shared/appearance/typography.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawThemeWindow } from '../art/settings.ts'
 import type { UiPreferenceController } from './ui-preferences.ts'
 import './appearance.css'
 
@@ -90,11 +91,7 @@ const LAYOUT_CHOICES = [
 function themeArtwork(scheme: ColorScheme) {
   return `
       <span class="appearance-theme-artwork" data-scheme="${scheme}">
-        <span class="appearance-mini-window">
-          <span class="appearance-mini-title"><i></i><i></i><i></i></span>
-          <span class="appearance-mini-sidebar"><i></i><i></i><i></i></span>
-          <span class="appearance-mini-editor"><i></i><i></i><i></i><i></i></span>
-        </span>
+        <svg class="appearance-mini-window" viewBox="0 0 122 57" stroke-linecap="round" stroke-linejoin="round"></svg>
       </span>
 `
 }
@@ -191,6 +188,14 @@ export function createAppearanceSettings(
           <button type="button" class="appearance-done">Done</button>
         </footer>`
   const form = requireElement(page, 'form', HTMLFormElement)
+  const themeWindows = form.querySelectorAll<SVGSVGElement>('.appearance-mini-window')
+  const firstThemeWindow = themeWindows[0]
+  if (firstThemeWindow) {
+    drawThemeWindow(firstThemeWindow)
+    for (const previewWindow of [...themeWindows].slice(1)) {
+      previewWindow.append(...[...firstThemeWindow.children].map(element => element.cloneNode(true)))
+    }
+  }
   const reset = requireElement(page, '.appearance-reset', HTMLButtonElement)
   const done = requireElement(page, '.appearance-done', HTMLButtonElement)
   const size = requireElement(form, '[name="fontSize"]', HTMLInputElement)

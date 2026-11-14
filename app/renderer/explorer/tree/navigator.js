@@ -6,6 +6,7 @@ import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createChangeRail } from '../change-rail/change-rail.ts'
 import { createSearchFilters, filterPredicate, hasFilters } from '../project-search/search-filters.ts'
+import { drawNavigatorArt } from './art/navigator-art.ts'
 import { createFileActions } from './file-actions.ts'
 import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reconcile.ts'
 
@@ -226,6 +227,10 @@ export function createNavigator(
       <div class="navigator-tree" id="navigator-${id}-tree" role="tree" aria-label="Project files" tabindex="0">
         <div class="navigator-rows"><div class="navigator-branch-trace" aria-hidden="true"></div></div>
       </div>
+      <div class="navigator-empty" hidden>
+        <svg viewBox="0 0 84 56" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+        <p>No project files yet</p>
+      </div>
     </div>
     <details class="navigator-outline"><summary>Outline</summary><div class="symbol-list navigator-symbols"></div></details>
     <div class="navigator-footer"><span>Project files</span><span class="navigator-total"></span></div>`
@@ -236,6 +241,9 @@ export function createNavigator(
   const branchTrace = requireElement(rows, '.navigator-branch-trace', HTMLDivElement)
   const input = requireElement(container, 'input', HTMLInputElement)
   const summary = requireElement(container, '.navigator-summary', HTMLDivElement)
+  const empty = requireElement(container, '.navigator-empty', HTMLDivElement)
+  const emptyArt = requireElement(empty, 'svg', SVGSVGElement)
+  const emptyLabel = requireElement(empty, 'p', HTMLParagraphElement)
   const total = requireElement(container, '.navigator-total', HTMLSpanElement)
   const refreshButton = requireElement(container, '[data-action="refresh"]', HTMLButtonElement)
   const rootButton = requireElement(container, '[data-action="root"]', HTMLButtonElement)
@@ -261,6 +269,7 @@ export function createNavigator(
   let inventoryRevision
   /** @type {number | null} */
   let appliedInventoryRevision = null
+  let inventoryReady = false
   /** @type {string | null} */
   let activeKey = tree.root.key
   /** @type {string | null} */
@@ -421,6 +430,16 @@ export function createNavigator(
     const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
     const end = Math.min(visible.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN)
     const showingResults = searching()
+    empty.hidden =
+      !inventoryReady ||
+      loading ||
+      summary.dataset.state === 'error' ||
+      visible.length > 0 ||
+      (!showingResults && Boolean(tree.root.children?.length))
+    if (!empty.hidden) {
+      emptyLabel.hidden = showingResults
+      drawNavigatorArt(emptyArt, showingResults)
+    }
     if (changeRailDirty) {
       changeRail.setMarks(visible.length, showingResults ? [] : changeMarks())
       changeRailDirty = false
@@ -562,6 +581,7 @@ export function createNavigator(
   async function fetchCatalog() {
     if (loading || disposed || !snapshot) return
     loading = true
+    empty.hidden = true
     refreshButton.setAttribute('data-loading-status', '')
     refreshButton.setAttribute('aria-busy', 'true')
     if (!searching()) summary.textContent = 'Reading files…'
@@ -595,6 +615,7 @@ export function createNavigator(
             tree = reconcileNavigationTree(tree, inventory, base) ?? buildNavigationTree(inventory, base)
           }
           // Publish each completed scan even when edits have already queued another one.
+          inventoryReady = true
           if (prior.root.path !== tree.root.path) expanded = new Set([tree.root.path])
           filters.update(() => tree.files.values())
           markChanges()
@@ -671,6 +692,7 @@ export function createNavigator(
     key = nextKey
     if (changedRoot) {
       appliedInventoryRevision = null
+      inventoryReady = false
       expanded = new Set([scopePrefix(next)])
       tree = buildNavigationTree([], scopePrefix(next))
       activeKey = tree.root.key

@@ -59,6 +59,29 @@ body:not(.terminal-has-output) #terminal-status {
   pointer-events: none;
 }
 
+.terminal-idle-art {
+  display: none;
+  --terminal-paper-ink: color-mix(in oklab, var(--muted) 52%, var(--surface-inset));
+  position: absolute;
+  z-index: 1;
+  inset: auto auto calc(50% - 8px) 50%;
+  width: 58px;
+  height: 40px;
+  color: var(--accent);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+@media (min-height: 135px) {
+  body:not(.terminal-has-output) #terminal-status {
+    inset-block-start: calc(50% + 24px);
+  }
+
+  body:not(.terminal-has-output) .terminal-idle-art {
+    display: block;
+  }
+}
+
 .terminal-toolbar .terminal-controls {
   margin-inline-start: auto;
 }

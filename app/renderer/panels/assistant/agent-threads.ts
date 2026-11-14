@@ -3,6 +3,7 @@ import { agentProviderNames } from '../../../shared/agent-threads.ts'
 import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawThreadInspector, drawThreadTrail } from '../art/assistant.ts'
 import './agent-threads.css'
 
 const glyphs = {
@@ -184,12 +185,15 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
           </div>
         </header>
         <div class="agent-thread-list" tabindex="0" aria-label="Threads by project">
-          <p class="agent-thread-empty" data-roster-empty>Finding local agent threads…</p>
+          <div class="agent-thread-empty" data-roster-empty>
+            <svg class="agent-thread-empty-art" viewBox="9 4 69 50" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" hidden></svg>
+            <p>Finding local agent threads…</p>
+          </div>
         </div>
       </section>
       <section class="agent-thread-inspector" aria-label="Selected thread">
         <div class="agent-thread-inspector-empty">
-          <span class="agent-thread-header-mark">${icon('activity')}</span>
+          <svg class="agent-thread-empty-art" viewBox="9 4 69 50" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
           <p>Select a thread to see its activity.</p>
         </div>
         <header class="agent-thread-inspector-heading" hidden>
@@ -228,7 +232,9 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
   const totalProjectsCount = requireElement(allProjects, '.agent-thread-project-count', HTMLSpanElement)
   const matches = requireElement(host, '[data-matches]', HTMLElement)
   const list = requireElement(host, '.agent-thread-list', HTMLDivElement)
-  const empty = requireElement(list, '[data-roster-empty]', HTMLParagraphElement)
+  const empty = requireElement(list, '[data-roster-empty]', HTMLDivElement)
+  const emptyMessage = requireElement(empty, 'p', HTMLParagraphElement)
+  const trail = requireElement(empty, 'svg', SVGSVGElement)
   const sources = new Map(
     providers.map(provider => {
       const button = requireElement(host, `.agent-thread-source[data-provider="${provider}"]`, HTMLButtonElement)
@@ -236,6 +242,7 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
     }),
   )
   const inspectorEmpty = requireElement(host, '.agent-thread-inspector-empty', HTMLDivElement)
+  const inspectorArt = requireElement(inspectorEmpty, 'svg', SVGSVGElement)
   const inspector = requireElement(host, '.agent-thread-inspector-heading', HTMLElement)
   const inspectorTitle = requireElement(inspector, 'h3', HTMLHeadingElement)
   const inspectorProvider = requireElement(inspector, '.agent-thread-inspector-provider', HTMLSpanElement)
@@ -553,8 +560,10 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
     }
     empty.hidden = visible > 0
     if (!empty.hidden) {
+      if (loaded && !trail.childElementCount) drawThreadTrail(trail)
+      trail.toggleAttribute('hidden', !loaded)
       setText(
-        empty,
+        emptyMessage,
         threads.size
           ? 'No threads match these filters.'
           : loaded
@@ -678,6 +687,7 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
   return {
     open() {
       if (host.open || disposed) return
+      if (!inspectorArt.childElementCount) drawThreadInspector(inspectorArt)
       host.showModal()
       requestRefresh()
     },

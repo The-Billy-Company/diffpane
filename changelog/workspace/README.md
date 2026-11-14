@@ -13,3 +13,4 @@ These fragments follow the project workspace from finding files through reviewin
 - [Search](search/README.md). File and project text search.
 - [Review](review/README.md). Changes, comparisons, checkpoints and review notes.
 - [Notebook](notebook/README.md). Ideas and Claude assistance.
+- [Hand-drawn workspace details](hand-drawn-empty-states.changed). Add illustrations for empty states, feature previews, and contextual messages.

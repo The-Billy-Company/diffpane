@@ -3,6 +3,7 @@ import type { Mermaid } from 'mermaid'
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import type { ColorRole, ColorScheme } from '../../../shared/appearance/palette.ts'
 import { appError, attemptAsync } from '../../../shared/recovery/app-errors.ts'
+import { createCalloutArt, createDiagramIssueArt, createDocumentArt } from '../../illustrations/editor-art.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import type { parseMarkdown } from './markdown-document.ts'
@@ -195,6 +196,11 @@ export function showMarkdownPreview(
       FORBID_ATTR: ['style', 'srcset', 'id', 'name', 'autofocus'],
     }),
   )
+  if (!article.childElementCount && !article.textContent.trim() && markdown.metadata === undefined) {
+    const empty = node('div', 'markdown-empty')
+    empty.append(createDocumentArt('markdown'), node('p', '', 'This Markdown file is empty.'))
+    article.append(empty)
+  }
   if (markdown.metadata !== undefined) {
     const metadata = node('details', 'md-frontmatter')
     const pre = node('pre', '')
@@ -282,7 +288,10 @@ export function showMarkdownPreview(
     const text = walker.nextNode()
     if (text?.textContent !== undefined && text.textContent !== null)
       text.textContent = text.textContent.replace(/^\[!\w+\]\s*/, '')
-    quote.prepend(node('div', 'md-callout-label', tone))
+    const label = node('div', 'md-callout-label', tone)
+    const art = createCalloutArt(tone)
+    if (art) label.prepend(art)
+    quote.prepend(label)
   }
   for (const link of article.querySelectorAll('a')) {
     const href = link.getAttribute('href')
@@ -433,6 +442,7 @@ export function showMarkdownPreview(
             if (failure.operation === 'Load Mermaid')
               status.textContent = 'Couldn’t load the diagram renderer. Reopen the preview to try again.'
             status.title = failure.message
+            status.prepend(createDiagramIssueArt())
             canvas.replaceChildren(status)
             canvas.hidden = false
             canvas.style.minHeight = ''

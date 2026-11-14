@@ -12,6 +12,7 @@ import type { ShortcutBinding } from '../../../shared/preferences/shortcuts.ts'
 import { appError, attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import type { Result } from '../../../shared/recovery/app-errors.ts'
 import { markdownTarget } from '../../editor/markdown/markdown-paths.ts'
+import { drawNotebook } from '../../illustrations/notebook.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { creatureGlyph } from '../assistant/creature-glyph.ts'
@@ -299,11 +300,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
       </section>
       <div class="idea-stage">
         <div class="idea-empty" hidden>
-          <div class="idea-empty-scene" aria-hidden="true">
-            <span class="idea-empty-page"></span>
-            <span class="idea-empty-page"></span>
-            <span class="idea-empty-pencil"></span>
-          </div>
+          <svg class="idea-empty-scene" viewBox="5 4 110 72" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
           <h3 aria-live="polite"></h3>
           <p></p>
           <div class="idea-empty-actions"></div>
@@ -332,6 +329,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
   const list = select('.idea-list')
   const noResults = select('.idea-no-results')
   const empty = select('.idea-empty')
+  const emptyArt = requireElement(empty, '.idea-empty-scene', SVGSVGElement)
   const emptyTitle = select('.idea-empty h3')
   const emptyDetail = select('.idea-empty p')
   const emptyActions = select('.idea-empty-actions')
@@ -518,6 +516,7 @@ export function mountIdeaBuilder(host: HTMLElement, options: IdeaBuilderOptions)
 
     const idea = current()
     empty.hidden = Boolean(idea)
+    if (!idea && ready && !emptyArt.hasChildNodes()) drawNotebook(emptyArt)
     empty.dataset.state = ready ? (ideas.size ? 'browse' : 'blank') : loadError ? 'error' : 'loading'
     emptyTitle.toggleAttribute('data-loading-status', Boolean(loading) && !ready)
     if (!ready) {

@@ -136,6 +136,33 @@
   clip-path: inset(50%);
   overflow: hidden;
 }
+.navigator-tree-region {
+  position: relative;
+}
+.navigator-empty {
+  --navigator-sketch-paper: color-mix(in oklab, var(--muted) 52%, var(--surface));
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 14px 10px;
+  overflow: hidden;
+  text-align: center;
+  pointer-events: none;
+}
+.navigator-empty svg {
+  width: 84px;
+  max-width: 100%;
+  height: 56px;
+  flex: none;
+}
+.navigator-empty p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-caption);
+}
 .navigator-tree {
   flex: 1;
   overflow: auto;

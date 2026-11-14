@@ -4,6 +4,7 @@ import { afterPaint } from '../../shell/layout/after-paint.ts'
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawReportMark, drawReportPlaceholder } from '../art/analysis.ts'
 import { createLanguageTreemap } from './language-treemap.ts'
 
 import './howmany.css'
@@ -133,7 +134,7 @@ export function createHowMany(monaco, api, navigator, statusbar) {
   dialog.innerHTML = `
     <header>
       <div class="howmany-heading">
-        <span class="howmany-chart-glyph" aria-hidden="true"><i></i><i></i><i></i></span>
+        <svg class="howmany-chart-glyph" viewBox="0 0 36 32" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
         <div><h2 id="howmany-title">HowMany</h2><p>Workspace analysis</p></div>
       </div>
       <button type="button" class="howmany-close" aria-label="Close HowMany report">×</button>
@@ -146,7 +147,12 @@ export function createHowMany(monaco, api, navigator, statusbar) {
     </footer>`
   document.body.append(dialog)
   const content = requireElement(dialog, '.howmany-report-content', HTMLDivElement)
+  const reportMark = requireElement(dialog, '.howmany-chart-glyph', SVGSVGElement)
   const reportState = requireElement(dialog, '.howmany-report-state', HTMLSpanElement)
+  const placeholder = node('div', 'howmany-report-placeholder')
+  placeholder.innerHTML = `<svg viewBox="8 0 80 61" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg><p class="howmany-empty"></p>`
+  const placeholderMark = requireElement(placeholder, 'svg', SVGSVGElement)
+  const placeholderMessage = requireElement(placeholder, 'p', HTMLParagraphElement)
   const reportTitle = node('h3', '')
   const sourceLineCount = createRollingNumber()
   const sourceLineLabel = document.createTextNode('')
@@ -188,9 +194,10 @@ export function createHowMany(monaco, api, navigator, statusbar) {
           ? `Updated ${new Date(state.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · HowMany ${version}`
           : '')
     if (!source || !breakdown) {
-      const message = node('p', 'howmany-empty', state.message || 'Counting files and analyzing code…')
-      message.dataset.state = state.status
-      content.append(message)
+      if (!placeholderMark.childElementCount) drawReportPlaceholder(placeholderMark)
+      placeholderMessage.textContent = state.message || 'Counting files and analyzing code…'
+      placeholderMessage.dataset.state = state.status
+      content.append(placeholder)
       return
     }
     const { ratios, complexity } = reportData
@@ -346,6 +353,7 @@ export function createHowMany(monaco, api, navigator, statusbar) {
     }
   }
   function showReport() {
+    if (!reportMark.childElementCount) drawReportMark(reportMark)
     renderReport()
     if (!dialog.open) dialog.showModal()
   }

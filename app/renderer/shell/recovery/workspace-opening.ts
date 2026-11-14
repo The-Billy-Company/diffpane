@@ -1,4 +1,5 @@
 import { creatureGlyph } from '../../panels/assistant/creature-glyph.ts'
+import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
 
 export function startWorkspaceOpeningPeeks(opening: HTMLElement | null) {
   if (!opening) return
@@ -15,6 +16,17 @@ export function startWorkspaceOpeningPeeks(opening: HTMLElement | null) {
     peek.innerHTML = creatureGlyph
     piece.prepend(peek)
   }
+  import('./art/window-art.ts')
+    .then(({ drawWindowMascot, drawOpeningPage }) => {
+      if (opening.hidden) return undefined
+      const mascot = opening.querySelector<HTMLElement>('.window-mascot')
+      if (mascot) drawWindowMascot(mascot, true)
+      for (const page of opening.querySelectorAll<HTMLElement>('.workspace-opening__page')) {
+        drawOpeningPage(page, page.closest('.workspace-opening__page--left') ? 'removed' : 'added')
+      }
+      return undefined
+    })
+    .catch((cause: unknown) => rendererDiagnostics.error('renderer.workspace-opening-art', cause))
 }
 
 export function waitForWorkspaceOpeningPeeks(opening: HTMLElement | null) {

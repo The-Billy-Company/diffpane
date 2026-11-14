@@ -4,6 +4,7 @@ import { projectIcon } from '../../shell/layout/icons.ts'
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawReviewArt } from './review-art.ts'
 
 import './change-review.css'
 
@@ -123,18 +124,7 @@ export function createChangeReview(
         <div class="change-review-rows" role="presentation"></div>
       </div>
       <div class="change-review-empty" hidden>
-        <svg class="change-review-empty-art" viewBox="0 0 76 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path class="change-review-empty-context" d="M8 10h18m-15 6h8m-8 12h16m-19 6h11m31-24h18m-16 6h8m-7 12h15m-15 6h11M38 7v7m0 16v7"/>
-          <g class="change-review-empty-aligned">
-            <path d="M16 22h19m6 0h19"/><circle cx="38" cy="22" r="3"/>
-          </g>
-          <g class="change-review-empty-pending">
-            <path d="M16 22h15m18 0h11"/>
-            <path d="M35 22h10" stroke-dasharray="1 4"/>
-          </g>
-          <path class="change-review-empty-complete" d="M16 22h12m5 0 4 4 7-8m4 4h12"/>
-          <path class="change-review-empty-unavailable" d="M16 22h15m14 0h15m-22-5v5m0 4v.1"/>
-        </svg>
+        <svg class="change-review-empty-art" viewBox="8 0 84 56" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
         <h3 tabindex="-1"></h3>
         <p></p>
         <button type="button" class="change-review-empty-action"></button>
@@ -175,6 +165,7 @@ export function createChangeReview(
   const list = requireElement(container, '.change-review-list', HTMLDivElement)
   const rows = requireElement(container, '.change-review-rows', HTMLDivElement)
   const empty = requireElement(container, '.change-review-empty', HTMLDivElement)
+  const emptyArt = requireElement(empty, '.change-review-empty-art', SVGSVGElement)
   const emptyTitle = requireElement(empty, 'h3', HTMLHeadingElement)
   const emptyDescription = requireElement(empty, 'p', HTMLParagraphElement)
   const emptyAction = requireElement(empty, 'button', HTMLButtonElement)
@@ -522,6 +513,7 @@ export function createChangeReview(
     const key = state === 'clean' ? cleanState : state
     if (empty.dataset.state === key) return
     empty.dataset.state = key
+    drawReviewArt(emptyArt, key)
     const [title, description, action] = {
       head: ['Working tree is clean', 'New changes will appear here as they happen.'],
       checkpoint: ['No changes since checkpoint', 'New changes will appear here as they happen.'],

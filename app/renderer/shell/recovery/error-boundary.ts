@@ -56,6 +56,9 @@ export function showErrorBoundary(container: HTMLElement, options: ErrorBoundary
   const sprite = element(owner, 'span', 'window-mascot error-boundary__sprite')
   sprite.append(element(owner, 'span', 'window-mascot__face'))
   illustration.append(sprite)
+  import('./art/window-art.ts')
+    .then(({ drawWindowMascot }) => (sprite.isConnected ? drawWindowMascot(sprite, false) : undefined))
+    .catch((cause: unknown) => rendererDiagnostics.error('renderer.recovery-art', cause))
 
   const content = element(owner, 'div', 'error-boundary__content')
   const summary = element(owner, 'div', 'error-boundary__summary')

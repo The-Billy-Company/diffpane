@@ -13,5 +13,6 @@ The renderer entry point composes the file explorer, Monaco, review controls, an
 - [`main.js`](main.js) — Composes the window, controls file selection and editor lifetime, and flushes saves.
 - [`dom.js`](dom.js) — Checks that required elements match the expected DOM types.
 - [`style.css`](style.css) — Styles the shared window, welcome screen, and editor chrome.
+- [`workspace-art.ts`](art/workspace-art.ts) — Draws the welcome branch, recent target glyphs, and the workbench's file and comparison prompts.
 
 Run `pnpm run dev .` and open, edit, and switch between files in the workspace.

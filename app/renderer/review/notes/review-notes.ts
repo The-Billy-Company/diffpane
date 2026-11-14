@@ -5,6 +5,7 @@ import type { ReviewAnchor, ReviewNote, ReviewNoteChange } from '../../../shared
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawReviewNotesArt } from './review-notes-art.ts'
 import './review-notes.css'
 
 interface ReviewNotesApi {
@@ -102,11 +103,7 @@ export function createReviewNotes(
         </div>
       </form>
       <div class="review-notes-empty" hidden>
-        <svg class="review-notes-empty-art" viewBox="0 0 76 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path class="review-notes-empty-context" d="M7 10h23m-18 7h12m-12 14h17m-22 7h15"/>
-          <path d="M12 24h23" stroke-width="6" opacity=".15"/>
-          <path d="M12 24h26a7 7 0 0 0 6-3.5l2-3a6 6 0 0 1 5-2.5h17m-13 7h8"/>
-        </svg>
+        <svg class="review-notes-empty-art" viewBox="2 0 84 56" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
         <h3></h3>
         <p></p>
         <button type="button" class="review-notes-button" data-review-action="retry" hidden>Retry</button>
@@ -139,6 +136,7 @@ export function createReviewNotes(
   const body = requireElement(container, '.review-notes-body', HTMLElement)
   const list = requireElement(container, '.review-notes-list', HTMLUListElement)
   const empty = requireElement(container, '.review-notes-empty', HTMLElement)
+  const emptyArt = requireElement(empty, '.review-notes-empty-art', SVGSVGElement)
   const emptyTitle = requireElement(empty, 'h3', HTMLHeadingElement)
   const form = requireElement(container, '.review-notes-composer', HTMLFormElement)
   const formLabel = requireElement(form, 'label', HTMLLabelElement)
@@ -276,6 +274,7 @@ export function createReviewNotes(
     add.disabled = Boolean(pending)
     empty.hidden = visibleCount > 0 || Boolean(draft && !loadError)
     const initialLoad = loading && !loaded
+    emptyArt.toggleAttribute('data-resolved', resolved && loaded && !loadError)
     emptyTitle.toggleAttribute('data-loading-status', initialLoad)
     emptyTitle.textContent = initialLoad
       ? 'Loading notes…'
@@ -363,6 +362,7 @@ export function createReviewNotes(
 
   function show() {
     if (!container.hidden) return
+    if (!emptyArt.childElementCount) drawReviewNotesArt(emptyArt)
     container.hidden = false
     toggle.setAttribute('aria-expanded', 'true')
     options.onVisible(true)

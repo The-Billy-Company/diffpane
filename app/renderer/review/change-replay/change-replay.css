@@ -234,6 +234,13 @@
   font-size: var(--text-label);
 }
 
+.change-replay-empty-art {
+  width: 30px;
+  height: 22px;
+  margin-inline-end: 5px;
+  vertical-align: middle;
+}
+
 .change-replay-limit {
   margin: 0;
   padding: 7px var(--replay-inset);

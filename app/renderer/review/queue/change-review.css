@@ -428,27 +428,15 @@
 }
 
 .change-review-empty-art {
+  --queue-paper-ink: color-mix(in oklab, var(--muted) 52%, var(--surface));
+  --queue-paper-hatch: color-mix(in oklab, var(--queue-empty-ink) 28%, var(--surface));
+  --queue-badge-fill: color-mix(in oklab, var(--queue-empty-ink) 10%, var(--surface-raised));
   flex: none;
-  width: 76px;
+  width: 84px;
   max-width: 100%;
-  height: 44px;
-  margin-bottom: 14px;
+  height: 56px;
+  margin-bottom: 12px;
   color: var(--queue-empty-ink);
-}
-
-.change-review-empty-art > :not(.change-review-empty-context) {
-  display: none;
-}
-
-.change-review-empty-context {
-  color: color-mix(in oklab, var(--muted) 32%, var(--surface));
-}
-
-.change-review-empty:is([data-state='head'], [data-state='checkpoint']) .change-review-empty-aligned,
-.change-review-empty[data-state='reviewed'] .change-review-empty-pending,
-.change-review-empty[data-state='complete'] .change-review-empty-complete,
-.change-review-empty[data-state='error'] .change-review-empty-unavailable {
-  display: inline;
 }
 
 .change-review-empty:is([data-state='head'], [data-state='complete']) {

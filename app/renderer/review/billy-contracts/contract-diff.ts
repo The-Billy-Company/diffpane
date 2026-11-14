@@ -4,6 +4,7 @@ import type {
   BillyContractGroup,
   BillyContractRequest,
 } from '../../../shared/billy/contracts.ts'
+import { createBillyStatusArt } from '../billy/status-art.ts'
 
 import './contract-diff.css'
 
@@ -101,7 +102,12 @@ export function createBillyContractDiff(container: HTMLElement, { load, onOpen }
 
   function render(result: BillyContractDiff, path: string) {
     const groups = result.groups.map((group, index) => buildGroup(group, path, index === 0, onOpen))
-    const content: HTMLElement[] = groups.length ? groups : [paragraph('No related contract was found for this file.')]
+    const content: HTMLElement[] = [...groups]
+    if (!groups.length) {
+      const empty = paragraph('No related contract was found for this file.')
+      empty.prepend(createBillyStatusArt('contract'))
+      content.push(empty)
+    }
     if (result.limited)
       content.push(paragraph('Only part of this comparison could be checked for contract relationships.'))
     container.replaceChildren(

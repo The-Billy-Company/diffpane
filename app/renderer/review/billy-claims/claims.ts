@@ -1,5 +1,6 @@
 import type { BillyClaim, BillyClaimsResult } from '../../../shared/billy/claims.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
+import { createBillyStatusArt } from '../billy/status-art.ts'
 
 import './claims.css'
 
@@ -59,7 +60,9 @@ export function createBillyClaims(host: HTMLElement, { load, onOpen }: Options) 
         nodes.push(message('Doc Radar verification unavailable. Showing declarations.'))
       else nodes.push(message('Checked the linked documents against the working tree.'))
     } else {
-      nodes.push(message('No matching Doc Radar assertions found.'))
+      const empty = message('No matching Doc Radar assertions found.')
+      empty.prepend(createBillyStatusArt('claims'))
+      nodes.push(empty)
     }
     if (result.limited) nodes.push(message('Some candidate documents or findings could not be linked.'))
     host.replaceChildren(...nodes)

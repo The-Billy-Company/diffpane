@@ -185,30 +185,10 @@
   gap: 13px;
 }
 .howmany-chart-glyph {
-  display: flex;
+  display: block;
   flex: none;
-  align-items: end;
-  justify-content: center;
-  gap: 4px;
-  width: 34px;
-  height: 27px;
-  padding-block-end: 3px;
-  border-block-end: 1px solid var(--control-border);
-}
-.howmany-chart-glyph i {
-  width: 5px;
-  height: 10px;
-  border-radius: 1px 1px 0 0;
-  background: var(--chart-comments);
-  transform-origin: bottom;
-}
-.howmany-chart-glyph i:nth-child(2) {
-  height: 22px;
-  background: var(--chart-code);
-}
-.howmany-chart-glyph i:nth-child(3) {
-  height: 15px;
-  background: var(--chart-docs);
+  width: 36px;
+  height: 32px;
 }
 .howmany-dialog h2 {
   font-size: var(--text-heading);
@@ -256,11 +236,22 @@
   background: var(--surface);
   box-shadow: 0 2px 7px color-mix(in oklab, var(--shadow) 24%, transparent);
 }
-.howmany-report-content > .howmany-empty {
+.howmany-report-placeholder {
+  --howmany-paper-ink: color-mix(in oklab, var(--muted) 52%, var(--surface));
   grid-column: 1 / -1;
-  margin: 0;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
   padding: 16px 12px;
+  color: var(--accent);
   text-align: center;
+}
+.howmany-report-placeholder svg {
+  width: 80px;
+  height: 61px;
+}
+.howmany-report-placeholder p {
+  margin: 0;
 }
 .howmany-section .howmany-composition {
   height: 6px;

@@ -56,3 +56,27 @@
   border-radius: 50%;
   content: '';
 }
+
+.window-mascot--sketched {
+  --window-mascot-ink: color-mix(in oklab, currentColor 58%, var(--mascot-surface));
+  border: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.window-mascot--sketched svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.window-mascot--sketched::before,
+.window-mascot--sketched::after,
+.window-mascot--sketched .window-mascot__face {
+  display: none;
+}
+
+.window-mascot__eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+}

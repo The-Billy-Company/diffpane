@@ -130,14 +130,6 @@
   overscroll-behavior: contain;
 }
 
-.claude-conversation:has(.claude-empty:not([hidden])) {
-  background: radial-gradient(
-    ellipse at 20% 24%,
-    color-mix(in oklab, var(--accent-surface) 35%, transparent),
-    transparent 62%
-  );
-}
-
 .claude-conversation:focus-visible,
 .claude-diff:focus-visible,
 .claude-code-block pre:focus-visible,
@@ -149,49 +141,30 @@
 .claude-empty {
   display: grid;
   justify-items: start;
-  gap: 10px;
+  gap: 9px;
   width: min(100%, 330px);
-  margin: auto;
-  padding: 12px 0 clamp(15px, 7cqh, 58px);
+  margin: clamp(14px, 10cqh, 82px) auto auto;
+  padding-bottom: 12px;
 }
 
 .claude-empty-scene {
-  width: 110px;
-  height: 65px;
-  margin-block-end: 3px;
+  --creature-desk-line: color-mix(in oklab, var(--muted) 50%, var(--surface));
+  display: block;
+  width: 148px;
+  max-width: 100%;
+  height: auto;
+  margin-block-end: 5px;
+  aspect-ratio: 148 / 82;
+  background: radial-gradient(circle, var(--line) 0.85px, transparent 1px) center / 12px 12px;
   color: var(--accent);
 }
 
-.claude-empty[data-checking] .claude-empty-scene {
-  visibility: hidden;
+.claude-empty-mark {
+  display: none;
 }
 
-.claude-empty-scene svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.claude-scene-creature {
-  fill: var(--accent-surface);
-  stroke: currentColor;
-  stroke-width: 1.8;
-}
-
-.claude-scene-highlight {
-  stroke: color-mix(in oklab, currentColor 45%, var(--accent-surface));
-  stroke-width: 1.5;
-}
-
-.claude-scene-paper {
-  fill: var(--violet-surface);
-  stroke: color-mix(in oklab, var(--violet) 70%, var(--line));
-  stroke-width: 1.4;
-}
-
-.claude-scene-lines {
-  stroke: var(--violet);
-  stroke-width: 1.5;
+.claude-empty[data-checking] .claude-empty-title {
+  color: var(--muted);
 }
 
 .claude-empty h3 {
@@ -203,7 +176,7 @@
 }
 
 .claude-empty p {
-  max-width: 28ch;
+  max-width: 32ch;
   margin: 0;
   color: var(--muted);
   font-size: var(--text-body);
@@ -1132,8 +1105,37 @@
   line-height: 1.55;
 }
 
-.claude-settings-status {
-  margin-bottom: 3px;
+.claude-settings-connection {
+  --creature-key-ink: var(--accent);
+  --creature-key-paper: color-mix(in oklab, var(--creature-key-ink) 50%, var(--surface-inset));
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin-bottom: 4px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-inset);
+}
+
+.claude-settings-connection[data-state='ready'] {
+  --creature-key-ink: var(--added);
+}
+
+.claude-settings-connection[data-state='warning'] {
+  --creature-key-ink: var(--warning);
+}
+
+.claude-settings-key-art {
+  flex: none;
+  width: 36px;
+  height: 32px;
+  color: var(--creature-key-ink);
+}
+
+.claude-settings-connection:is([data-state='ready'], [data-state='warning']) .claude-settings-status {
+  color: var(--creature-key-ink);
 }
 
 .claude-settings-link {
@@ -1179,6 +1181,7 @@
 
   .claude-empty {
     gap: 5px;
+    margin-block: auto;
     padding: 0;
   }
 
@@ -1187,7 +1190,21 @@
   }
 
   .claude-empty h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: var(--text-subheading);
+  }
+
+  .claude-empty-mark {
+    display: inline-flex;
+    flex: none;
+    color: var(--accent);
+  }
+
+  .claude-empty-mark svg {
+    width: 20px;
+    height: 20px;
   }
 
   .claude-starters:not(:empty) {
@@ -1221,10 +1238,6 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .claude-empty:not([data-checking]) .claude-empty-scene {
-    animation: claude-greeting-settle 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
   .claude-starter,
   .claude-icon,
   .claude-mode button {
@@ -1236,12 +1249,5 @@
 
   .claude-compose-surface {
     transition: box-shadow 140ms ease-out;
-  }
-}
-
-@keyframes claude-greeting-settle {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
   }
 }

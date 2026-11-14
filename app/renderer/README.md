@@ -28,6 +28,7 @@ The renderer runs in the sandboxed desktop window and communicates with [Electro
 - [Explorer and search](explorer/README.md) — project navigation, file picker, and content search.
 - [Review](review/README.md) — changed-file queue, comparisons, and review notes.
 - [Workspace panels](panels/README.md) — The Creature, Ideas, HowMany, and settings.
+- [Illustrations](illustrations/README.md) — Sketch settings and artwork for empty states.
 - [Renderer types](types/README.md) — ambient declarations for the preload bridge and renderer imports.
 
 ## Workspace behavior

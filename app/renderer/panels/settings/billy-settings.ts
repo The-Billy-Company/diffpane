@@ -3,6 +3,7 @@ import { billySetupActions } from '../../../shared/billy/setup.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawReadinessMark } from '../art/settings.ts'
 import './billy-settings.css'
 
 interface BillySetupApi {
@@ -34,10 +35,7 @@ export function createBillySettings(api: BillySetupApi, showTerminal: () => void
       <section class="billy-readiness" aria-labelledby="billy-readiness-title">
         <div class="billy-readiness-header">
           <div class="billy-readiness-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24" fill="none">
-              <rect x="3.25" y="5.25" width="17.5" height="13.5" rx="2" stroke="currentColor" stroke-width="1.5" opacity=".5"/>
-              <path d="M6 12h2.45l1.85-3.25 2.55 6.5L14.6 12H18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-            </svg>
+            <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"></svg>
           </div>
           <div class="billy-readiness-text">
             <h3 id="billy-readiness-title">Workspace readiness</h3>
@@ -59,6 +57,7 @@ export function createBillySettings(api: BillySetupApi, showTerminal: () => void
     </div>`
 
   const content = requireElement(page, '.billy-settings-content', HTMLDivElement)
+  drawReadinessMark(requireElement(page, '.billy-readiness-mark svg', SVGSVGElement))
   const checkButton = requireElement(page, '.billy-readiness-button', HTMLButtonElement)
   const summary = requireElement(page, '.billy-readiness-summary', HTMLParagraphElement)
   const results = requireElement(page, '.billy-checks', HTMLUListElement)

@@ -1,6 +1,7 @@
 import type { BillyLaneChecks, BillyLaneLog, BillyLanePage } from '../../../electron/tools/billy-lanes/lanes.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createBillyStatusArt } from '../billy/status-art.ts'
 import './lanes.css'
 
 interface ChangePath {
@@ -101,7 +102,9 @@ export function createBillyLanes(
             ? 'No changes match this lane.'
             : counts.join(' · ')
     statusLine.hidden = !label
-    if (statusLine.textContent !== label) statusLine.textContent = label
+    if (statusLine.textContent === label) return
+    statusLine.textContent = label
+    if (page?.rows.length === 0 && !failed && !page.truncated) statusLine.prepend(createBillyStatusArt('lanes'))
   }
 
   function renderChoices() {
@@ -296,6 +299,7 @@ export function createBillyLanes(
       refreshButton.disabled = false
     }
     renderChoices()
+    renderStatus()
     onChange()
     await refreshChecks()
   }

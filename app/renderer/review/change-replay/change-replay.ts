@@ -4,6 +4,7 @@ import { MagicMoveRenderer } from '@shikijs/magic-move/renderer'
 import type { editor } from 'monaco-editor'
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
 import { EDITOR_THEMES } from '../../editor/highlighting/editor-themes.ts'
+import { createSketch } from '../../illustrations/sketch.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 
@@ -107,7 +108,7 @@ export function showChangeReplay(
       <div class="change-replay-content">
         <pre class="change-replay-code shiki-magic-move-container" aria-hidden="true"></pre>
         <pre class="change-replay-readable"></pre>
-        <p class="change-replay-empty" hidden>No lines in this version.</p>
+        <p class="change-replay-empty" hidden><svg class="change-replay-empty-art" viewBox="0 0 34 26" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>No lines in this version.</p>
       </div>
     </div>
     <p class="change-replay-limit" hidden></p>`
@@ -135,6 +136,14 @@ export function showChangeReplay(
   stage.style.setProperty('--replay-lines', String(Math.max(1, before.lines, after.lines)))
   limit.hidden = !(before.clipped || after.clipped)
   limit.textContent = `Showing up to ${MAX_LINES} lines and ${MAX_COLUMNS} columns per side.`
+  if (!before.lines || !after.lines) {
+    const art = requireElement(empty, 'svg', SVGSVGElement)
+    const sketch = createSketch(art)
+    art.append(
+      sketch.path('M5 3h17l5 5v15H5Z M22 3v6h5', { stroke: 'currentColor', roughness: 0.65 }),
+      sketch.path('M10 14h2m3 0h2m3 0h2', { stroke: 'currentColor', strokeWidth: 1.4, roughness: 0.65 }),
+    )
+  }
 
   const renderer = new MagicMoveRenderer(canvas, { duration: 400, containerStyle: false, animateContainer: false })
   let side: 'before' | 'after' | undefined

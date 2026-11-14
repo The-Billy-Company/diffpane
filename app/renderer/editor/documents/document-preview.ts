@@ -1,6 +1,7 @@
 import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../shared/documents/media-types.ts'
 import { attempt } from '../../../shared/recovery/app-errors.ts'
 import type { ContentMatch } from '../../explorer/project-search/content-search.ts'
+import { createDocumentArt } from '../../illustrations/editor-art.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
 import { showAudioPreview } from './audio-waveform/audio-waveform.ts'
 import { createImageDiff } from './image-diff/image-diff.ts'
@@ -159,11 +160,20 @@ export function showDocumentPreview(
         }
         if (reason || (truncated && (raw || value.kind === 'binary'))) {
           note.textContent = reason ? `${reason} ${truncated || 'Showing raw bytes.'}` : truncated
+          if (reason) {
+            note.classList.add('preview-note-fallback')
+            note.prepend(createDocumentArt('fallback'))
+          }
           note.hidden = false
         }
       }
       if (!value.size) {
-        body.textContent = 'Empty or absent file.'
+        const empty = document.createElement('div')
+        empty.className = 'preview-empty'
+        const message = document.createElement('p')
+        message.textContent = 'Empty or absent file.'
+        empty.append(createDocumentArt('preview'), message)
+        body.append(empty)
       } else if (raw || value.kind === 'text' || (value.kind === 'binary' && !(side === 'after' && currentMedia))) {
         bytes()
       } else {

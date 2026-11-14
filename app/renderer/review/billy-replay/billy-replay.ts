@@ -1,5 +1,6 @@
 import type { BillyPlaybook, BillyReplayApi, BillyReplayCase, BillyReplayRun } from '../../../shared/billy/replay.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createBillyStatusArt } from '../billy/status-art.ts'
 import { compareReplayCases } from './comparison.ts'
 import { element, turnDetail } from './detail.ts'
 import './billy-replay.css'
@@ -55,14 +56,22 @@ export function createBillyReplay(container: HTMLElement, api: BillyReplayApi, o
   let disposed = false
   let cases: [BillyReplayCase, BillyReplayCase] | null = null
 
+  function drawRunPickerArt() {
+    for (const button of buttons) {
+      if (!button.querySelector('.billy-status-art')) button.prepend(createBillyStatusArt('run'))
+    }
+  }
+
   function runButtons() {
     buttons.forEach((button, index) => {
       const side = sides[index]
       if (!side) return
       const run = runs[side]
       button.disabled = picking
-      button.replaceChildren(element('strong', '', label(side)))
-      button.append(
+      const art = button.querySelector('.billy-status-art')
+      button.replaceChildren(
+        ...(art ? [art] : []),
+        element('strong', '', label(side)),
         element(
           'span',
           'billy-replay-muted',
@@ -244,6 +253,7 @@ export function createBillyReplay(container: HTMLElement, api: BillyReplayApi, o
     open(next?: string | null) {
       if (disposed) return
       container.hidden = false
+      drawRunPickerArt()
       if (next !== undefined) setPath(next)
     },
     setPath,

@@ -62,6 +62,7 @@ import { createWorkspaceLayout } from '../layout/workspace-layout.ts'
 import { createRollingNumber } from '../number-flow/number-flow.ts'
 import { clearErrorNotice, guard, renderFailure, reportError, runTask, setErrorNoticeHost } from '../recovery/errors.ts'
 import { waitForWorkspaceOpeningPeeks } from '../recovery/workspace-opening.ts'
+import { drawRecentTargetArt, drawWelcomeArt, drawWorkbenchArt } from './art/workspace-art.ts'
 import { requireElement } from './dom.js'
 import { FileHistory } from './file-history.ts'
 import { getWorkspacePreferences } from './preferences.ts'
@@ -175,8 +176,6 @@ const icons = {
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><path d="m6.5 1.5-.3 1.7-1.1.6-1.6-.6-1.5 2.6 1.3 1.1v1.2L2 9.2l1.5 2.6 1.6-.6 1.1.6.3 1.7h3l.3-1.7 1.1-.6 1.6.6L14 9.2l-1.3-1.1V6.9L14 5.8l-1.5-2.6-1.6.6-1.1-.6-.3-1.7z"/><circle cx="8" cy="7.5" r="2"/></svg>',
   idea: '<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="11.5" height="13" rx="2"/><path d="M7 2.5v13M2 6h3m-3 6h3m4.5-5h3m-3 3h2"/></svg>',
   file: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M9.5 1.8H4a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V5.3l-3.5-3.5Z" stroke="currentColor" stroke-width="1.15"/><path d="M9 2v4h4" stroke="currentColor" stroke-width="1.15"/></svg>',
-  folder:
-    '<svg viewBox="0 0 48 48" fill="none" aria-hidden="true"><path d="M5 12a4 4 0 0 1 4-4h10l5 5h15a4 4 0 0 1 4 4v19a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V12Z" fill="currentColor" opacity=".22"/><path d="M5 19a4 4 0 0 1 4-4h30a4 4 0 0 1 4 4v17a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4V19Z" fill="currentColor" opacity=".72"/><path d="M9 15h30a4 4 0 0 1 4 4v1H5v-1a4 4 0 0 1 4-4Z" fill="white" opacity=".12"/><path d="M10 33h12" stroke="white" stroke-opacity=".3" stroke-width="1.5" stroke-linecap="round"/></svg>',
 }
 
 const app = document.getElementById('app') ?? document.body.appendChild(document.createElement('div'))
@@ -209,16 +208,7 @@ app.innerHTML = `
   <main class="start-screen" id="start-screen" aria-labelledby="start-title" aria-busy="true">
     <div class="start-content">
       <span class="workspace-art start-mark" aria-hidden="true">
-        <svg viewBox="0 0 152 78" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path class="workspace-art-guide" d="M12 17h128M12 39h128M12 61h128" stroke-dasharray="1 5"/>
-          <path class="workspace-art-branch" d="M15 39h37c17 0 24-22 42-22h43" stroke="var(--added-edge)"/>
-          <path class="workspace-art-branch" d="M52 39c17 0 24 22 42 22h43" stroke="var(--removed-edge)"/>
-          <path d="M15 39h122" stroke="var(--accent)" stroke-width="2"/>
-          <circle cx="52" cy="39" r="4.5" fill="var(--workbench-background)" stroke="var(--accent)" stroke-width="2"/>
-          <path d="M115 13v8m-4-4h8m-8 44h8" stroke="var(--workbench-background)" stroke-width="7"/>
-          <path d="M115 13v8m-4-4h8" stroke="var(--added)" stroke-width="1.8"/>
-          <path d="M111 61h8" stroke="var(--removed)" stroke-width="1.8"/>
-        </svg>
+        <svg viewBox="0 0 152 78" stroke-linecap="round" stroke-linejoin="round"></svg>
       </span>
       <h1 id="start-title">Welcome to Diffpane</h1>
       <p id="start-description">Open a file or folder in a Git working tree to get started.</p>
@@ -238,12 +228,7 @@ app.innerHTML = `
     <div class="feed" id="feed"></div>
     <div class="empty-state" id="empty-state">
       <span class="workspace-art empty-symbol" aria-hidden="true">
-        <svg viewBox="0 0 138 78" fill="none" stroke-linecap="round" stroke-linejoin="round">
-          <path class="workspace-art-guide" d="M13 31h27m-20 10h20m-13 10h13m59-20h26m-26 10h19m-19 10h12"/>
-          <path d="M50 19v37a5 5 0 0 0 5 5h29a5 5 0 0 0 5-5V28L77 16H53a3 3 0 0 0-3 3Z" fill="var(--accent-surface)" stroke="var(--accent)" stroke-width="1.5"/>
-          <path d="M77 16v12h12M59 36h18m-18 8h13" stroke="var(--accent)" stroke-width="1.5"/>
-          <path d="M59 52h14" stroke="var(--added-edge)" stroke-width="2"/>
-        </svg>
+        <svg viewBox="0 0 138 78" stroke-linecap="round" stroke-linejoin="round"></svg>
       </span>
       <h2>Open a file</h2>
       <p>Select a file in the explorer.</p>
@@ -584,8 +569,13 @@ function showStartScreen(failed = false) {
   ui.startTitle.textContent = 'Welcome to Diffpane'
   ui.startTitle.hidden = ui.startDescription.hidden = failed
   ui.startError.hidden = !failed
-  requireElement(ui.startScreen, '.start-mark', HTMLElement).hidden = failed
-  if (!failed) ui.startScreen.setAttribute('aria-labelledby', 'start-title')
+  const startMark = requireElement(ui.startScreen, '.start-mark', HTMLElement)
+  startMark.hidden = failed
+  if (!failed) {
+    const art = requireElement(startMark, 'svg', SVGSVGElement)
+    if (!art.hasChildNodes()) drawWelcomeArt(art)
+    ui.startScreen.setAttribute('aria-labelledby', 'start-title')
+  }
   ui.startDescription.textContent = 'Open a file or folder in a Git working tree to get started.'
   ui.startActions.hidden = !api
   ui.statusText.textContent = !api
@@ -630,7 +620,9 @@ async function loadRecentTargets() {
       button.dataset.path = target.path
       button.title = target.path
       button.setAttribute('aria-label', `Open ${target.name}, ${target.path}`)
-      button.innerHTML = `<span class="recent-glyph">${target.kind === 'folder' ? icons.folder : icons.file}</span><span class="recent-label"><strong></strong><span class="recent-location"></span></span><span class="recent-arrow" aria-hidden="true">↗</span>`
+      const folder = target.kind === 'folder'
+      button.innerHTML = `<span class="recent-glyph" aria-hidden="true"><svg viewBox="${folder ? '0 0 48 48' : '0 0 34 40'}" stroke-linecap="round" stroke-linejoin="round"></svg></span><span class="recent-label"><strong></strong><span class="recent-location"></span></span><span class="recent-arrow" aria-hidden="true">↗</span>`
+      drawRecentTargetArt(requireElement(button, '.recent-glyph svg', SVGSVGElement), folder)
       requireElement(button, 'strong', HTMLElement).textContent = target.name
       requireElement(button, '.recent-location', HTMLElement).textContent = target.path
       const open = () => openRecentTarget(target.path)
@@ -1554,6 +1546,7 @@ function setSidebarVisible(visible) {
   if (showReview) refreshBillyLanes()
   ui.reviewToggle.setAttribute('aria-pressed', String(showReview))
   requireElement(ui.emptyState, 'h2', HTMLElement).textContent = showReview ? 'Open a comparison' : 'Open a file'
+  drawWorkbenchArt(requireElement(ui.emptyState, '.empty-symbol svg', SVGSVGElement), showReview)
   updateEmptyStateHint()
 }
 
@@ -2906,6 +2899,10 @@ function showWorkspaceFailure(cause) {
   const boundary = renderFailure(ui.startError, error, {
     scope: 'panel',
     title,
+    message: workspaceFailure
+      ? 'Reconnect to this project, or choose another file or folder.'
+      : 'Try opening this project again, or choose another file or folder.',
+    detail: `${error.message}\n\nError code ${error.code}`,
     retry: recoverWorkspace,
     retryLabel,
   })

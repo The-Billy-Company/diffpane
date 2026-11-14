@@ -2,6 +2,7 @@ import type { BillySiblingExcerpt, BillySiblingMatch, BillySiblingResult } from 
 import { serializeAppError } from '../../../shared/recovery/app-errors.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { createBillyStatusArt } from '../billy/status-art.ts'
 import './siblings.css'
 
 interface Selection {
@@ -48,6 +49,7 @@ export function createBillySiblings(host: HTMLElement, { load, onOpen }: Options
   let selected = 0
   let generation = 0
   let state: State = { kind: 'select' }
+  let emptyArt: SVGSVGElement | undefined
 
   function panel(label: string, item: BillySiblingExcerpt, detail = '') {
     const section = document.createElement('section')
@@ -127,6 +129,10 @@ export function createBillySiblings(host: HTMLElement, { load, onOpen }: Options
         }
         break
       }
+    }
+    if (state.kind === 'select' || state.kind === 'no-function') {
+      emptyArt ??= createBillyStatusArt('siblings')
+      status.prepend(emptyArt)
     }
     renderPair()
   }

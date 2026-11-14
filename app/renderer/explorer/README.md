@@ -13,3 +13,4 @@ These views navigate the project inventory or open text results in the editor. T
 - [Change map](change-rail/README.md) — Git status marks and scroll position for the file tree.
 - [File picker](file-picker/README.md) — Ranked path search and worker lifecycle.
 - [Project search](project-search/README.md) — Project-wide text results and shared search filters.
+- [`search-illustration.ts`](search-illustration.ts) — Draws the folder and magnifying-glass sketches for empty search results.

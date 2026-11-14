@@ -14,3 +14,4 @@ The workspace mounts these optional panels and supplies their Electron bridge, s
 - [Analysis](analysis/README.md) — HowMany reports and diagnostics.
 - [Settings](settings/README.md) — Settings sections and shortcut capture.
 - [Appearance](appearance/README.md) — Appearance controls and persisted UI preferences.
+- [Panel sketches](art/README.md) — Artwork for greetings, status views, and settings previews.

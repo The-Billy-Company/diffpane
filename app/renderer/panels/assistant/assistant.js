@@ -2,6 +2,7 @@
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
+import { drawCreatureGreeting, drawCreatureKey } from '../art/assistant.ts'
 import { createEditProposal, createToolActivity, renderAssistantMarkdown } from './assistant-content.js'
 import { creatureGlyph } from './creature-glyph.ts'
 import './assistant.css'
@@ -100,20 +101,8 @@ export function createAssistant(
     <div class="claude-transcript">
       <div class="claude-conversation" role="log" aria-live="off" aria-label="Conversation" tabindex="0">
         <div class="claude-empty">
-          <div class="claude-empty-scene" aria-hidden="true">
-            <svg viewBox="0 0 110 65" fill="none" stroke-linecap="round" stroke-linejoin="round">
-              <g transform="translate(-7 0)">
-                <path class="claude-scene-paper" d="m54 20 24-8 14 7 8 27a3 3 0 0 1-2 4L69 59a3 3 0 0 1-4-2Z"/>
-                <path class="claude-scene-paper" d="m78 12 3 11 11-4"/>
-                <path class="claude-scene-lines" d="m70 34 17-5m-15 12 17-5m-15 12 10-3"/>
-              </g>
-              <path class="claude-scene-creature" d="M9 37c0-6 3-11 7-14l-2-11 12 7a26 26 0 0 1 12 0l12-7-2 11c4 3 7 8 7 14 0 11-10 17-23 17S9 48 9 37Z"/>
-              <path class="claude-scene-highlight" d="M14 35c1-4 3-7 6-9m-1-7 2 5m25-6-1 6"/>
-              <path d="M23 35h.1m18 0h.1" stroke="currentColor" stroke-width="4"/>
-              <path d="M28.5 43q3.5 3.5 7 0" stroke="currentColor" stroke-width="1.8"/>
-            </svg>
-          </div>
-          <h3></h3>
+          <svg class="claude-empty-scene" viewBox="0 0 148 82" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
+          <h3><span class="claude-empty-mark" aria-hidden="true">${creatureGlyph}</span><span class="claude-empty-title"></span></h3>
           <p></p>
           <div class="claude-starters"></div>
           <button type="button" class="claude-button claude-primary" data-action="connect" hidden>Set up API key ${icon('next')}</button>
@@ -152,7 +141,10 @@ export function createAssistant(
       <button type="button" class="claude-icon" aria-label="Close Creature settings">${icon('close')}</button>
     </header>
     <form>
-      <p class="claude-settings-status" role="status"></p>
+      <div class="claude-settings-connection">
+        <svg class="claude-settings-key-art" viewBox="0 0 36 32" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
+        <p class="claude-settings-status" role="status"></p>
+      </div>
       <label for="claude-api-key">API key</label>
       <input id="claude-api-key" type="password" autocomplete="off" spellcheck="false" maxlength="2048" placeholder="sk-ant-…" />
       <p class="claude-settings-hint">Use a workspace-scoped Claude API key. Diffpane stores it with your system’s credential protection.</p>
@@ -177,7 +169,8 @@ export function createAssistant(
   const conversation = select('.claude-conversation')
   const turns = select('.claude-turns')
   const empty = select('.claude-empty')
-  const emptyTitle = requireElement(empty, 'h3', HTMLHeadingElement)
+  const scene = requireElement(empty, '.claude-empty-scene', SVGSVGElement)
+  const emptyTitle = requireElement(empty, '.claude-empty-title', HTMLSpanElement)
   const emptyText = requireElement(empty, 'p', HTMLParagraphElement)
   const starters = requireElement(empty, '.claude-starters', HTMLDivElement)
   const fileChip = action('file')
@@ -197,6 +190,8 @@ export function createAssistant(
   const saveKey = requireElement(settings, '[type="submit"]', HTMLButtonElement)
   const removeKey = requireElement(settings, '.claude-remove', HTMLButtonElement)
   const closeSettings = requireElement(settings, '.claude-icon', HTMLButtonElement)
+  const settingsConnection = requireElement(settings, '.claude-settings-connection', HTMLDivElement)
+  const keyArt = requireElement(settingsConnection, '.claude-settings-key-art', SVGSVGElement)
   const settingsStatus = requireElement(settings, '.claude-settings-status', HTMLParagraphElement)
   const settingsNotice = requireElement(settings, '.claude-settings-notice', HTMLParagraphElement)
   const settingsForm = requireElement(settings, 'form', HTMLFormElement)
@@ -329,6 +324,14 @@ export function createAssistant(
     saveKey.textContent = connected ? 'Replace API key' : 'Save API key'
     removeKey.hidden = !connected
     removeKey.disabled = checking || changingKey || Boolean(busy)
+    settingsConnection.dataset.state =
+      checking || changingKey || !connection
+        ? 'checking'
+        : !connection.secureStorage
+          ? 'warning'
+          : connected
+            ? 'ready'
+            : 'setup'
     settingsStatus.toggleAttribute('data-loading-status', changingKey || checking)
     settingsStatus.textContent = changingKey
       ? 'Updating API key…'
@@ -559,8 +562,14 @@ export function createAssistant(
     } finally {
       checking = false
       render()
-      if (settings.open && document.activeElement === closeSettings && !keyInput.disabled) keyInput.focus()
-      else if (document.activeElement === action('settings') && !promptInput.disabled) focusDraft()
+      const focused = document.activeElement
+      if (
+        settings.open &&
+        !keyInput.disabled &&
+        (focused === closeSettings || focused === settings || !settings.contains(focused))
+      )
+        keyInput.focus()
+      else if (focused === action('settings') && !promptInput.disabled) focusDraft()
     }
   }
 
@@ -568,6 +577,7 @@ export function createAssistant(
     container.hidden = !open
     toggle.setAttribute('aria-expanded', String(open))
     if (open) {
+      if (!scene.childElementCount) drawCreatureGreeting(scene)
       runTask('Open the Creature panel', () => onOpen?.())
       render()
       resizeDraft()
@@ -580,6 +590,7 @@ export function createAssistant(
   /** @param {Event} event */
   function openSettings(event) {
     settingsOpener = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+    if (!keyArt.childElementCount) drawCreatureKey(keyArt)
     showNotice(settingsNotice)
     settings.showModal()
     if (!keyInput.disabled) keyInput.focus()
