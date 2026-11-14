@@ -32,7 +32,8 @@ import { createLanguageFeatures } from '../../editor/languages/languages.js'
 import { isMarkdown } from '../../editor/markdown/markdown-paths.ts'
 import { recolorMarkdownPreviews, showMarkdownPreview } from '../../editor/markdown/markdown-preview.ts'
 import { Autosave } from '../../editor/updates/autosave.ts'
-import { createLiveEditHighlight, liveEditRanges } from '../../editor/updates/live-edit-highlight.ts'
+import { createEditActivity } from '../../editor/updates/edit-activity/edit-activity.ts'
+import { createLiveEditHighlight, describeLiveEdit } from '../../editor/updates/live-edit-highlight.ts'
 import { LivePathBatch, subscribeLivePaths } from '../../editor/updates/live-updates.ts'
 import { createFilePicker } from '../../explorer/file-picker/files.ts'
 import { createContentSearch } from '../../explorer/project-search/content-search.ts'
@@ -88,6 +89,7 @@ import { getWorkspacePreferences } from './preferences.ts'
  * @property {OpenFile} file
  * @property {HTMLElement} element
  * @property {ReturnType<typeof createReviewFocus>} reviewFocus
+ * @property {ReturnType<typeof createEditActivity>} editActivity
  * @property {HTMLElement} reviewNotice
  * @property {HTMLElement} host
  * @property {HTMLElement} note
@@ -1572,6 +1574,8 @@ function createCard(file, openedAt) {
   })
   const actionToggle = requireElement(element, '.file-action-toggle', HTMLButtonElement)
   const actions = requireElement(element, '.file-action-popover', HTMLElement)
+  const editActivity = createEditActivity()
+  requireElement(element, '.file-actions', HTMLDivElement).prepend(editActivity.element)
   actionToggle.before(reviewFocus.bar)
   requireElement(element, '.comparison-labels', HTMLElement).before(reviewFocus.changeMap)
   actionToggle.popoverTargetElement = actions
@@ -1588,6 +1592,7 @@ function createCard(file, openedAt) {
     openedAt,
     element,
     reviewFocus,
+    editActivity,
     reviewNotice,
     host: requireElement(element, '.editor-host', HTMLElement),
     note: requireElement(element, '.file-note', HTMLElement),
@@ -2438,9 +2443,11 @@ function applyDiskText(card, text) {
   } finally {
     card.applyingDocument = false
   }
-  if (highlight && change && start)
-    highlight.show(liveEditRanges(before, updated, change, start.lineNumber), model.getLineCount())
-  else if (reset) card.liveEditHighlight?.clear()
+  if (highlight && change && start) {
+    const { ranges, counts } = describeLiveEdit(before, updated, change, start.lineNumber)
+    highlight.show(ranges, model.getLineCount())
+    card.editActivity.record(counts)
+  } else if (reset) card.liveEditHighlight?.clear()
 }
 
 /** @param {Card} card @param {() => boolean} change */

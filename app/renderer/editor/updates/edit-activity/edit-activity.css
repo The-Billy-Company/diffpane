@@ -1,0 +1,113 @@
+.edit-activity {
+  --sample-width: 6px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  margin-inline-end: 5px;
+  padding-inline: 6px;
+  border: 1px solid var(--editor-separator);
+  border-radius: 6px;
+  background: color-mix(in oklab, var(--surface-inset) 55%, var(--workbench-background));
+  color: var(--editor-chrome);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.file-card:not([data-view='source']) .edit-activity {
+  display: none;
+}
+
+.edit-activity-chart {
+  display: flex;
+  justify-content: flex-end;
+  inline-size: calc(12 * var(--sample-width));
+  block-size: 18px;
+  direction: ltr;
+  background-image: repeating-linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--editor-chrome) 60%, transparent) 0 1px,
+    transparent 1px var(--sample-width)
+  );
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 100% 1px;
+}
+
+.edit-activity-sample {
+  position: relative;
+  flex: 0 0 var(--sample-width);
+  opacity: 0.65;
+}
+
+.edit-activity-sample:is(:hover, :last-child) {
+  opacity: 1;
+}
+
+.edit-activity-sample::before,
+.edit-activity-sample::after {
+  position: absolute;
+  inset-inline: 1px;
+  content: '';
+}
+
+.edit-activity-sample::before {
+  inset-block-end: calc(50% + 1px);
+  block-size: var(--edit-rise, 0px);
+  border-radius: 2px 2px 1px 1px;
+  background: var(--added-edge);
+}
+
+.edit-activity-sample::after {
+  inset-block-start: calc(50% + 1px);
+  block-size: var(--edit-fall, 0px);
+  border-radius: 1px 1px 2px 2px;
+  background: var(--removed-edge);
+}
+
+.edit-activity-sample[data-uncounted]::before {
+  inset-block-end: calc(50% - 1px);
+  block-size: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.edit-activity-counts {
+  display: flex;
+  gap: 4px;
+  direction: ltr;
+}
+
+.edit-activity-counts span:first-child {
+  color: var(--added);
+}
+
+.edit-activity-counts span:last-child {
+  color: var(--removed);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .edit-activity-sample:last-child {
+    animation: edit-activity-arrive 240ms cubic-bezier(0.2, 0.7, 0.3, 1) both;
+  }
+}
+
+@keyframes edit-activity-arrive {
+  from {
+    transform: scaleY(0.1);
+  }
+}
+
+@container (max-width: 540px) {
+  .edit-activity {
+    --sample-width: 4px;
+    margin-inline-end: 2px;
+  }
+
+  .edit-activity-label {
+    display: none;
+  }
+}
