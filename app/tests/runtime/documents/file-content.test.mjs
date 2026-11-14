@@ -6,6 +6,7 @@ import {
   MAX_MEDIA_BYTES,
   readLimit,
 } from '../../../electron/workspace/documents/file-content.ts'
+import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../shared/documents/media-types.ts'
 
 /** @param {Buffer | {bytes: Buffer, size: number}} bytes @param {string} filename */
 function readText(bytes, filename) {
@@ -88,6 +89,26 @@ test('oversized and malformed inputs retain bounded text or byte previews', () =
   assert.ok(!('data' in media) || media.data === undefined)
   assert.equal(fileContent(Buffer.from([0xff, 0xfe, 0]), 'bad').kind, 'binary')
   assert.equal(fileContent(Buffer.alloc(0), 'deleted.png').kind, 'text')
+})
+
+test('streamed audio includes only complete, bounded bytes for the waveform', () => {
+  const bytes = Buffer.alloc(96 * 1024)
+  bytes.write('RIFF0000WAVE')
+  const complete = fileContent({ bytes, size: bytes.length, streamed: true }, 'sound.wav')
+  assert.equal(complete.kind, 'audio')
+  assert.ok('data' in complete && typeof complete.data === 'string')
+  assert.deepEqual(Buffer.from(complete.data, 'base64'), bytes)
+
+  const large = Buffer.alloc(MAX_AUDIO_WAVEFORM_BYTES + 1)
+  bytes.copy(large)
+  for (const input of [
+    { bytes, size: bytes.length + 1 },
+    { bytes: large, size: large.length },
+  ]) {
+    const playbackOnly = fileContent({ ...input, streamed: true }, 'sound.wav')
+    assert.equal(playbackOnly.kind, 'audio')
+    assert.ok(!('data' in playbackOnly))
+  }
 })
 
 test('line bounds preserve the final newline and truncate only past 50000 complete lines', () => {

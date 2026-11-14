@@ -1,6 +1,6 @@
 import { isUtf8 } from 'node:buffer'
 import path from 'node:path'
-import { isPixelDiffImage, MAX_PIXEL_DIFF_IMAGE_BYTES, mediaType } from '../../../shared/documents/media-types.ts'
+import { mediaType, streamedMediaInlineLimit } from '../../../shared/documents/media-types.ts'
 
 export const MAX_FILE_BYTES = 2 * 1024 * 1024
 export const MAX_MEDIA_BYTES = 16 * 1024 * 1024
@@ -148,10 +148,13 @@ export function fileContent(input: Buffer | ContentInput, filename: string, incl
     const byteView = fileByteView(bytes)
     const { kind, extension: type } = format
     const mime = MIME_TYPES[type] ?? `${kind}/${type}`
+    const declaredType = mediaType(filename)
     const includeData =
       !truncated &&
       (!streamed ||
-        (size <= MAX_PIXEL_DIFF_IMAGE_BYTES && isPixelDiffImage(mime) && isPixelDiffImage(mediaType(filename))))
+        (declaredType?.startsWith(`${kind}/`) &&
+          streamedMediaInlineLimit(mime, size) > 0 &&
+          streamedMediaInlineLimit(declaredType, size) > 0))
     return {
       size,
       ...byteView,

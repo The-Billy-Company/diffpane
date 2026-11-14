@@ -1,6 +1,8 @@
+import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../shared/documents/media-types.ts'
 import { attempt } from '../../../shared/recovery/app-errors.ts'
 import type { ContentMatch } from '../../explorer/project-search/content-search.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
+import { showAudioPreview } from './audio-waveform/audio-waveform.ts'
 import { createImageDiff } from './image-diff/image-diff.ts'
 import { showMedia } from './media.ts'
 
@@ -163,24 +165,12 @@ export function showDocumentPreview(
             }),
           )
         } else if (media.type.startsWith('audio/')) {
-          const audio = document.createElement('audio')
-          audio.controls = true
-          audio.preload = 'metadata'
-          audio.setAttribute('aria-label', filename)
-          const stop = () => {
-            audio.removeEventListener('error', onError)
-            audio.pause()
-            audio.removeAttribute('src')
-            audio.load()
-          }
-          const onError = () => {
-            stop()
-            failed()
-          }
-          audio.addEventListener('error', onError)
-          audio.src = media.url
-          body.append(audio)
-          cleanups.push(stop)
+          const waveformBytes =
+            value.kind === 'audio' && value.size <= MAX_AUDIO_WAVEFORM_BYTES ? value.data : undefined
+          const label = compare
+            ? `${filename} · ${side === 'before' ? (options.baseline ?? 'HEAD') : 'Working file'}`
+            : filename
+          cleanups.push(showAudioPreview(body, media.url, label, failed, waveformBytes))
         } else if (media.type === 'application/pdf') {
           const frame = document.createElement('iframe')
           frame.className = 'preview-pdf'

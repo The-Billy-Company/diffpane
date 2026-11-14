@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, open, readdir, readlink, realpath, unlink } from 'node:fs/promises'
 import path from 'node:path'
-import { isPixelDiffImage, MAX_PIXEL_DIFF_IMAGE_BYTES, mediaType } from '../../../shared/documents/media-types.ts'
+import { mediaType, streamedMediaInlineLimit } from '../../../shared/documents/media-types.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import {
   checkClaudeFile,
@@ -63,7 +63,7 @@ const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true })
 
 /** @param {string} type @param {number} size */
 function streamedPreviewLimit(type, size) {
-  return isPixelDiffImage(type) && size <= MAX_PIXEL_DIFF_IMAGE_BYTES ? MAX_PIXEL_DIFF_IMAGE_BYTES : 64 * 1024
+  return streamedMediaInlineLimit(type, size) || 64 * 1024
 }
 
 function empty() {

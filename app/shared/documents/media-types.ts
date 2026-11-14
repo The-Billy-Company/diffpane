@@ -24,9 +24,16 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
 }
 
 export const MAX_PIXEL_DIFF_IMAGE_BYTES = 4 * 1024 * 1024
+export const MAX_AUDIO_WAVEFORM_BYTES = 4 * 1024 * 1024
 
 export function isPixelDiffImage(type: string | null) {
   return type === 'image/png' || type === 'image/jpeg' || type === 'image/bmp' || type === 'image/x-icon'
+}
+
+export function streamedMediaInlineLimit(type: string | null, size: number) {
+  if (size <= MAX_PIXEL_DIFF_IMAGE_BYTES && isPixelDiffImage(type)) return MAX_PIXEL_DIFF_IMAGE_BYTES
+  if (size <= MAX_AUDIO_WAVEFORM_BYTES && type?.startsWith('audio/')) return MAX_AUDIO_WAVEFORM_BYTES
+  return 0
 }
 
 export function mediaType(filename: string) {

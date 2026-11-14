@@ -1,0 +1,33 @@
+.audio-preview {
+  --audio-ink: var(--accent);
+  display: grid;
+  gap: 12px;
+  width: min(90%, 600px);
+  margin: 48px auto;
+}
+.document-preview[data-compare='true'] .preview-pane[data-side='before'] .audio-preview {
+  --audio-ink: var(--removed);
+}
+.document-preview[data-compare='true'] .preview-pane[data-side='after'] .audio-preview {
+  --audio-ink: var(--added);
+}
+.audio-preview audio {
+  display: block;
+  width: 100%;
+}
+.audio-waveform {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--audio-ink);
+  background:
+    linear-gradient(var(--line), var(--line)) center / calc(100% - 24px) 1px no-repeat,
+    var(--surface-inset);
+}
+.audio-waveform > div::part(wrapper) {
+  cursor: ew-resize;
+}
+.audio-waveform > div::part(canvases) {
+  opacity: 0.48;
+}
