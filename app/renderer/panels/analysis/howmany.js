@@ -1,6 +1,7 @@
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { isArray, isDiagnostic, isRecord } from '../../editor/languages/language-protocol.js'
 import { afterPaint } from '../../shell/layout/after-paint.ts'
+import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createLanguageTreemap } from './language-treemap.ts'
@@ -146,6 +147,10 @@ export function createHowMany(monaco, api, navigator, statusbar) {
   document.body.append(dialog)
   const content = requireElement(dialog, '.howmany-report-content', HTMLDivElement)
   const reportState = requireElement(dialog, '.howmany-report-state', HTMLSpanElement)
+  const reportTitle = node('h3', '')
+  const sourceLineCount = createRollingNumber()
+  const sourceLineLabel = document.createTextNode('')
+  reportTitle.append(sourceLineCount, sourceLineLabel)
   /** @type {AnalysisState} */
   let state = { status: 'idle', report: null, message: '', updatedAt: null }
   /** @type {HowManyCard | null} */
@@ -189,8 +194,12 @@ export function createHowMany(monaco, api, navigator, statusbar) {
       return
     }
     const { ratios, complexity } = reportData
-    const overview = section(count(source.code_lines, 'source code line'))
+    const overview = node('section', 'howmany-section')
+    const sourceLines = source.code_lines
+    sourceLineLabel.textContent = ` source code line${sourceLines === 1 ? '' : 's'}`
+    reportTitle.setAttribute('aria-label', count(sourceLines, 'source code line'))
     overview.append(
+      reportTitle,
       node(
         'p',
         'howmany-muted',
@@ -207,6 +216,7 @@ export function createHowMany(monaco, api, navigator, statusbar) {
         ),
       )
     content.append(overview)
+    if (sourceLineCount.value !== sourceLines) sourceLineCount.update(sourceLines)
     const quality = isRecord(ratios) && isRecord(ratios.quality_metrics) ? ratios.quality_metrics : undefined
     const overall = quality?.overall_quality_score
     if (quality && typeof overall === 'number' && Number.isFinite(overall) && source.file_count > 0) {

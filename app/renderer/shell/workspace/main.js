@@ -58,6 +58,7 @@ import { createChangeReview } from '../../review/queue/change-review.js'
 import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
 import { projectIcon } from '../layout/icons.ts'
 import { createWorkspaceLayout } from '../layout/workspace-layout.ts'
+import { createRollingNumber } from '../number-flow/number-flow.ts'
 import { clearErrorNotice, guard, renderFailure, reportError, runTask, setErrorNoticeHost } from '../recovery/errors.ts'
 import { waitForWorkspaceOpeningPeeks } from '../recovery/workspace-opening.ts'
 import { requireElement } from './dom.js'
@@ -189,7 +190,7 @@ app.innerHTML = `
       <button type="button" id="ideas-toggle" class="titlebar-button" aria-controls="ideas-panel" aria-expanded="false" hidden>${icons.idea}<span>Ideas</span></button>
       <button type="button" id="content-search-toggle" class="titlebar-button" aria-label="Search in project" aria-haspopup="dialog" aria-controls="content-search" hidden>${icons.search}<span>Search</span></button>
       <button type="button" id="review-toggle" class="titlebar-button" aria-label="Review changes" aria-controls="change-review" aria-pressed="false" data-pending="false" hidden>${icons.review}<span>Changes</span></button>
-      <button type="button" id="review-notes-toggle" class="titlebar-button" aria-label="Review notes" aria-controls="review-notes-panel" aria-expanded="false" hidden>${icons.note}<span>Notes</span><span class="review-notes-count" aria-hidden="true" hidden></span></button>
+      <button type="button" id="review-notes-toggle" class="titlebar-button" aria-label="Review notes" aria-controls="review-notes-panel" aria-expanded="false" hidden>${icons.note}<span>Notes</span></button>
       <button type="button" id="claude-toggle" class="titlebar-button" aria-label="The Creature" aria-controls="claude-panel" aria-expanded="false" hidden>${creatureGlyph}<span>The Creature</span></button>
       <button type="button" id="terminal-toggle" class="titlebar-button" aria-label="Terminal" aria-controls="terminal-dock" aria-expanded="false" hidden>${icons.terminal}<span>Terminal</span></button>
       <button type="button" id="settings-toggle" class="titlebar-button" aria-label="Settings" aria-haspopup="dialog" aria-controls="app-settings" hidden>${icons.settings}</button>
@@ -851,6 +852,10 @@ const navigator = createNavigator(ui.navigator, api, openFile, {
     else if (!card) list.textContent = 'Open a file to see its outline'
   },
 })
+const reviewCount = createRollingNumber()
+reviewCount.className = 'titlebar-review-count'
+reviewCount.hidden = true
+ui.reviewToggle.append(reviewCount)
 const review = createChangeReview(ui.changeReview, {
   onOpen: file => openFile(file, { compare: true, comparison: reviewComparison }),
   onBack: toggleReview,
@@ -866,10 +871,15 @@ const review = createChangeReview(ui.changeReview, {
   },
   onProgress: ({ pending, total }) => {
     ui.reviewToggle.dataset.pending = String(pending > 0)
-    ui.reviewToggle.setAttribute(
-      'aria-description',
-      pending > 0 ? 'Unreviewed changes' : total > 0 ? 'All changes reviewed' : 'No changed files',
-    )
+    reviewCount.hidden = pending === 0
+    if (reviewCount.value !== pending) reviewCount.update(pending)
+    const description =
+      pending > 0
+        ? `${pending.toLocaleString()} unreviewed ${pending === 1 ? 'file' : 'files'}`
+        : total > 0
+          ? 'All changes reviewed'
+          : 'No changed files'
+    ui.reviewToggle.setAttribute('aria-description', description)
   },
 })
 const billyContext = api.billy && createBillyReviewContext(api.billy, openBillySource)

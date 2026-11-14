@@ -2,6 +2,7 @@
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { MAX_REVIEW_NOTE_LENGTH } from '../../../shared/review/review-notes.ts'
 import type { ReviewAnchor, ReviewNote, ReviewNoteChange } from '../../../shared/review/review-notes.ts'
+import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import './review-notes.css'
@@ -120,7 +121,10 @@ export function createReviewNotes(
   const action = (name: string) => requireElement(container, `[data-review-action="${name}"]`, HTMLButtonElement)
   const openFilter = requireElement(container, '[data-review-filter="open"]', HTMLButtonElement)
   const resolvedFilter = requireElement(container, '[data-review-filter="resolved"]', HTMLButtonElement)
-  const badge = toggle.querySelector<HTMLElement>('.review-notes-count')
+  const badge = createRollingNumber()
+  badge.className = 'review-notes-count'
+  badge.hidden = true
+  toggle.append(badge)
   const closeButton = action('close')
   const add = action('add')
   const copy = action('copy')
@@ -265,10 +269,8 @@ export function createReviewNotes(
     resolvedFilter.setAttribute('aria-pressed', String(resolved))
     requireElement(openFilter, 'span', HTMLSpanElement).textContent = openCount.toLocaleString()
     requireElement(resolvedFilter, 'span', HTMLSpanElement).textContent = resolvedCount.toLocaleString()
-    if (badge) {
-      badge.hidden = !openCount
-      badge.textContent = openCount.toLocaleString()
-    }
+    badge.hidden = openCount === 0
+    if (badge.value !== openCount) badge.update(openCount)
     toggle.setAttribute('aria-description', `${openCount} open ${openCount === 1 ? 'note' : 'notes'}`)
     copy.disabled = !loaded || !openCount || copying || Boolean(pending)
     add.disabled = Boolean(pending)
@@ -595,6 +597,7 @@ export function createReviewNotes(
     dispose: () => {
       setContext(false)
       unsubscribe()
+      badge.remove()
       toggle.removeEventListener('click', togglePanel)
       window.removeEventListener('focus', refreshOnFocus)
     },

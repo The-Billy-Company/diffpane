@@ -179,6 +179,16 @@ button svg,
 #review-toggle[data-pending='true'][aria-pressed='false']:hover {
   background: var(--selection);
 }
+.titlebar-review-count {
+  min-inline-size: 16px;
+  padding-inline: 4px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--weight-semibold);
+  text-align: center;
+}
 #review-toggle:not([data-pending='true']) .review-pending-mark,
 #review-toggle[data-pending='true'] .review-idle-mark {
   display: none;

@@ -272,6 +272,9 @@
   font-weight: var(--weight-medium);
   color: var(--text);
 }
+.howmany-section h3 number-flow {
+  font-variant-numeric: tabular-nums;
+}
 .howmany-section .howmany-row {
   font-size: var(--text-label);
   padding: 5px 0;

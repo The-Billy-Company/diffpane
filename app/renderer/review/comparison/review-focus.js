@@ -1,4 +1,5 @@
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
+import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createReviewChangeMap } from './review-change-map.ts'
@@ -6,6 +7,8 @@ import { createReviewChangeMap } from './review-change-map.ts'
 import './review-focus.css'
 
 /** @typedef {'focus' | 'full'} ReviewScope */
+
+const positionFormat = new Intl.NumberFormat(undefined, { numberingSystem: 'latn' })
 
 /** @param {'up' | 'down'} direction */
 function chevron(direction) {
@@ -48,6 +51,9 @@ export function createReviewFocus({ onScope }) {
     </button>`
 
   const position = requireElement(bar, '.review-hunk-position', HTMLSpanElement)
+  const positionNumber = createRollingNumber()
+  const positionEnd = document.createTextNode('')
+  position.append(positionNumber, positionEnd)
   const announcement = requireElement(bar, '.review-hunk-announcement', HTMLSpanElement)
   const previous = requireElement(bar, '.review-hunk-prev', HTMLButtonElement)
   const next = requireElement(bar, '.review-hunk-next', HTMLButtonElement)
@@ -80,12 +86,20 @@ export function createReviewFocus({ onScope }) {
   /** @type {number | null} */
   let frame = null
 
-  function paint(message = '') {
-    const current = (index + 1).toLocaleString()
-    const total = hunks.length.toLocaleString()
-    const label = message || `${current}/${total}`
-    const spoken = message || `Change ${current} of ${total}`
-    if (position.textContent !== label) position.textContent = label
+  /** @param {{ message?: string, direction?: -1 | 0 | 1 }} [options] */
+  function paint({ message = '', direction = 0 } = {}) {
+    const current = index + 1
+    const total = positionFormat.format(hunks.length)
+    const tail = message || `/${total}`
+    const spoken = message || `Change ${positionFormat.format(current)} of ${total}`
+    positionNumber.hidden = Boolean(message)
+    if (positionEnd.data !== tail) positionEnd.data = tail
+    if (message) positionNumber.animated = false
+    else if (positionNumber.value !== current) {
+      positionNumber.animated = direction !== 0
+      positionNumber.trend = direction
+      positionNumber.update(current)
+    }
     if (announcement.textContent !== spoken) announcement.textContent = spoken
     previous.hidden = next.hidden = hunks.length === 0
     replayButton.hidden = !hunks[index] || Boolean(message)
@@ -133,7 +147,7 @@ export function createReviewFocus({ onScope }) {
     const changes = editor?.getLineChanges()
     if (!model || !changes) {
       changeMap.update([], null)
-      paint('Finding changes…')
+      paint({ message: 'Finding changes…' })
       return
     }
     const anchor = hunks[index]?.modifiedStartLineNumber
@@ -151,7 +165,7 @@ export function createReviewFocus({ onScope }) {
     setCollapsed(scope === 'focus' && hunks.length > 0)
     changeMap.update(hunks, model)
     if (hunks.length) paint()
-    else paint('No text changes')
+    else paint({ message: 'No text changes' })
     if (hunks.length && revealOnFirstDiff) {
       revealOnFirstDiff = false
       reveal()
@@ -161,14 +175,14 @@ export function createReviewFocus({ onScope }) {
   /** @param {-1 | 1} direction */
   function step(direction) {
     if (hunks.length < 2) return
-    jump((index + direction + hunks.length) % hunks.length)
+    jump((index + direction + hunks.length) % hunks.length, direction)
   }
 
-  /** @param {number} target */
-  function jump(target) {
+  /** @param {number} target @param {-1 | 0 | 1} direction */
+  function jump(target, direction = 0) {
     if (!hunks[target]) return
     index = target
-    paint()
+    paint({ direction })
     reveal()
   }
 
@@ -239,6 +253,7 @@ export function createReviewFocus({ onScope }) {
     collapsed = false
     revealOnFirstDiff = false
     bar.hidden = true
+    positionNumber.animated = false
     replayButton.hidden = true
     scopeControl.hidden = true
     changeMap.update([], null)

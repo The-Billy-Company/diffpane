@@ -1,6 +1,7 @@
 // MONOLITHIC: Queue order, focus, baseline selection and reviewed revisions update together. Extract the review model once keyboard selection and checkpoint replacement have independent coverage.
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { projectIcon } from '../../shell/layout/icons.ts'
+import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 
@@ -108,7 +109,8 @@ export function createChangeReview(
     </div>
     <div class="change-review-lane" hidden></div>
     <div class="change-review-progress" hidden>
-      <span class="change-review-count" role="status"></span>
+      <span class="change-review-count" aria-hidden="true"><span></span></span>
+      <span class="change-review-progress-announcement" role="status"></span>
       <progress aria-label="Review progress" max="1" value="0"></progress>
       <div class="change-review-progress-strip" aria-hidden="true"></div>
     </div>
@@ -161,8 +163,12 @@ export function createChangeReview(
   const capturedTime = requireElement(container, 'time', HTMLTimeElement)
   const checkpointError = requireElement(container, '.change-review-checkpoint-error', HTMLParagraphElement)
   const count = requireElement(container, '.change-review-count', HTMLSpanElement)
+  const countTotal = requireElement(count, 'span', HTMLSpanElement)
+  const reviewedCount = createRollingNumber()
+  count.prepend(reviewedCount)
   const progress = requireElement(container, 'progress', HTMLProgressElement)
   const progressGroup = requireElement(container, '.change-review-progress', HTMLDivElement)
+  const progressAnnouncement = requireElement(progressGroup, '.change-review-progress-announcement', HTMLSpanElement)
   const progressStrip = requireElement(progressGroup, '.change-review-progress-strip', HTMLDivElement)
   const filterGroup = requireElement(container, '.change-review-filters', HTMLDivElement)
   const filters = [...container.querySelectorAll('button')].filter(button => button.dataset.filter)
@@ -479,7 +485,7 @@ export function createChangeReview(
     }
   }
 
-  function updateProgress() {
+  function updateProgress(animate = true) {
     let total = 0
     let done = 0
     const visible = !container.hidden
@@ -490,8 +496,12 @@ export function createChangeReview(
       if (reviewed.has(file.path)) done++
       if (visible) progressPaths.push(file.path)
     }
-    const summary = `${done.toLocaleString()} of ${total.toLocaleString()} reviewed`
-    if (count.textContent !== summary) count.textContent = summary
+    const suffix = ` of ${total.toLocaleString()} reviewed`
+    if (countTotal.textContent !== suffix) countTotal.textContent = suffix
+    reviewedCount.animated = animate && visible && !progressGroup.hidden && total > 0
+    if (reviewedCount.value !== done) reviewedCount.update(done)
+    const summary = `${done.toLocaleString()}${suffix}`
+    if (progressAnnouncement.textContent !== summary) progressAnnouncement.textContent = summary
     progress.max = total || 1
     progress.value = done
     progress.setAttribute('aria-valuetext', summary)
@@ -527,12 +537,12 @@ export function createChangeReview(
     emptyAction.textContent = action ?? ''
   }
 
-  function project({ resetScroll = false } = {}) {
+  function project({ resetScroll = false, animateProgress = true } = {}) {
     const anchor = entries[Math.floor(list.scrollTop / ROW_HEIGHT)]?.path
     const offset = list.scrollTop % ROW_HEIGHT
     entries = []
     entryIndex = new Map()
-    const scoped = updateProgress()
+    const scoped = updateProgress(animateProgress)
     for (const file of changes.values()) {
       if (!includeFile(file) || reviewed.has(file.path) !== (filter === 'reviewed')) continue
       entryIndex.set(file.path, entries.length)
@@ -705,7 +715,7 @@ export function createChangeReview(
   return {
     laneHost,
     refreshScope() {
-      if (!container.hidden) project({ resetScroll: true })
+      if (!container.hidden) project({ resetScroll: true, animateProgress: false })
     },
     /** @param {ReviewBaseline} mode @param {ReviewCheckpoint | null} [nextCheckpoint] */
     setBaseline(mode, nextCheckpoint) {
@@ -734,7 +744,7 @@ export function createChangeReview(
         if (changes.get(path)?.reviewVersion !== version) reviewed.delete(path)
       }
       if (!container.hidden) {
-        project({ resetScroll: resetScrollOnUpdate })
+        project({ resetScroll: resetScrollOnUpdate, animateProgress: !resetScrollOnUpdate })
         resetScrollOnUpdate = false
       } else updateProgress()
     },
@@ -759,11 +769,12 @@ export function createChangeReview(
       if (visible === !container.hidden) return
       container.hidden = !visible
       if (visible) {
-        project({ resetScroll: resetScrollOnUpdate })
+        project({ resetScroll: resetScrollOnUpdate, animateProgress: false })
         resetScrollOnUpdate = false
         revealActive()
         renderRows()
       } else {
+        reviewedCount.animated = false
         if (frame !== null) cancelAnimationFrame(frame)
         frame = null
         progressPaths.length = 0

@@ -162,7 +162,8 @@
   color: var(--accent);
 }
 
-.change-review-progress progress {
+.change-review-progress progress,
+.change-review-progress-announcement {
   position: absolute;
   width: 1px;
   height: 1px;
