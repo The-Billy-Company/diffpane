@@ -900,6 +900,10 @@ export function createAssistant(
       render()
     },
     refreshContext: render,
+    openEditor: () => {
+      mode = 'edit'
+      togglePanel(true)
+    },
     toggle: togglePanel,
     dispose() {
       listeners.abort()

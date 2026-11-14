@@ -4,6 +4,8 @@ import { pathToFileURL } from 'node:url'
 import { app, dialog, net, session, WebContentsView } from 'electron'
 import type { BrowserWindow, IpcMainEvent, IpcMainInvokeEvent } from 'electron'
 import { colorHex } from '../../../shared/appearance/palette.ts'
+import type { ShortcutBinding } from '../../../shared/preferences/shortcuts.ts'
+import { defaultBinding } from '../../../shared/preferences/shortcuts.ts'
 import type { TerminalStartResult } from '../../../shared/terminal/protocol.ts'
 import { TerminalProcess, validTerminalSize } from './pty.ts'
 
@@ -78,6 +80,7 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
   let draining: Promise<void> | undefined
   let layout: { height: number; bottom: number } | undefined
   let theme: 'dark' | 'light' = 'dark'
+  let newLineShortcut = defaultBinding('terminalNewLine', process.platform === 'darwin')
 
   const canShow = () => eligible() && !window.isDestroyed()
   const active = (current: Surface) =>
@@ -194,7 +197,7 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
             current.view.webContents.send('terminal-exit', code, reason)
         },
       })
-      return { ok: true }
+      return { ok: true, isPowerShell: current.process.isPowerShell }
     } catch {
       return denied(
         'Could not start the local shell. Check that your shell and the Diffpane installation are available.',
@@ -274,6 +277,7 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
       if (surface !== current) return false
       current.loaded = true
       contents.send('terminal-theme', theme)
+      contents.send('terminal-new-line-shortcut', newLineShortcut)
       syncLayout()
       return current.shown
     } catch {
@@ -286,6 +290,11 @@ export function createTerminalDock({ window, eligible, workspace, onVisibility }
   window.on('resize', syncLayout)
   window.on('focus', syncLayout)
   return {
+    setNewLineShortcut(binding: ShortcutBinding) {
+      if (newLineShortcut === binding) return
+      newLineShortcut = binding
+      if (surface?.loaded) surface.view.webContents.send('terminal-new-line-shortcut', binding)
+    },
     toggle() {
       if (!canShow()) return false
       if (!surface) return open()

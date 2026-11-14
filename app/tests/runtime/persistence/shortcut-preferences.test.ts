@@ -66,3 +66,17 @@ test('legacy shortcuts migrate once and reset bindings remain reset on reopen', 
   assert.deepEqual(await shortcuts.reset('openFile'), { newWindow: 'Primary+Alt+T' })
   assert.deepEqual(await open().get(), { newWindow: 'Primary+Alt+T' })
 })
+
+test('window chords and terminal bindings persist with scope-aware validation', async t => {
+  const { open } = await fixture(t)
+  const shortcuts = open()
+  await shortcuts.set('closeAllEditors', 'meta+k shift+w')
+  await shortcuts.set('terminalNewLine', 'shift+space')
+  await assert.rejects(shortcuts.set('openFolder', 'Primary+Y F3'), /supported key combination/)
+  await assert.rejects(shortcuts.set('renameExplorerItem', 'Primary+Y F3'), /supported key combination/)
+  await assert.rejects(shortcuts.set('reviewChanges', 'Primary+K'), /already used by Close/)
+  assert.deepEqual(await open().get(), {
+    closeAllEditors: 'Primary+K Shift+W',
+    terminalNewLine: 'Shift+Space',
+  })
+})

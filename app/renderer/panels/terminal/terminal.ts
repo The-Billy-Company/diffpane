@@ -4,6 +4,7 @@ import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
 import type { ColorScheme } from '../../../shared/appearance/palette.ts'
 import { colorHex } from '../../../shared/appearance/palette.ts'
+import { ariaBinding, bindingFromEvent, defaultBinding } from '../../../shared/preferences/shortcuts.ts'
 import type { TerminalBridge } from '../../../shared/terminal/protocol.ts'
 import {
   terminalMaximumColumns,
@@ -70,6 +71,8 @@ function mount(bridge: TerminalBridge) {
   let resizeFrame: number | undefined
   let pendingPaste = ''
   let sendingPaste = false
+  let supportsNewLine = false
+  let newLineShortcut = defaultBinding('terminalNewLine', bridge.isMac)
   let compositionInput = false
   let compositionTimer: number | undefined
   let view = createTerminal()
@@ -79,6 +82,11 @@ function mount(bridge: TerminalBridge) {
     startButton.disabled = active || transitioning || pendingWrites > 0
     stopButton.hidden = !active
     stopButton.disabled = transitioning
+    const focusShortcut = 'Shift+F6'
+    view.terminal.textarea?.setAttribute(
+      'aria-keyshortcuts',
+      supportsNewLine ? `${focusShortcut} ${ariaBinding(newLineShortcut, bridge.isMac)}` : focusShortcut,
+    )
   }
 
   function applyTheme(nextTheme: ColorScheme) {
@@ -136,9 +144,19 @@ function mount(bridge: TerminalBridge) {
         else startButton.focus()
         return false
       }
+      if (
+        event.type === 'keydown' &&
+        active &&
+        !transitioning &&
+        supportsNewLine &&
+        bindingFromEvent(event, bridge.isMac, true) === newLineShortcut
+      ) {
+        event.preventDefault()
+        if (!event.repeat) terminal.input('\x1b\n')
+        return false
+      }
       return true
     })
-    if (terminal.textarea) terminal.textarea.setAttribute('aria-keyshortcuts', 'Shift+F6')
     return { terminal, fit }
   }
 
@@ -184,6 +202,7 @@ function mount(bridge: TerminalBridge) {
       if (receivedExit) return
       if (result.ok) {
         active = true
+        supportsNewLine = !result.isPowerShell
         view.terminal.options.disableStdin = false
         setStatus('Shell running')
         view.terminal.focus()
@@ -205,6 +224,7 @@ function mount(bridge: TerminalBridge) {
       document.hasFocus() &&
       (focused === stopButton || focused === view.terminal.textarea || pasteDialog.contains(focused))
     active = false
+    supportsNewLine = false
     closePasteDialog()
     view.terminal.options.disableStdin = true
     setStatus(message)
@@ -244,6 +264,10 @@ function mount(bridge: TerminalBridge) {
   bridge.onTheme?.(theme => {
     explicitTheme = true
     applyTheme(theme)
+  })
+  bridge.onNewLineShortcut(binding => {
+    newLineShortcut = binding
+    syncControls()
   })
   bridge.onData((data, bytes) => {
     document.body.classList.add('terminal-has-output')

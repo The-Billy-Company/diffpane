@@ -127,6 +127,7 @@ export function createWorkspaceLayout(workspace: HTMLElement, preferences: UiPre
   let deferredLayout = false
   let ideasNotebook = false
   let ideasDocked = false
+  let zenMode = false
   let layout: Layout
   let drag: {
     key: Dimension
@@ -329,9 +330,9 @@ export function createWorkspaceLayout(workspace: HTMLElement, preferences: UiPre
       workspace.clientWidth,
       workspace.clientHeight,
       {
-        ideas: ideasNotebook ? ideasDocked : Boolean(panes.ideas && !panes.ideas.hidden),
-        files: Boolean(panes.files && !panes.files.hidden),
-        right: Boolean(rightPanel()),
+        ideas: !zenMode && (ideasNotebook ? ideasDocked : Boolean(panes.ideas && !panes.ideas.hidden)),
+        files: !zenMode && Boolean(panes.files && !panes.files.hidden),
+        right: !zenMode && Boolean(rightPanel()),
       },
       preferred,
       order,
@@ -619,6 +620,11 @@ export function createWorkspaceLayout(workspace: HTMLElement, preferences: UiPre
   }
 
   return {
+    setZenMode(active: boolean) {
+      zenMode = active
+      workspace.toggleAttribute('data-zen-mode', active)
+      refresh()
+    },
     setIdeasNotebook(notebook: boolean, docked: boolean) {
       ideasNotebook = notebook
       ideasDocked = docked

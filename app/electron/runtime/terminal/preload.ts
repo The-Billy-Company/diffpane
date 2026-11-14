@@ -3,10 +3,12 @@ import type { IpcRendererEvent } from 'electron'
 import type { TerminalBridge, TerminalStartResult } from '../../../shared/terminal/protocol.ts'
 
 const bridge: TerminalBridge = {
+  isMac: process.platform === 'darwin',
   async start(cols, rows) {
     const value: unknown = await ipcRenderer.invoke('terminal-start', cols, rows)
     if (typeof value === 'object' && value !== null && 'ok' in value) {
-      if (value.ok === true) return { ok: true }
+      if (value.ok === true && 'isPowerShell' in value && typeof value.isPowerShell === 'boolean')
+        return { ok: true, isPowerShell: value.isPowerShell }
       if (value.ok === false && 'message' in value && typeof value.message === 'string')
         return { ok: false, message: value.message }
     }
@@ -41,6 +43,13 @@ const bridge: TerminalBridge = {
     }
     ipcRenderer.on('terminal-theme', receive)
     return () => ipcRenderer.removeListener('terminal-theme', receive)
+  },
+  onNewLineShortcut(listener) {
+    const receive = (_event: IpcRendererEvent, binding: unknown) => {
+      if (typeof binding === 'string') listener(binding)
+    }
+    ipcRenderer.on('terminal-new-line-shortcut', receive)
+    return () => ipcRenderer.removeListener('terminal-new-line-shortcut', receive)
   },
 }
 contextBridge.exposeInMainWorld('diffpaneTerminal', bridge)

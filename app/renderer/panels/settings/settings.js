@@ -7,6 +7,7 @@ import {
   effectiveBinding,
   electronAccelerator,
   isShortcutAction,
+  shortcutAllowsChord,
   shortcutConflict,
   shortcuts,
 } from '../../../shared/preferences/shortcuts.ts'
@@ -117,6 +118,7 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
         </div>
         <footer class="settings-footer">
           <p id="settings-status" class="settings-status" role="status" aria-atomic="true"></p>
+          <button type="button" class="settings-button settings-chord" hidden>Two-step shortcut</button>
           <button type="button" class="settings-button settings-cancel" hidden>Cancel</button>
           <button type="button" class="settings-button settings-reset-all">Reset all</button>
         </footer>
@@ -130,6 +132,7 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
   const list = requireElement(dialog, '.settings-list', HTMLDivElement)
   const status = requireElement(dialog, '.settings-status', HTMLParagraphElement)
   const closeButton = requireElement(dialog, '.settings-close', HTMLButtonElement)
+  const chordButton = requireElement(dialog, '.settings-chord', HTMLButtonElement)
   const cancelButton = requireElement(dialog, '.settings-cancel', HTMLButtonElement)
   const resetAllButton = requireElement(dialog, '.settings-reset-all', HTMLButtonElement)
   /** @type {Map<string, HTMLTableSectionElement>} */
@@ -138,6 +141,9 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
   const rows = new Map()
   /** @type {ShortcutAction | null} */
   let recording = null
+  let recordingChord = false
+  /** @type {ShortcutBinding | null} */
+  let firstStroke = null
   let pending = false
   let captureReady = false
   /** @type {Promise<unknown>} */
@@ -163,15 +169,18 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
     if (cell.dataset.binding === binding) return
     cell.dataset.binding = binding
     const keys = node('span', 'settings-keys')
-    const labels = bindingKeys(binding, isMac)
-    const spoken = keyNamesFor(binding)
     keys.setAttribute('aria-hidden', 'true')
-    for (const [index, label] of labels.entries()) {
-      const key = node('kbd', '', label)
-      key.title = spoken[index] ?? label
-      keys.append(key)
-    }
-    cell.replaceChildren(keys, node('span', 'settings-visually-hidden', spoken.join(' plus ')))
+    const spoken = binding.split(' ').map((stroke, index) => {
+      if (index) keys.append(node('span', '', 'then'))
+      const names = keyNamesFor(stroke)
+      for (const [keyIndex, label] of bindingKeys(stroke, isMac).entries()) {
+        const key = node('kbd', '', label)
+        key.title = names[keyIndex] ?? label
+        keys.append(key)
+      }
+      return names.join(' plus ')
+    })
+    cell.replaceChildren(keys, node('span', 'settings-visually-hidden', spoken.join(', then ')))
   }
 
   /** @param {{ action?: ShortcutAction, label: string, group: string, binding: ShortcutBinding }} definition */
@@ -240,6 +249,8 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
       if (!customized && document.activeElement === row.reset) row.change.focus()
       row.reset.hidden = !customized
     }
+    chordButton.hidden = !recording || !shortcutAllowsChord(recording) || recordingChord
+    chordButton.setAttribute('aria-disabled', String(pending))
     cancelButton.hidden = !recording
     cancelButton.setAttribute('aria-disabled', String(pending))
     resetAllButton.setAttribute('aria-disabled', String(pending || !modified))
@@ -263,6 +274,8 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
       return
     }
     recording = action
+    recordingChord = false
+    firstStroke = null
     row.change.focus()
     showStatus(`Press a new shortcut for ${shortcuts[action].label}. Esc cancels.`)
     refresh()
@@ -272,6 +285,8 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
     if (!recording) return
     if (restoreFocus) rows.get(recording)?.change.focus()
     recording = null
+    recordingChord = false
+    firstStroke = null
     refresh()
   }
 
@@ -378,6 +393,14 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
       const page = button.dataset.page
       if (page === 'appearance' || page === 'shortcuts') showPage(page)
     })
+  chordButton.addEventListener('click', () => {
+    if (!recording || pending || !shortcutAllowsChord(recording)) return
+    recordingChord = true
+    firstStroke = null
+    rows.get(recording)?.change.focus()
+    showStatus(`Press the first key combination for ${shortcuts[recording].label}. Esc cancels.`)
+    refresh()
+  })
   cancelButton.addEventListener('click', cancelRecording)
   resetAllButton.addEventListener('click', () => {
     if (resetAllButton.getAttribute('aria-disabled') === 'false')
@@ -389,15 +412,28 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
     else close()
   })
   dialog.addEventListener('focusin', event => {
-    if (recording && event.target !== rows.get(recording)?.change && event.target !== cancelButton) {
+    if (
+      recording &&
+      event.target !== rows.get(recording)?.change &&
+      event.target !== chordButton &&
+      event.target !== cancelButton
+    ) {
       stopRecording()
       showStatus()
     }
   })
   dialog.addEventListener('keydown', event => {
     if (!recording || event.target !== rows.get(recording)?.change || event.isComposing) return
+    const action = recording
     const modified = event.metaKey || event.ctrlKey || event.altKey
-    if (!modified && event.key === 'Tab') return
+    if (!modified && event.key === 'Tab' && firstStroke === null) {
+      if (!event.shiftKey) {
+        event.preventDefault()
+        if (chordButton.hidden) cancelButton.focus()
+        else chordButton.focus()
+      }
+      return
+    }
     event.preventDefault()
     event.stopPropagation()
     if (!modified && !event.shiftKey && event.key === 'Escape') {
@@ -405,19 +441,29 @@ export function createSettings({ appearance, platform, getBindings, setBinding, 
       return
     }
     if (pending || event.repeat || ['Meta', 'Control', 'Alt', 'AltGraph', 'Shift'].includes(event.key)) return
-    const binding = bindingFromEvent(event, isMac)
-    if (!binding) {
+    const stroke = bindingFromEvent(event, isMac, firstStroke !== null || shortcuts[action].scope === 'terminal')
+    if (!stroke) {
       showStatus('Use Command, Control, or Alt with a key, or press a function key.', 'error')
       return
     }
-    const action = recording
+    if (recordingChord && firstStroke === null) {
+      firstStroke = stroke
+      showStatus(`Press the second key combination after ${keyNamesFor(stroke).join(' + ')}. Esc cancels.`)
+      return
+    }
+    const binding = firstStroke ? `${firstStroke} ${stroke}` : stroke
+    firstStroke = null
     if (shortcuts[action].scope === 'native' && !electronAccelerator(binding, isMac)) {
       showStatus('Choose a different key combination for this menu command.', 'error')
       return
     }
     const conflict = shortcutConflict(action, binding, getBindings(), platform)
     if (conflict) {
-      showStatus(`${keyNamesFor(binding).join(' + ')} is already used by ${conflict}.`, 'error')
+      const label = binding
+        .split(' ')
+        .map(step => keyNamesFor(step).join(' + '))
+        .join(' then ')
+      showStatus(`${label} conflicts with ${conflict}.`, 'error')
       return
     }
     runTask('Save shortcut', () =>

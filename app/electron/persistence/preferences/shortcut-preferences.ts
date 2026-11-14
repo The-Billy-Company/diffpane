@@ -4,6 +4,7 @@ import {
   electronAccelerator,
   isShortcutAction,
   normalizeBinding,
+  shortcutAllowsChord,
   shortcutConflict,
   shortcuts,
 } from '../../../shared/preferences/shortcuts.ts'
@@ -33,7 +34,7 @@ export class ShortcutPreferences {
     if (!isShortcutAction(action)) throw new Error('Unknown shortcut.')
     const binding = this.validateBinding(action, input)
     if (!binding) throw new Error('Choose a supported key combination.')
-    if (binding === defaultBinding(action)) return this.reset(action)
+    if (binding === defaultBinding(action, this.platform === 'darwin')) return this.reset(action)
     return this.change(records => {
       this.checkConflict(action, binding, records)
       records.put(COLLECTION, '', action, binding)
@@ -46,7 +47,7 @@ export class ShortcutPreferences {
       if (action === undefined) {
         for (const key of Object.keys(shortcuts)) records.delete(COLLECTION, '', key)
       } else {
-        this.checkConflict(action, defaultBinding(action), records)
+        this.checkConflict(action, defaultBinding(action, this.platform === 'darwin'), records)
         records.delete(COLLECTION, '', action)
       }
     })
@@ -54,7 +55,8 @@ export class ShortcutPreferences {
 
   private validateBinding(action: ShortcutAction, value: unknown) {
     const isMac = this.platform === 'darwin'
-    const binding = normalizeBinding(value, isMac)
+    const binding = normalizeBinding(value, isMac, shortcuts[action].scope === 'terminal')
+    if (binding?.includes(' ') && !shortcutAllowsChord(action)) return null
     if (!binding || (shortcuts[action].scope === 'native' && !electronAccelerator(binding, isMac))) return null
     return binding
   }
@@ -66,11 +68,12 @@ export class ShortcutPreferences {
 
   private read(records: StateRecords): ShortcutOverrides {
     const overrides: ShortcutOverrides = {}
+    const isMac = this.platform === 'darwin'
     for (const action of Object.keys(shortcuts).toSorted()) {
       if (!isShortcutAction(action)) continue
       const value = records.get(COLLECTION, '', action)
       const binding = this.validateBinding(action, value)
-      if (binding && binding !== defaultBinding(action)) overrides[action] = binding
+      if (binding && binding !== defaultBinding(action, isMac)) overrides[action] = binding
     }
     // A saved binding can conflict with a default introduced by a newer release.
     for (;;) {
@@ -104,7 +107,8 @@ export class ShortcutPreferences {
           for (const { action, binding: value } of legacy.prepare('SELECT action, binding FROM shortcuts').iterate()) {
             if (!isShortcutAction(action)) continue
             const binding = this.validateBinding(action, value)
-            if (binding && binding !== defaultBinding(action)) records.put(COLLECTION, '', action, binding)
+            if (binding && binding !== defaultBinding(action, this.platform === 'darwin'))
+              records.put(COLLECTION, '', action, binding)
           }
         },
         { sqlite: true },

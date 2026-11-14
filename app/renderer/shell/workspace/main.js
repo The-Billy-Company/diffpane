@@ -11,12 +11,13 @@ import { colorHex } from '../../../shared/appearance/palette.ts'
 import { mediaType } from '../../../shared/documents/media-types.ts'
 import {
   ariaBinding,
-  bindingFromEvent,
-  bindingKeys,
+  bindingLabel,
+  createShortcutSequence,
   defaultBinding,
   effectiveBinding,
   isShortcutAction,
   matchesBinding,
+  shortcutChordBindings,
 } from '../../../shared/preferences/shortcuts.ts'
 import { appError, attempt, attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import './style.css'
@@ -52,6 +53,7 @@ import { createWorkspaceLayout } from '../layout/workspace-layout.ts'
 import { clearErrorNotice, guard, renderFailure, reportError, runTask, setErrorNoticeHost } from '../recovery/errors.ts'
 import { waitForWorkspaceOpeningPeeks } from '../recovery/workspace-opening.ts'
 import { requireElement } from './dom.js'
+import { FileHistory } from './file-history.ts'
 import { getWorkspacePreferences } from './preferences.ts'
 
 /** @import { WorkspaceComparison, WorkspaceDocument, WorkspaceFile, WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
@@ -69,7 +71,7 @@ import { getWorkspacePreferences } from './preferences.ts'
 /** @typedef {'head' | 'working'} EditorSide */
 /** @typedef {WorkspaceFile & {anchor?: string}} OpenFile */
 /** @typedef {Omit<ReviewAnchor, 'side' | 'truncated'> & {side?: EditorSide, truncated?: boolean, direct?: boolean}} FileAnchor */
-/** @typedef {{compare?: boolean, comparison?: WorkspaceComparison, review?: boolean, source?: boolean, match?: ContentMatch | null, anchor?: FileAnchor | null, ideaLink?: boolean}} OpenOptions */
+/** @typedef {{compare?: boolean, comparison?: WorkspaceComparison, review?: boolean, source?: boolean, match?: ContentMatch | null, anchor?: FileAnchor | null, ideaLink?: boolean, historyIndex?: number, focusEditor?: boolean}} OpenOptions */
 /**
  * @typedef {object} Card
  * @property {OpenFile} file
@@ -117,6 +119,7 @@ import { getWorkspacePreferences } from './preferences.ts'
  * @property {boolean} [markdownSource]
  * @property {boolean} [applyingDocument]
  * @property {boolean} [restoreErrorFocus]
+ * @property {boolean} [focusOnLoad]
  * @property {HTMLElement | null} [errorBoundary]
  * @property {AbortController} [documentWork]
  * @property {number} [changedFunctions]
@@ -244,6 +247,7 @@ app.innerHTML = `
 
 const ui = {
   workspace: requireElement(app, '#workspace', HTMLElement),
+  workbench: requireElement(app, '.workbench', HTMLElement),
   ideasPanel: requireElement(app, '#ideas-panel', HTMLElement),
   ideasToggle: requireElement(app, '#ideas-toggle', HTMLButtonElement),
   sidebar: requireElement(app, '#sidebar', HTMLElement),
@@ -318,6 +322,7 @@ let reviewScope = 'focus'
 let reviewComparison = 'head'
 /** @type {Map<string, ViewState>} */
 const savedViews = new Map()
+const fileHistory = new FileHistory()
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 const minimumOpeningMs = 3300
 let initialInventoryReady = false
@@ -334,6 +339,7 @@ let applyingAssistantEdit = null
 /** @type {'closed' | 'dock' | 'notebook'} */
 let ideaMode = 'closed'
 let ideaDocked = false
+let zenMode = false
 /** @type {HTMLElement | null} */
 let focusBeforeIdeas = null
 
@@ -343,14 +349,21 @@ function syncTerminalLayout() {
   if (!api.terminal || ui.terminalDock.hidden) return
   const bounds = ui.terminalDock.getBoundingClientRect()
   api.terminal.layout(
-    document.querySelector('dialog[open]') ? 0 : bounds.height,
+    zenMode || document.querySelector('dialog[open]') ? 0 : bounds.height,
     window.innerHeight - bounds.bottom,
     activeScheme,
   )
 }
 const terminalBounds = new ResizeObserver(syncTerminalLayout)
-const terminalDialogs = new MutationObserver(records => {
-  if (records.some(record => record.target instanceof HTMLDialogElement)) syncTerminalLayout()
+let modalOpen = false
+const workspaceDialogs = new MutationObserver(records => {
+  if (!records.some(record => record.target instanceof HTMLDialogElement)) return
+  syncTerminalLayout()
+  const active = Boolean(document.querySelector('dialog[open]'))
+  if (active === modalOpen) return
+  modalOpen = active
+  shortcutSequence.reset()
+  shortcutApi?.setModal?.(active)
 })
 const unsubscribeTerminal = api.terminal?.onVisibility(visible => {
   ui.terminalDock.hidden = !visible
@@ -358,7 +371,7 @@ const unsubscribeTerminal = api.terminal?.onVisibility(visible => {
   if (visible) syncTerminalLayout()
 })
 terminalBounds.observe(ui.terminalDock)
-terminalDialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
+workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
 ui.terminalToggle.addEventListener('click', event => {
   if (event.isTrusted && !closingRequested) runTask('Toggle terminal', async () => void (await api.terminal?.toggle()))
 })
@@ -407,7 +420,7 @@ function shortcutBinding(action) {
 
 /** @param {ShortcutAction} action */
 function shortcutLabel(action) {
-  return bindingKeys(shortcutBinding(action), isMac).join(isMac ? '' : '+')
+  return bindingLabel(shortcutBinding(action), isMac)
 }
 
 /** @param {KeyboardEvent} event @param {ShortcutAction} action */
@@ -419,6 +432,7 @@ const assistant =
   api?.claude &&
   createAssistant(ui.claudePanel, ui.claudeToggle, api, {
     onOpen: () => {
+      exitZenMode()
       returnFromIdeas({ dock: true })
       reviewNotes?.close()
     },
@@ -701,7 +715,10 @@ function applyEditorReadOnly(card) {
 
 function closeCurrentFile() {
   navigationVersion++
-  for (const card of cards.values()) deactivate(card)
+  for (const card of cards.values()) {
+    deactivate(card)
+    rememberView(card.file.path, card.viewState)
+  }
   cards.clear()
   openedFile = null
   assistant?.refreshContext()
@@ -713,6 +730,17 @@ function closeCurrentFile() {
   setSaveLabel('Autosave on')
   const outline = ui.navigator.querySelector('.navigator-outline .symbol-list')
   if (outline) outline.textContent = 'Open a file to see its outline'
+}
+
+async function closeEditors(focusCode = false) {
+  const version = ++navigationVersion
+  const card = openedFile ? cards.get(openedFile.path) : undefined
+  await card?.autosave?.flush()
+  if (version !== navigationVersion || closed || closingRequested) return
+  fileHistory.closeOthers()
+  if (focusCode) returnFromIdeas()
+  if (focusCode || card?.element.contains(document.activeElement)) ui.workbench.focus({ preventScroll: true })
+  closeCurrentFile()
 }
 
 /** @param {'rename' | 'trash'} action @param {string} pathname @param {string} [name] */
@@ -733,6 +761,7 @@ async function mutateFile(action, pathname, name) {
     } else await api.fileAction(action, pathname)
     if (closed) return
     if (destination === pathname) return
+    fileHistory.move(pathname, destination)
     if (destination) navigator.renamed(pathname, destination)
     if (openedFile && pathAffects(pathname, openedFile.path)) {
       const previous = openedFile.path
@@ -980,6 +1009,7 @@ ui.claudeToggle.addEventListener(
 ui.reviewNotesToggle.addEventListener(
   'click',
   () => {
+    exitZenMode()
     if (returnFromIdeas()) reviewNotes?.close()
   },
   { capture: true },
@@ -1010,6 +1040,7 @@ function syncIdeasVisibility(docked) {
 }
 
 function showIdeasNotebook() {
+  exitZenMode()
   if (ideaMode === 'notebook') return
   const previous = document.activeElement
   if (!setIdeasMode('notebook')) return
@@ -1073,6 +1104,8 @@ async function openFile(
     match = null,
     anchor = null,
     ideaLink = false,
+    historyIndex,
+    focusEditor = false,
   } = {},
 ) {
   if (closingRequested || closed) return false
@@ -1098,10 +1131,11 @@ async function openFile(
       return false
     }
     if (version !== navigationVersion || closingRequested || closed) return false
-    if (returnFromIdeas({ dock: ideaLink || ideaDocked }))
-      requireElement(ui.workspace, '.workbench', HTMLElement).focus({ preventScroll: true })
+    if (returnFromIdeas({ dock: ideaLink || ideaDocked })) ui.workbench.focus({ preventScroll: true })
   }
+  fileHistory.record(file.path, historyIndex)
   if (openedFile?.path === file.path && current) {
+    if (focusEditor) (current.editor ?? ui.workbench).focus()
     navigator.select(file.path)
     current.pendingReviewAnchor = anchor
     current.anchorFromIdea = ideaLink
@@ -1165,6 +1199,10 @@ async function openFile(
   openedFile = file
   assistant?.refreshContext()
   const card = createCard(reviewFiles(comparison).find(value => value.path === file.path) ?? file, openedAt)
+  if (focusEditor) {
+    card.focusOnLoad = true
+    ui.workbench.focus({ preventScroll: true })
+  }
   card.markdownAnchor = file.anchor ?? null
   const anchorLine = anchor?.line
   card.markdownSource = source || compare || Boolean(match) || (anchorLine !== null && anchorLine !== undefined)
@@ -1310,22 +1348,72 @@ async function colorizeMarkdown(code, language) {
 
 function toggleNavigator() {
   if (!snapshot) return
+  if (exitZenMode()) {
+    showFileExplorer()
+    return
+  }
   if (returnFromIdeas()) showFileExplorer()
   else setSidebarVisible(Boolean(ui.sidebar.hidden))
 }
 
 function showFileExplorer() {
+  exitZenMode()
+  returnFromIdeas()
   reviewVisible = false
   setSidebarVisible(true)
   requireElement(ui.navigator, '.navigator-tree', HTMLElement).focus()
 }
 
+/** @param {string} pathname */
+function revealFileInExplorer(pathname) {
+  showFileExplorer()
+  navigator.revealFile(pathname)
+}
+
+/** @param {-1 | 1} offset */
+function navigateFileHistory(offset) {
+  const target = fileHistory.navigate(offset, openedFile?.path)
+  if (target) return openFile({ path: target.path }, { historyIndex: target.index, focusEditor: true })
+  return undefined
+}
+
+function switchToPreviousFile() {
+  const path = fileHistory.previous(openedFile?.path)
+  if (path !== undefined) return openFile({ path }, { focusEditor: true })
+  return undefined
+}
+
 function toggleReview() {
   if (!snapshot) return
-  reviewVisible = returnFromIdeas() || ui.sidebar.hidden === true || !reviewVisible
+  const wasZen = exitZenMode()
+  reviewVisible = returnFromIdeas() || wasZen || ui.sidebar.hidden === true || !reviewVisible
   setSidebarVisible(true)
   if (reviewVisible) review.focus()
   else requireElement(ui.navigator, '.navigator-tree', HTMLElement).focus()
+}
+
+/** @param {boolean} active */
+function setZenMode(active) {
+  zenMode = active
+  workspaceLayout.setZenMode(active)
+  syncTerminalLayout()
+}
+
+function exitZenMode() {
+  if (!zenMode) return false
+  setZenMode(false)
+  return true
+}
+
+function toggleZenMode() {
+  if (exitZenMode()) return
+  returnFromIdeas()
+  if (!ui.workbench.contains(document.activeElement)) {
+    const editor = openedFile ? cards.get(openedFile.path)?.editor : undefined
+    if (editor) editor.focus()
+    else ui.workbench.focus({ preventScroll: true })
+  }
+  setZenMode(true)
 }
 
 /** @param {boolean} visible */
@@ -1450,10 +1538,7 @@ function createCard(file, openedAt) {
   }
   if (ideas) addFileAction('Link to an idea', icons.idea, () => attachIdeaLink(captureIdeaLink(card)))
   if (assistant) addFileAction('Ask The Creature about this file', creatureGlyph, () => assistant.toggle(true))
-  addFileAction('Reveal in Files', icons.file, () => {
-    showFileExplorer()
-    navigator.select(card.file.path)
-  })
+  addFileAction('Reveal in Files', icons.file, () => revealFileInExplorer(card.file.path))
   card.nextChange.addEventListener('click', () => {
     if (!card.editor || card.changes.length === 0) return
     card.changeIndex = (card.changeIndex + 1) % card.changes.length
@@ -1641,6 +1726,10 @@ async function loadDocument(card, retry = false) {
     if (rendered) await rendered
     if (!card.active || generation !== card.generation) return
     clearDocumentFailure(card)
+    if (card.focusOnLoad) {
+      card.focusOnLoad = false
+      if (globalThis.document.activeElement === ui.workbench) card.editor?.focus()
+    }
     initialDocumentReady = true
     rendererDiagnostics.measure('renderer.document-load', startedAt)
     if (!firstDocumentRendered) {
@@ -2657,6 +2746,8 @@ function refresh() {
 /** @param {ShortcutOverrides} overrides */
 function applyShortcutOverrides(overrides) {
   shortcutOverrides = overrides
+  shortcutSequence.reset()
+  workspaceChordBindings = shortcutChordBindings(overrides, isMac)
   /** @type {[HTMLElement | null, import('../../../shared/preferences/shortcuts.ts').ShortcutAction, string][]} */
   const controls = [
     [ui.settingsToggle, 'openSettings', 'Settings'],
@@ -2666,12 +2757,15 @@ function applyShortcutOverrides(overrides) {
     [ui.claudeToggle, 'toggleClaude', 'The Creature'],
     [ui.ideasToggle, 'toggleIdeas', 'Ideas'],
     [ui.navigator.querySelector('button[data-action="open-file"]'), 'searchFiles', 'Search files'],
+    [ui.navigator.querySelector('button[data-action="collapse"]'), 'collapseFolders', 'Collapse all folders'],
     [ui.reviewNotesPanel.querySelector('button[data-review-action="save"]'), 'saveReviewNote', 'Save note'],
   ]
   for (const [control, action, label] of controls) {
     if (!control) continue
     control.title = `${label} · ${shortcutLabel(action)}`
-    control.setAttribute('aria-keyshortcuts', ariaBinding(shortcutBinding(action), isMac))
+    const aria = ariaBinding(shortcutBinding(action), isMac)
+    if (aria) control.setAttribute('aria-keyshortcuts', aria)
+    else control.removeAttribute('aria-keyshortcuts')
   }
   updateEmptyStateHint()
   const card = openedFile ? cards.get(openedFile.path) : undefined
@@ -2714,8 +2808,23 @@ const workspaceShortcuts = {
   reviewNotes: () => reviewNotes && snapshot && (() => ui.reviewNotesToggle.click()),
   reviewChanges: () => snapshot && toggleReview,
   toggleClaude: () => assistant && (() => ui.claudeToggle.click()),
+  openClaudeAgent: () => assistant?.openEditor,
+  toggleAssistantSidebar: () => assistant && (() => ui.claudeToggle.click()),
   toggleIdeas: () => ideas && snapshot && (() => ui.ideasToggle.click()),
+  toggleZenMode: () => snapshot && toggleZenMode,
   toggleExplorer: () => snapshot && toggleNavigator,
+  collapseFolders: () => snapshot && navigator.collapseFolders,
+  focusExplorer: () => snapshot && showFileExplorer,
+  revealActiveFile: () => {
+    const path = openedFile?.path
+    return path === undefined ? undefined : () => revealFileInExplorer(path)
+  },
+  navigateBack: () => snapshot && (() => navigateFileHistory(-1)),
+  navigateForward: () => snapshot && (() => navigateFileHistory(1)),
+  previousEditor: () => snapshot && switchToPreviousFile,
+  closeAllEditors: () => snapshot && closeEditors,
+  closeOtherEditors: () => snapshot && (() => fileHistory.closeOthers(openedFile?.path)),
+  closeEditorGroup: () => snapshot && (() => closeEditors(true)),
   refresh: () => snapshot && refresh,
   save: (/** @type {KeyboardEvent} */ event) => {
     if (ideas && event.target instanceof Node && ui.ideasPanel.contains(event.target)) return () => ideas.flush()
@@ -2725,15 +2834,32 @@ const workspaceShortcuts = {
   find: findAction,
 }
 
+const shortcutSequence = createShortcutSequence()
+/** @type {string[]} */
+let workspaceChordBindings = []
+window.addEventListener('blur', () => shortcutSequence.reset())
+document.addEventListener('pointerdown', () => shortcutSequence.reset(), { capture: true })
 document.addEventListener(
   'keydown',
   event => {
-    if (!api || app.inert || closingRequested || settings?.isOpen || event.defaultPrevented) return
-    if (document.querySelector('dialog#claude-settings')?.matches('[open]')) return
-    const binding = bindingFromEvent(event, isMac)
+    if (!api || app.inert || closingRequested || settings?.isOpen || event.defaultPrevented) {
+      shortcutSequence.reset()
+      return
+    }
+    const dialog = document.querySelector('dialog[open]')
+    const pickerOpen = dialog?.id === 'file-picker'
+    if (dialog && !pickerOpen && !contentSearch?.isOpen) {
+      shortcutSequence.reset()
+      return
+    }
+    if (dialog) shortcutSequence.reset()
+    const { binding, consumed } = shortcutSequence.match(event, isMac, dialog ? [] : workspaceChordBindings)
+    if (consumed) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
     if (!binding) return
     if (ideas?.handleShortcut(event, binding)) return
-    const pickerOpen = document.querySelector('dialog#file-picker')?.matches('[open]')
     for (const [action, resolve] of Object.entries(workspaceShortcuts)) {
       if (!isShortcutAction(action) || binding !== shortcutBinding(action)) continue
       if (pickerOpen && action !== 'searchFiles' && action !== 'quickOpen') return
@@ -2887,7 +3013,7 @@ Object.assign(window, {
       window.clearTimeout(workspaceOpeningTimer)
       reducedMotion.removeEventListener('change', revealWorkspaceWhenReady)
       terminalBounds.disconnect()
-      terminalDialogs.disconnect()
+      workspaceDialogs.disconnect()
       unsubscribeTerminal?.()
       howmany?.dispose()
       assistant?.dispose()

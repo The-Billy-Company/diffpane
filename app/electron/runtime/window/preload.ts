@@ -552,6 +552,7 @@ const API = {
       invoke('shortcuts-set', isShortcutOverrides, action, binding),
     reset: (action?: ShortcutAction) => invoke('shortcuts-reset', isShortcutOverrides, action),
     setCapturing: (active: boolean) => invoke('shortcuts-capture', isVoid, active),
+    setModal: (active: boolean) => ipcRenderer.send('shortcuts-modal', active),
     onChange: (callback: (overrides: ShortcutOverrides) => void) =>
       listen('shortcuts-updated', isShortcutOverrides, callback),
     onOpenSettings: (callback: () => void) => listen('open-settings', isVoid, callback),

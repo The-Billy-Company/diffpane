@@ -15,6 +15,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
  * @import { ShortcutAction } from '../../../shared/preferences/shortcuts.ts'
  */
 /** @typedef {{ node: NavigationNode, depth: number }} NavigationRow */
+/** @typedef {{ path: string } & ({ kind: 'file', requested: Set<string> } | { kind: 'directory' | 'selection' })} RevealRequest */
 /**
  * @typedef {{
  *   root: string,
@@ -255,7 +256,7 @@ export function createNavigator(
   let activeKey = tree.root.key
   /** @type {string | null} */
   let selectedPath = null
-  /** @type {{ path: string, directory: boolean } | null} */
+  /** @type {RevealRequest | null} */
   let revealPath = null
   /** @type {Set<NavigationNode>} */
   let statusNodes = new Set()
@@ -444,7 +445,8 @@ export function createNavigator(
     const folder = tree.nodes.get(`dir:${pathname}`)
     const node = directory ? folder : (tree.files.get(pathname) ?? folder)
     if (!node) return false
-    let projectionChanged = false
+    let projectionChanged = directory && !expanded.has(node.path)
+    if (directory) setExpanded(node, true)
     let parent = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
     while (parent) {
       if (!expanded.has(parent.path)) projectionChanged = true
@@ -594,7 +596,7 @@ export function createNavigator(
       tree = buildNavigationTree([], scopePrefix(next))
       activeKey = tree.root.key
       selectedPath = next.initialPath?.length ? next.initialPath : null
-      revealPath = selectedPath === null ? null : { path: selectedPath, directory: false }
+      revealPath = selectedPath === null ? null : { path: selectedPath, kind: 'selection' }
       list.scrollTop = 0
       input.value = ''
       query = ''
@@ -642,11 +644,7 @@ export function createNavigator(
       setExpanded(node, !expanded.has(node.path))
       refreshProjection()
     } else if (node.kind === 'directory' && searching()) {
-      input.value = ''
-      query = ''
-      filters.reset()
-      setExpanded(node, true)
-      ensureVisible(node.path, true, true)
+      reveal({ path: node.path, kind: 'directory' })
     } else if (node.kind === 'directory') {
       setExpanded(node, !expanded.has(node.path))
       activeKey = node.key
@@ -770,16 +768,21 @@ export function createNavigator(
     }
   }
 
+  function collapseFolders() {
+    revealPath = null
+    setExpanded(tree.root, false)
+    expanded = new Set([tree.root.path])
+    activeKey = tree.root.key
+    list.scrollTop = 0
+    refreshProjection(false)
+  }
+
   /** @param {MouseEvent} event */
   function onAction(event) {
     const button = event.target instanceof Element ? event.target.closest('[data-action]') : null
     const action = button instanceof HTMLButtonElement ? button.dataset.action : undefined
     if (action === 'collapse') {
-      setExpanded(tree.root, false)
-      expanded = new Set([tree.root.path])
-      activeKey = tree.root.key
-      list.scrollTop = 0
-      refreshProjection(false)
+      collapseFolders()
     } else if (action === 'refresh') {
       wanted++
       runTask('Read navigator files', fetchCatalog)
@@ -825,22 +828,53 @@ export function createNavigator(
   const resize = new ResizeObserver(schedule)
   resize.observe(list)
 
+  /** @param {string} pathname @param {Set<string>} requested @param {boolean} available */
+  function expandIgnoredAncestors(pathname, requested, available) {
+    let opened = false
+    for (let slash = pathname.indexOf('/'); slash > 0; slash = pathname.indexOf('/', slash + 1)) {
+      const ancestor = tree.directories.get(pathname.slice(0, slash))
+      if (!ancestor?.file?.ignored || requested.has(ancestor.path)) continue
+      // Refresh lazy descendants when a pending collapse may remove them from the catalog.
+      if (available && ancestor !== tree.root && expanded.has(ancestor.path)) continue
+      requested.add(ancestor.path)
+      setExpanded(ancestor, true)
+      opened = true
+    }
+    return opened
+  }
+
   function revealSelection() {
     if (!revealPath) return false
-    const { path, directory } = revealPath
-    if (directory) {
-      const node = tree.nodes.get(`dir:${path}`)
-      if (!node) return false
-      setExpanded(node, true)
+    const { path, kind } = revealPath
+    if (kind === 'file') {
+      const available = tree.files.has(path)
+      const opened = expandIgnoredAncestors(path, revealPath.requested, available)
+      if (!available) {
+        if (opened) refreshProjection()
+        return false
+      }
     }
-    const found = ensureVisible(path, directory, directory)
+    const found = ensureVisible(path, kind !== 'selection', kind === 'directory')
     if (found) revealPath = null
     return found
+  }
+
+  /** @param {RevealRequest} request */
+  function reveal(request) {
+    const wasSearching = searching()
+    input.value = ''
+    query = ''
+    queryPattern = null
+    filters.reset()
+    if (wasSearching) refreshProjection(false)
+    revealPath = request
+    revealSelection()
   }
 
   return {
     update,
     focusSearch,
+    collapseFolders,
     /** @param {string} from @param {string} to */
     renamed(from, to) {
       expanded = new Set(
@@ -852,16 +886,17 @@ export function createNavigator(
     },
     /** @param {string} pathname */
     revealDirectory(pathname) {
-      input.value = ''
-      query = ''
-      filters.reset()
-      revealPath = { path: pathname, directory: true }
-      if (!revealSelection()) refreshProjection()
+      reveal({ path: pathname, kind: 'directory' })
+    },
+    /** @param {string} pathname */
+    revealFile(pathname) {
+      selectedPath = pathname
+      reveal({ path: pathname, kind: 'file', requested: new Set() })
     },
     /** @param {string | null} pathname */
     select(pathname) {
       selectedPath = pathname
-      revealPath = pathname === null ? null : { path: pathname, directory: false }
+      revealPath = pathname === null ? null : { path: pathname, kind: 'selection' }
       if (!revealSelection()) schedule()
     },
     toggle() {

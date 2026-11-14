@@ -40,6 +40,15 @@
   display: none;
 }
 
+.workspace[data-zen-mode] > :is(#ideas-panel, #sidebar, #claude-panel, #review-notes-panel),
+#app:has(> .workspace[data-zen-mode]) > :is(.statusbar, #terminal-dock) {
+  display: none;
+}
+
+#app:has(> .workspace[data-zen-mode]) > .titlebar > * {
+  visibility: hidden;
+}
+
 .workspace > #sidebar {
   grid-column: files;
 }

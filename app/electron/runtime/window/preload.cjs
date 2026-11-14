@@ -467,6 +467,7 @@ const API = {
     set: (action, binding) => invoke('shortcuts-set', isShortcutOverrides, action, binding),
     reset: action => invoke('shortcuts-reset', isShortcutOverrides, action),
     setCapturing: active => invoke('shortcuts-capture', isVoid, active),
+    setModal: active => electron_1.ipcRenderer.send('shortcuts-modal', active),
     onChange: callback => listen('shortcuts-updated', isShortcutOverrides, callback),
     onOpenSettings: callback => listen('open-settings', isVoid, callback),
   },

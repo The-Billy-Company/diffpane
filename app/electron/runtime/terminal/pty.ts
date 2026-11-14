@@ -145,6 +145,7 @@ function shellSettings() {
 }
 
 export class TerminalProcess {
+  readonly isPowerShell: boolean
   readonly #pty: IPty
   readonly #data: IDisposable
   readonly #exit: IDisposable
@@ -164,6 +165,7 @@ export class TerminalProcess {
       throw new Error('Invalid terminal workspace or dimensions.')
 
     const { shell, args, env } = shellSettings()
+    this.isPowerShell = /^(?:pwsh|powershell)(?:\.exe)?$/i.test(path.basename(shell))
     const spawn = spawnPty ?? loadPty()
     this.#pty = spawn(shell, args, { name: 'xterm-256color', cwd, cols, rows, env })
     this.#onExit = onExit

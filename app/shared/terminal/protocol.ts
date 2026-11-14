@@ -4,9 +4,10 @@ export const terminalMinimumRows = 1
 export const terminalMaximumRows = 300
 export const terminalMaximumInputBytes = 64 * 1024
 
-export type TerminalStartResult = { ok: true } | { ok: false; message: string }
+export type TerminalStartResult = { ok: true; isPowerShell: boolean } | { ok: false; message: string }
 
 export interface TerminalBridge {
+  isMac: boolean
   start: (cols: number, rows: number) => Promise<TerminalStartResult>
   write: (data: string) => void
   resize: (cols: number, rows: number) => void
@@ -16,4 +17,5 @@ export interface TerminalBridge {
   onData: (listener: (data: string, bytes: number) => void) => () => void
   onExit: (listener: (exitCode: number | null, reason?: string) => void) => () => void
   onTheme?: (listener: (theme: 'light' | 'dark') => void) => () => void
+  onNewLineShortcut: (listener: (binding: string) => void) => () => void
 }

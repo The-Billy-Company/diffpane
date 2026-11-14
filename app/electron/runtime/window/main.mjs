@@ -10,9 +10,12 @@ import { colorHex } from '../../../shared/appearance/palette.ts'
 import { createDiagnostics, parseDiagnostic } from '../../../shared/diagnostics/diagnostics.ts'
 import { rendererOperations } from '../../../shared/diagnostics/renderer-operations.ts'
 import {
+  actualSizeBinding,
+  createShortcutSequence,
   effectiveBinding,
   electronAccelerator,
   isShortcutAction,
+  shortcutChordBindings,
   shortcuts,
 } from '../../../shared/preferences/shortcuts.ts'
 import { appError, attempt, attemptAsync, serializeAppError } from '../../../shared/recovery/app-errors.ts'
@@ -106,6 +109,12 @@ const shortcutPreferences = new ShortcutPreferences(localState, path.join(userDa
 /** @type {ShortcutOverrides} */
 let shortcutOverrides = {}
 let shortcutUpdates = Promise.resolve()
+const isMac = process.platform === 'darwin'
+let windowChordBindings = shortcutChordBindings(shortcutOverrides, isMac)
+/** @type {WeakSet<WebContents>} */
+const capturingShortcuts = new WeakSet()
+/** @type {WeakSet<WebContents>} */
+const modalWindows = new WeakSet()
 const claudeCredentials = new ClaudeCredentials(path.join(userData, 'claude-key'))
 const ideaStore = new IdeaStore(localState, path.join(userData, 'ideas.sqlite'))
 const reviewNotes = new ReviewNotesStore(localState, path.join(userData, 'review-notes', 'notes.sqlite'))
@@ -671,9 +680,48 @@ function createWindow(directory = null) {
     workspace: async () => (await session.reviewWorkspace()).scope,
     onVisibility: visible => send(session.contents, 'terminal-visibility', visible),
   })
+  terminal.setNewLineShortcut(effectiveBinding('terminalNewLine', shortcutOverrides, isMac))
   terminals.set(session, terminal)
   sessions.set(windowId, session)
   mediaSessions.set(session.mediaToken, session)
+  const chords = createShortcutSequence()
+  let chordBindings = windowChordBindings
+  const contents = window.webContents
+  function cancelChord() {
+    chords.reset()
+    if (!contents.isDestroyed()) contents.setIgnoreMenuShortcuts(capturingShortcuts.has(contents))
+  }
+  window.on('blur', cancelChord)
+  contents.on('blur', cancelChord)
+  contents.on('before-mouse-event', (_event, input) => {
+    if (input.type === 'mouseDown') cancelChord()
+  })
+  contents.on('before-input-event', (_event, input) => {
+    const capturing = capturingShortcuts.has(contents)
+    const chordEnabled = !capturing && !modalWindows.has(contents)
+    if (chordBindings !== windowChordBindings || !chordEnabled) {
+      chords.reset()
+      chordBindings = windowChordBindings
+    }
+    if (input.type !== 'keyDown') return
+    const { consumed } = chords.match(
+      {
+        key: input.key,
+        code: input.code,
+        altKey: input.alt,
+        ctrlKey: input.control,
+        metaKey: input.meta,
+        shiftKey: input.shift,
+        isComposing: input.isComposing || input.modifiers.includes('altgr'),
+        repeat: input.isAutoRepeat,
+        timeStamp: performance.now(),
+      },
+      isMac,
+      chordEnabled ? chordBindings : [],
+    )
+    // Deliver the chord to the renderer even when its second key has a menu accelerator.
+    contents.setIgnoreMenuShortcuts(capturing || consumed)
+  })
   if (directory) startWorker()
   let allowClose = false
   window.on('close', event => {
@@ -709,7 +757,9 @@ function createWindow(directory = null) {
     session.finishFlush?.(false)
     if (directory && wasReady && !fatal)
       runBackground('cancel-workspace-search', () => session.call('content-search-cancel'))
-    session.contents.setIgnoreMenuShortcuts(false)
+    capturingShortcuts.delete(session.contents)
+    modalWindows.delete(session.contents)
+    cancelChord()
   }
   window.webContents.on('did-start-navigation', ({ isSameDocument, isMainFrame }) => {
     if (isMainFrame && !isSameDocument) {
@@ -816,8 +866,11 @@ function updateShortcuts(read) {
       .filter(action => overrides[action] !== shortcutOverrides[action])
     if (changed.length) {
       shortcutOverrides = overrides
+      windowChordBindings = shortcutChordBindings(overrides, isMac)
       if (changed.some(action => shortcuts[action].scope === 'native')) setApplicationMenu()
       for (const session of sessions.values()) {
+        if (changed.includes('terminalNewLine'))
+          terminals.get(session)?.setNewLineShortcut(effectiveBinding('terminalNewLine', overrides, isMac))
         if (session.rendererReady) send(session.contents, 'shortcuts-updated', overrides)
       }
     }
@@ -1127,12 +1180,21 @@ handle('terminal-toggle', session => terminals.get(session)?.toggle() ?? false)
 onRenderer('terminal-layout', (session, height, bottom, theme) => {
   terminals.get(session)?.layout(height, bottom, theme)
 })
+onRenderer('shortcuts-modal', ({ contents }, active) => {
+  if (active === true) modalWindows.add(contents)
+  else modalWindows.delete(contents)
+  contents.setIgnoreMenuShortcuts(capturingShortcuts.has(contents))
+})
 /** @type {Record<string, (sender: WebContents, ...args: unknown[]) => unknown>} */
 const shortcutHandlers = {
   get: refreshShortcuts,
   set: (_sender, action, binding) => updateShortcuts(() => shortcutPreferences.set(action, binding)),
   reset: (_sender, action) => updateShortcuts(() => shortcutPreferences.reset(action)),
-  capture: (sender, active) => sender.setIgnoreMenuShortcuts(active === true),
+  capture: (sender, active) => {
+    if (active === true) capturingShortcuts.add(sender)
+    else capturingShortcuts.delete(sender)
+    sender.setIgnoreMenuShortcuts(active === true)
+  },
 }
 for (const [method, handler] of Object.entries(shortcutHandlers)) {
   handle(`shortcuts-${method}`, (_session, event, ...args) => handler(event.sender, ...args))
@@ -1239,7 +1301,6 @@ handle('howmany-export', async (session, event) => {
 })
 
 function setApplicationMenu() {
-  const isMac = process.platform === 'darwin'
   /** @param {ShortcutAction} action */
   const accelerator = action => electronAccelerator(effectiveBinding(action, shortcutOverrides), isMac) ?? undefined
   Menu.setApplicationMenu(
@@ -1301,7 +1362,7 @@ function setApplicationMenu() {
         submenu: [
           { role: 'zoomIn' },
           { role: 'zoomOut' },
-          { role: 'resetZoom' },
+          { role: 'resetZoom', accelerator: electronAccelerator(actualSizeBinding(isMac), isMac) ?? undefined },
           { role: 'togglefullscreen' },
           { type: 'separator' },
           { role: 'toggleDevTools' },

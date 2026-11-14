@@ -26,7 +26,7 @@ class Contents extends EventEmitter {
   mainFrame = { url: '' }
   destroyed = false
   focused = false
-  send() {}
+  send = vi.fn<(channel: string, ...args: unknown[]) => void>()
   setWindowOpenHandler() {}
   isDestroyed = () => this.destroyed
   isFocused = () => this.focused
@@ -78,6 +78,7 @@ vi.doMock('electron', () => ({
 vi.doMock('../../../electron/runtime/terminal/pty.ts', () => ({
   validTerminalSize: (cols: unknown, rows: unknown) => cols === 80 && rows === 24,
   TerminalProcess: class {
+    readonly isPowerShell = false
     write = write
     dispose = dispose
     resize() {}
@@ -134,8 +135,15 @@ test('only the focused terminal main frame can start or type into the workspace 
   const workspace = fixture(cwd)
   assert.equal(await workspace.dock.toggle(), false)
   assert.equal(workspace.views.length, 0)
+  workspace.dock.setNewLineShortcut('Shift+F7')
   const terminal = await workspace.open()
   try {
+    assert.deepEqual(
+      terminal.contents.send.mock.calls.find(([channel]) => channel === 'terminal-new-line-shortcut'),
+      ['terminal-new-line-shortcut', 'Shift+F7'],
+    )
+    workspace.dock.setNewLineShortcut('Shift+Enter')
+    assert.deepEqual(terminal.contents.send.mock.calls.at(-1), ['terminal-new-line-shortcut', 'Shift+Enter'])
     const invalidSenders = [
       { ...terminal.event(), sender: new Contents() },
       { ...terminal.event(), senderFrame: { url: terminalUrl } },
@@ -162,7 +170,7 @@ test('only the focused terminal main frame can start or type into the workspace 
     authorize.mockResolvedValueOnce({ response: 0 }).mockResolvedValueOnce({ response: 1 })
     assert.deepEqual(await terminal.start(terminal.event(), 80, 24), { ok: false, message: 'Shell start canceled.' })
     assert.equal(spawn.mock.calls.length, 0)
-    assert.deepEqual(await terminal.start(terminal.event(), 80, 24), { ok: true })
+    assert.deepEqual(await terminal.start(terminal.event(), 80, 24), { ok: true, isPowerShell: false })
     assert.equal(spawn.mock.calls.length, 1)
     const options = spawn.mock.calls[0]?.[0]
     assert.ok(options)

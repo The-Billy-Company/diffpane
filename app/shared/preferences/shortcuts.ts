@@ -2,7 +2,8 @@ interface ShortcutDefinition {
   label: string
   group: string
   defaultBinding: ShortcutBinding
-  scope: 'native' | 'window' | 'explorer' | 'reviewNotes' | 'ideas'
+  nonMacBinding?: ShortcutBinding
+  scope: 'native' | 'window' | 'explorer' | 'reviewNotes' | 'ideas' | 'terminal'
 }
 
 export const shortcuts = {
@@ -42,6 +43,25 @@ export const shortcuts = {
     defaultBinding: 'Primary+Shift+L',
     scope: 'window',
   },
+  openClaudeAgent: {
+    label: 'Open the Creature in Edit mode',
+    group: 'Window',
+    defaultBinding: 'Primary+I',
+    scope: 'window',
+  },
+  toggleAssistantSidebar: {
+    label: 'Toggle the Creature sidebar',
+    group: 'Window',
+    defaultBinding: 'Primary+Alt+S',
+    scope: 'window',
+  },
+  toggleZenMode: {
+    label: 'Toggle Zen mode',
+    group: 'Window',
+    defaultBinding: 'Primary+Control+Z',
+    nonMacBinding: 'Primary+Alt+Z',
+    scope: 'window',
+  },
   toggleIdeas: {
     label: 'Toggle Ideas notebook',
     group: 'Window',
@@ -57,7 +77,7 @@ export const shortcuts = {
   quickOpen: {
     label: 'Search files (alternate)',
     group: 'Search and navigation',
-    defaultBinding: 'Primary+K',
+    defaultBinding: 'Primary+Alt+P',
     scope: 'window',
   },
   searchProject: {
@@ -76,6 +96,58 @@ export const shortcuts = {
     label: 'Toggle explorer',
     group: 'Search and navigation',
     defaultBinding: 'Primary+B',
+    scope: 'window',
+  },
+  focusExplorer: {
+    label: 'Focus File Explorer',
+    group: 'Search and navigation',
+    defaultBinding: 'Primary+0',
+    nonMacBinding: 'Primary+Alt+0',
+    scope: 'window',
+  },
+  revealActiveFile: {
+    label: 'Reveal active file in File Explorer',
+    group: 'Search and navigation',
+    defaultBinding: 'Primary+Shift+R',
+    scope: 'window',
+  },
+  navigateBack: {
+    label: 'Go back',
+    group: 'Search and navigation',
+    defaultBinding: 'Control+-',
+    nonMacBinding: 'Alt+ArrowLeft',
+    scope: 'window',
+  },
+  navigateForward: {
+    label: 'Go forward',
+    group: 'Search and navigation',
+    defaultBinding: 'Control+Shift+-',
+    nonMacBinding: 'Alt+ArrowRight',
+    scope: 'window',
+  },
+  previousEditor: {
+    label: 'Switch to the previous file',
+    group: 'Editing',
+    defaultBinding: 'Control+Tab',
+    nonMacBinding: 'Primary+Tab',
+    scope: 'window',
+  },
+  closeAllEditors: {
+    label: 'Close all editors',
+    group: 'Editing',
+    defaultBinding: 'Primary+K W',
+    scope: 'window',
+  },
+  closeOtherEditors: {
+    label: 'Close other editors',
+    group: 'Editing',
+    defaultBinding: 'Primary+K Primary+O',
+    scope: 'window',
+  },
+  closeEditorGroup: {
+    label: 'Close the code editor',
+    group: 'Editing',
+    defaultBinding: 'Primary+Shift+]',
     scope: 'window',
   },
   refresh: {
@@ -108,6 +180,12 @@ export const shortcuts = {
     defaultBinding: 'Primary+Enter',
     scope: 'reviewNotes',
   },
+  collapseFolders: {
+    label: 'Collapse all folders',
+    group: 'Explorer',
+    defaultBinding: 'Primary+Shift+[',
+    scope: 'window',
+  },
   renameExplorerItem: {
     label: 'Rename explorer item',
     group: 'Explorer',
@@ -138,6 +216,12 @@ export const shortcuts = {
     defaultBinding: 'Primary+I',
     scope: 'ideas',
   },
+  terminalNewLine: {
+    label: 'Insert a line break',
+    group: 'Terminal',
+    defaultBinding: 'Shift+Enter',
+    scope: 'terminal',
+  },
 } as const satisfies Record<string, ShortcutDefinition>
 
 export type ShortcutAction = keyof typeof shortcuts
@@ -150,8 +234,13 @@ export function isShortcutAction(value: unknown): value is ShortcutAction {
   return typeof value === 'string' && Object.hasOwn(shortcuts, value)
 }
 
-export function defaultBinding(action: ShortcutAction, _isMac?: boolean): ShortcutBinding {
-  return shortcuts[action].defaultBinding
+export function shortcutAllowsChord(action: ShortcutAction): boolean {
+  return shortcuts[action].scope === 'window'
+}
+
+export function defaultBinding(action: ShortcutAction, isMac = true): ShortcutBinding {
+  const definition: ShortcutDefinition = shortcuts[action]
+  return (isMac ? undefined : definition.nonMacBinding) ?? definition.defaultBinding
 }
 
 export function effectiveBinding(
@@ -162,10 +251,21 @@ export function effectiveBinding(
   return overrides[action] ?? defaultBinding(action, isMac)
 }
 
+export function shortcutChordBindings(overrides: ShortcutOverrides, isMac: boolean): ShortcutBinding[] {
+  return ACTIONS.filter(shortcutAllowsChord)
+    .map(action => effectiveBinding(action, overrides, isMac))
+    .filter(binding => binding.includes(' '))
+}
+
 interface BuiltInShortcut {
   label: string
   group: string
   binding: ShortcutBinding
+  scope?: 'terminal'
+}
+
+export function actualSizeBinding(isMac: boolean): ShortcutBinding {
+  return isMac ? 'Primary+Alt+0' : 'Primary+0'
 }
 
 // These shortcuts follow Electron's native menu roles and the standard editing commands.
@@ -192,9 +292,16 @@ export function builtInShortcuts(platform: string): BuiltInShortcut[] {
     { label: 'Select all', group: 'Editing', binding: 'Primary+A' },
     { label: 'Zoom in', group: 'View', binding: 'Primary+Plus' },
     { label: 'Zoom out', group: 'View', binding: 'Primary+-' },
-    { label: 'Actual size', group: 'View', binding: 'Primary+0' },
+    { label: 'Actual size', group: 'View', binding: actualSizeBinding(isMac) },
     { label: 'Toggle full screen', group: 'View', binding: isMac ? 'Primary+Control+F' : 'F11' },
+    { label: 'Focus terminal controls', group: 'Terminal', binding: 'Shift+F6', scope: 'terminal' },
+    { label: 'Copy in terminal', group: 'Terminal', binding: 'Primary+Shift+C', scope: 'terminal' },
+    { label: 'Paste in terminal', group: 'Terminal', binding: 'Primary+Shift+V', scope: 'terminal' },
   ]
+}
+
+function bindingsOverlap(first: ShortcutBinding, second: ShortcutBinding) {
+  return first === second || first.startsWith(`${second} `) || second.startsWith(`${first} `)
 }
 
 export function shortcutConflict(
@@ -204,23 +311,32 @@ export function shortcutConflict(
   platform: string,
 ): string | null {
   const isMac = platform === 'darwin'
-  const normalized = normalizeBinding(binding, isMac)
+  const scope: ShortcutDefinition['scope'] = shortcuts[action].scope
+  const normalized = normalizeBinding(binding, isMac, scope === 'terminal')
   if (!normalized) return null
   // When both commands use their shared default, the idea editor takes precedence.
-  const sharedDefault = normalized === 'Primary+B' ? sharedExplorerDefault[action] : undefined
-  const conflict = ACTIONS.find(
-    other =>
-      other !== action &&
-      other !== sharedDefault &&
-      normalizeBinding(effectiveBinding(other, overrides), isMac) === normalized,
-  )
+  const sharedDefault = normalized === defaultBinding(action, isMac) ? sharedIdeaDefaults[action] : undefined
+  const conflict = ACTIONS.find(other => {
+    if (other === action || other === sharedDefault) return false
+    const otherScope: ShortcutDefinition['scope'] = shortcuts[other].scope
+    if (scope !== otherScope && (scope === 'terminal' || otherScope === 'terminal')) {
+      if (scope !== 'native' && otherScope !== 'native') return false
+    }
+    const candidate = normalizeBinding(effectiveBinding(other, overrides, isMac), isMac, otherScope === 'terminal')
+    return candidate !== null && bindingsOverlap(normalized, candidate)
+  })
   if (conflict) return shortcuts[conflict].label
-  return builtInShortcuts(platform).find(other => other.binding === normalized)?.label ?? null
+  const builtIn = builtInShortcuts(platform).find(
+    other => (!other.scope || other.scope === scope) && bindingsOverlap(normalized, other.binding),
+  )
+  return builtIn?.label ?? null
 }
 
-const sharedExplorerDefault: Partial<Record<ShortcutAction, ShortcutAction>> = {
+const sharedIdeaDefaults: Partial<Record<ShortcutAction, ShortcutAction>> = {
   formatIdeaBold: 'toggleExplorer',
   toggleExplorer: 'formatIdeaBold',
+  formatIdeaItalic: 'openClaudeAgent',
+  openClaudeAgent: 'formatIdeaItalic',
 }
 
 const modifiers = ['Primary', 'Control', 'Meta', 'Alt', 'Shift'] as const
@@ -263,9 +379,8 @@ const punctuationByCode = new Map([
 ])
 const punctuation = new Set(punctuationByCode.values())
 
-export function normalizeBinding(value: unknown, isMac: boolean): ShortcutBinding | null {
-  if (typeof value !== 'string' || value.length > 80) return null
-  const tokens = value.split('+')
+function normalizeStroke(stroke: string, isMac: boolean, allowUnmodified: boolean): ShortcutBinding | null {
+  const tokens = stroke.split('+')
   const rawKey = tokens.pop()?.trim() ?? ''
   const upper = rawKey.toUpperCase()
   const key =
@@ -282,7 +397,12 @@ export function normalizeBinding(value: unknown, isMac: boolean): ShortcutBindin
     pressed.add(modifier)
   }
   // Avoid taking over ordinary typing and keyboard navigation.
-  if (!functionKey.test(key) && key !== 'ContextMenu' && ![...pressed].some(modifier => modifier !== 'Shift'))
+  if (
+    !allowUnmodified &&
+    !functionKey.test(key) &&
+    key !== 'ContextMenu' &&
+    ![...pressed].some(modifier => modifier !== 'Shift')
+  )
     return null
 
   // Electron's Plus accelerator includes Shift on the Equals key.
@@ -291,10 +411,27 @@ export function normalizeBinding(value: unknown, isMac: boolean): ShortcutBindin
   return [...modifiers.filter(modifier => pressed.has(modifier)), plus ? 'Plus' : key].join('+')
 }
 
+export function normalizeBinding(value: unknown, isMac: boolean, allowUnmodified = false): ShortcutBinding | null {
+  if (typeof value !== 'string' || value.length > 80) return null
+  const [first, second, extra] = value
+    .trim()
+    .replace(/\s*\+\s*/gu, '+')
+    .split(/\s+/u)
+  if (!first || extra) return null
+  const firstStroke = normalizeStroke(first, isMac, allowUnmodified)
+  if (!firstStroke || second === undefined) return firstStroke
+  const secondStroke = normalizeStroke(second, isMac, true)
+  return secondStroke && secondStroke !== 'Escape' ? `${firstStroke} ${secondStroke}` : null
+}
+
 type ShortcutKeyEvent = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> &
   Partial<Pick<KeyboardEvent, 'code' | 'isComposing' | 'getModifierState'>>
 
-export function bindingFromEvent(event: ShortcutKeyEvent, isMac: boolean): ShortcutBinding | null {
+export function bindingFromEvent(
+  event: ShortcutKeyEvent,
+  isMac: boolean,
+  allowUnmodified = false,
+): ShortcutBinding | null {
   if (event.isComposing || event.getModifierState?.('AltGraph')) return null
   let key = event.key
   if (key === ' ') key = 'Space'
@@ -312,11 +449,45 @@ export function bindingFromEvent(event: ShortcutKeyEvent, isMac: boolean): Short
   if (event.ctrlKey) tokens.push('Control')
   if (event.altKey) tokens.push('Alt')
   if (event.shiftKey) tokens.push('Shift')
-  return normalizeBinding([...tokens, key].join('+'), isMac)
+  return normalizeStroke([...tokens, key].join('+'), isMac, allowUnmodified)
 }
 
 export function matchesBinding(event: ShortcutKeyEvent, binding: ShortcutBinding, isMac: boolean) {
   return bindingFromEvent(event, isMac) === binding
+}
+
+const chordTimeoutMs = 5000
+const modifierKeys = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift'])
+type ShortcutStrokeEvent = ShortcutKeyEvent & Pick<KeyboardEvent, 'repeat' | 'timeStamp'>
+
+// A prefix reserves the next keystroke only while a chord is pending.
+export function createShortcutSequence() {
+  let pending: { prefix: ShortcutBinding; expires: number } | null = null
+
+  function reset() {
+    pending = null
+  }
+
+  function match(event: ShortcutStrokeEvent, isMac: boolean, bindings: readonly ShortcutBinding[]) {
+    if (event.isComposing || event.getModifierState?.('AltGraph') || (pending && event.timeStamp >= pending.expires))
+      reset()
+    if (pending) {
+      if (modifierKeys.has(event.key) || event.repeat) return { binding: null, consumed: true }
+      const stroke = bindingFromEvent(event, isMac, true)
+      const chord = stroke && stroke !== 'Escape' ? `${pending.prefix} ${stroke}` : null
+      reset()
+      return { binding: chord && bindings.includes(chord) ? chord : null, consumed: true }
+    }
+
+    const binding = bindingFromEvent(event, isMac)
+    if (binding && bindings.some(candidate => candidate.startsWith(`${binding} `))) {
+      if (!event.repeat) pending = { prefix: binding, expires: event.timeStamp + chordTimeoutMs }
+      return { binding: null, consumed: true }
+    }
+    return { binding, consumed: false }
+  }
+
+  return { match, reset }
 }
 
 const keyLabels = new Map([
@@ -342,7 +513,15 @@ export function bindingKeys(binding: ShortcutBinding, isMac: boolean): string[] 
   return binding.split('+').map(key => labels.get(key) ?? keyLabels.get(key) ?? key)
 }
 
+export function bindingLabel(binding: ShortcutBinding, isMac: boolean): string {
+  return binding
+    .split(' ')
+    .map(stroke => bindingKeys(stroke, isMac).join(isMac ? '' : '+'))
+    .join(' then ')
+}
+
 export function ariaBinding(binding: ShortcutBinding, isMac: boolean): string {
+  if (binding.includes(' ')) return ''
   return binding
     .split('+')
     .map(key => (key === 'Primary' ? (isMac ? 'Meta' : 'Control') : key))
@@ -359,7 +538,7 @@ const electronKeys = new Map([
 
 export function electronAccelerator(binding: ShortcutBinding, isMac: boolean): string | null {
   const normalized = normalizeBinding(binding, isMac)
-  if (!normalized || normalized.endsWith('ContextMenu')) return null
+  if (!normalized || normalized.includes(' ') || normalized.endsWith('ContextMenu')) return null
   return normalized
     .split('+')
     .map(key => electronKeys.get(key) ?? key)
