@@ -16,6 +16,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
  * @import { InventoryUpdate } from '../../../electron/runtime/session/inventory-delta.ts'
  * @import { ShortcutAction } from '../../../shared/preferences/shortcuts.ts'
  * @import { ChangeKind } from '../change-rail/change-rail.ts'
+ * @import { ChangePosition } from '../../review/comparison/review-focus.js'
  */
 /** @typedef {{ node: NavigationNode, depth: number }} NavigationRow */
 /** @typedef {{ path: string } & ({ kind: 'file', requested: Set<string> } | { kind: 'directory' | 'selection' })} RevealRequest */
@@ -42,7 +43,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
 /**
  * @typedef {{
  *   iconFor?: (node: NavigationNode, expanded: boolean) => string | undefined,
- *   onOpenChange?: (file: NavigationFile) => unknown,
+ *   onOpenChange?: (file: NavigationFile, position: ChangePosition) => unknown,
  *   onPick?: () => unknown,
  *   onFolder?: () => unknown,
  *   onOutline?: (element: HTMLElement) => unknown,
@@ -153,14 +154,17 @@ export function navigationStatus(file) {
   return !status || [' ', '.'].includes(status) ? '' : status === '?' ? 'U' : status
 }
 
-/** Find the first changed file at this level before descending into the first changed subfolder.
+/**
+ * Check a folder's direct files before descending into a changed subfolder.
  * @param {NavigationNode} folder
+ * @param {ChangePosition} position
  */
-export function firstChangedFile(folder) {
+export function findChangedFile(folder, position) {
+  const find = position === 'first' ? 'find' : 'findLast'
   for (let children = folder.children; children;) {
-    const file = children.find(child => child.kind === 'file' && child.changedCount > 0)
+    const file = children[find](child => child.kind === 'file' && child.changedCount > 0)
     if (file) return file
-    children = children.find(child => child.changedCount > 0)?.children ?? null
+    children = children[find](child => child.changedCount > 0)?.children ?? null
   }
   return undefined
 }
@@ -202,7 +206,7 @@ export function createNavigator(
   onOpen,
   {
     iconFor,
-    onOpenChange = onOpen,
+    onOpenChange = file => onOpen(file),
     onPick,
     onFolder,
     onOutline,
@@ -323,13 +327,14 @@ export function createNavigator(
       if (action === 'open') {
         const node = tree.files.get(pathname) ?? tree.nodes.get(`dir:${pathname}`)
         if (node) choose(node)
-      } else if (action === 'first-change') {
+      } else if (action === 'first-change' || action === 'last-change') {
         const folder = tree.nodes.get(`dir:${pathname}`)
-        const node = folder && firstChangedFile(folder)
+        const position = action === 'first-change' ? 'first' : 'last'
+        const node = folder && findChangedFile(folder, position)
         const file = node && changes.get(node.path)
         if (!file) return
         reveal({ path: file.path, kind: 'file', requested: new Set() })
-        await onOpenChange(file)
+        await onOpenChange(file, position)
       } else await onMutate?.(action, pathname, name)
     },
     message => {

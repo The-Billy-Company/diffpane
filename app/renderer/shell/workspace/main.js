@@ -74,7 +74,7 @@ import { getWorkspacePreferences } from './preferences.ts'
 /** @import { ShortcutAction, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts' */
 /** @import { ContentMatch } from '../../explorer/project-search/content-search.ts' */
 /** @import { FunctionRange } from '../../review/comparison/function-ranges.ts' */
-/** @import { ReviewScope } from '../../review/comparison/review-focus.js' */
+/** @import { ChangePosition, ReviewScope } from '../../review/comparison/review-focus.js' */
 /** @typedef {import('monaco-editor/editor/editor.api.js').editor.IStandaloneCodeEditor} CodeEditor */
 /** @typedef {import('monaco-editor/editor/editor.api.js').editor.ITextModel} TextModel */
 /** @typedef {import('monaco-editor/editor/editor.api.js').editor.ICodeEditorViewState} ViewState */
@@ -83,7 +83,7 @@ import { getWorkspacePreferences } from './preferences.ts'
 /** @typedef {'head' | 'working'} EditorSide */
 /** @typedef {WorkspaceFile & {anchor?: string}} OpenFile */
 /** @typedef {Omit<ReviewAnchor, 'side' | 'truncated'> & {side?: EditorSide, truncated?: boolean, direct?: boolean}} FileAnchor */
-/** @typedef {{compare?: boolean, comparison?: WorkspaceComparison, review?: boolean, source?: boolean, match?: ContentMatch | null, anchor?: FileAnchor | null, ideaLink?: boolean, historyIndex?: number, focusEditor?: boolean, firstChange?: boolean}} OpenOptions */
+/** @typedef {{compare?: boolean, comparison?: WorkspaceComparison, review?: boolean, source?: boolean, match?: ContentMatch | null, anchor?: FileAnchor | null, ideaLink?: boolean, historyIndex?: number, focusEditor?: boolean, change?: ChangePosition}} OpenOptions */
 /**
  * @typedef {object} Card
  * @property {OpenFile} file
@@ -824,7 +824,7 @@ async function mutateFile(action, pathname, name) {
   }
 }
 const navigator = createNavigator(ui.navigator, api, openFile, {
-  onOpenChange: file => openFile(file, { compare: true, firstChange: true }),
+  onOpenChange: (file, change) => openFile(file, { compare: true, change }),
   onInitialScan: ready => {
     if (ready) {
       initialInventoryReady = true
@@ -1194,7 +1194,7 @@ async function openFile(
     ideaLink = false,
     historyIndex,
     focusEditor = false,
-    firstChange = false,
+    change,
   } = {},
 ) {
   if (closingRequested || closed) return false
@@ -1261,8 +1261,7 @@ async function openFile(
       } else if (!reloading && !current.loading) revealReviewAnchor(current)
       syncReviewState()
     } else if (compare) {
-      openComparison(current, comparison, file)
-      if (firstChange) current.reviewFocus.revealFirst()
+      openComparison(current, comparison, file, change)
     } else if (match) {
       current.pendingMatch = match
       current.modeVersion = (current.modeVersion ?? 0) + 1
@@ -1328,7 +1327,7 @@ async function openFile(
   ui.emptyState.hidden = true
   setSaveLabel('Autosave on')
   navigator.select(file.path)
-  if (focusReview) openComparison(card, comparison)
+  if (focusReview) openComparison(card, comparison, undefined, change)
   else {
     if (compare) {
       card.comparing = true
@@ -2529,13 +2528,14 @@ function setDocumentComparison(card, comparison) {
   return true
 }
 
-/** @param {Card} card @param {WorkspaceComparison} comparison @param {WorkspaceFile} [file] */
-function openComparison(card, comparison, file) {
+/** @param {Card} card @param {WorkspaceComparison} comparison @param {WorkspaceFile} [file] @param {ChangePosition} [change] */
+function openComparison(card, comparison, file, change) {
   card.modeVersion = (card.modeVersion ?? 0) + 1
   card.pendingMatch = null
   const reloading = setDocumentComparison(card, comparison)
   if (file) card.file = file
-  if (!card.reviewComparison || !card.comparing || reloading) {
+  const modeChanged = !card.reviewComparison || !card.comparing || reloading
+  if (modeChanged) {
     card.reviewFocus.detach()
     card.diffEditor?.updateOptions({ hideUnchangedRegions: { enabled: false } })
     card.reviewComparison = true
@@ -2545,10 +2545,9 @@ function openComparison(card, comparison, file) {
     })
     card.comparing = true
     card.markdownSource = true
-    if (card.document && !card.documentFailed && !reloading) {
-      renderCurrentDocument(card)
-    }
   }
+  if (change) card.reviewFocus.revealChange(change)
+  if (modeChanged && card.document && !card.documentFailed && !reloading) renderCurrentDocument(card)
   if (card.documentFailed) {
     card.dirty = true
     scheduleDocument()

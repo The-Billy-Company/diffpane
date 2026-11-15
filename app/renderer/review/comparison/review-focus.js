@@ -8,6 +8,7 @@ import { createReviewChangeMap } from './review-change-map.ts'
 import './review-focus.css'
 
 /** @typedef {'focus' | 'full'} ReviewScope */
+/** @typedef {'first' | 'last'} ChangePosition */
 
 const positionFormat = new Intl.NumberFormat(undefined, { numberingSystem: 'latn' })
 
@@ -109,7 +110,8 @@ export function createReviewFocus({ onScope }) {
   let replayDialog
   let index = 0
   let collapsed = false
-  let revealOnFirstDiff = false
+  /** @type {ChangePosition | null} */
+  let pendingChange = null
   /** @type {number | null} */
   let frame = null
   /** @type {number | null} */
@@ -227,13 +229,9 @@ export function createReviewFocus({ onScope }) {
     }
     setCollapsed(scope === 'focus' && hunks.length > 0)
     changeMap.update(hunks, model)
-    if (hunks.length) paint()
-    else paint({ message: 'No text changes', unchanged: true })
-    if (hunks.length && revealOnFirstDiff) {
-      revealOnFirstDiff = false
-      reveal()
-    }
-    scheduleViewport()
+    if (!hunks.length) paint({ message: 'No text changes', unchanged: true })
+    else if (pendingChange) revealChange(pendingChange)
+    else paint()
   }
 
   /** @param {-1 | 1} direction */
@@ -248,6 +246,12 @@ export function createReviewFocus({ onScope }) {
     index = target
     paint({ direction })
     reveal()
+  }
+
+  /** @param {ChangePosition} change */
+  function revealChange(change) {
+    pendingChange = hunks.length ? null : change
+    if (hunks.length) jump(change === 'first' ? 0 : hunks.length - 1)
   }
 
   /** @param {ReviewScope} value */
@@ -315,7 +319,7 @@ export function createReviewFocus({ onScope }) {
     hunks = []
     index = 0
     collapsed = false
-    revealOnFirstDiff = false
+    pendingChange = null
     bar.hidden = true
     positionNumber.animated = false
     replayButton.hidden = true
@@ -326,10 +330,7 @@ export function createReviewFocus({ onScope }) {
   return {
     bar,
     changeMap: changeMap.element,
-    revealFirst() {
-      if (hunks.length) jump(0)
-      else if (editor) revealOnFirstDiff = true
-    },
+    revealChange,
     /** @param {'HEAD' | 'Checkpoint'} value */
     setBaseline(value) {
       baseline = value === 'HEAD' ? 'Git HEAD' : value
@@ -348,11 +349,12 @@ export function createReviewFocus({ onScope }) {
      */
     attach(diffEditor, initialScope, ariaLabels, revealInitial = true) {
       if (editor === diffEditor) return
+      const initialChange = pendingChange ?? (revealInitial ? 'first' : null)
       detach()
       editor = diffEditor
       labels = ariaLabels
       scope = initialScope
-      revealOnFirstDiff = revealInitial
+      pendingChange = initialChange
       bar.hidden = false
       const original = editor.getOriginalEditor()
       const working = editor.getModifiedEditor()

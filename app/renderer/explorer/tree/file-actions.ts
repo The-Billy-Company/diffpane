@@ -9,7 +9,16 @@ interface Entry {
   changedCount: number
   file?: { submodule?: boolean } | null
 }
-type Action = 'open' | 'first-change' | 'attach' | 'rename' | 'reveal' | 'copy-path' | 'copy-relative-path' | 'trash'
+type Action =
+  | 'open'
+  | 'first-change'
+  | 'last-change'
+  | 'attach'
+  | 'rename'
+  | 'reveal'
+  | 'copy-path'
+  | 'copy-relative-path'
+  | 'trash'
 interface Api {
   fileAction: (action: 'reveal' | 'copy-path' | 'copy-relative-path', path: string) => Promise<void>
 }
@@ -130,7 +139,7 @@ export function createFileActions(
         ['trash', 'Move to Trash'],
       ]
       if (node.kind === 'directory' && node.changedCount > 0)
-        actions.splice(1, 0, ['first-change', 'Jump to First Change'])
+        actions.splice(1, 0, ['first-change', 'Jump to First Change'], ['last-change', 'Jump to Last Change'])
       if (onAttach && node.kind === 'file') actions.splice(1, 0, ['attach', 'Attach to an idea'])
       for (const [action, label] of actions) {
         const button = document.createElement('button')
@@ -146,9 +155,9 @@ export function createFileActions(
               () => {
                 if (action === 'rename') return rename(node)
                 if (action === 'attach') return onAttach?.(node.path)
-                if (action === 'trash' || action === 'open' || action === 'first-change')
-                  return mutate(action, node.path)
-                return api.fileAction(action, node.path)
+                if (action === 'reveal' || action === 'copy-path' || action === 'copy-relative-path')
+                  return api.fileAction(action, node.path)
+                return mutate(action, node.path)
               },
               { operation: label },
             )

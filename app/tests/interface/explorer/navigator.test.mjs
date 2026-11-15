@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vite-plus/test'
 import {
   buildNavigationTree,
-  firstChangedFile,
+  findChangedFile,
   flattenNavigationTree,
   navigationStatus,
 } from '../../../renderer/explorer/tree/navigator.js'
@@ -42,13 +42,15 @@ test('explorer builds naturally sorted folders and exposes only expanded descend
   assert.deepEqual(paths(flattenNavigationTree(tree, new Set())), [''])
 })
 
-test('the first change checks direct files before descending into changed subfolders', () => {
+test('first and last changes check direct files before descending into changed subfolders', () => {
   const tree = buildNavigationTree([
     file('src/file10.cc'),
     file('src/file2.cc'),
     file('src/file1.cc'),
+    file('src/file20.cc'),
     file('src/public/later/header.h'),
     file('src/public/deep/header.h'),
+    file('src/public/unused/header.h'),
     file('src/pip/clean.h'),
   ])
   for (const path of ['src/file10.cc', 'src/file2.cc', 'src/public/later/header.h', 'src/public/deep/header.h']) {
@@ -63,9 +65,12 @@ test('the first change checks direct files before descending into changed subfol
   const publicFolder = tree.nodes.get('dir:src/public')
   const pip = tree.nodes.get('dir:src/pip')
   assert.ok(src && publicFolder && pip)
-  assert.equal(firstChangedFile(src)?.path, 'src/file2.cc')
-  assert.equal(firstChangedFile(publicFolder)?.path, 'src/public/deep/header.h')
-  assert.equal(firstChangedFile(pip), undefined)
+  assert.equal(findChangedFile(src, 'first')?.path, 'src/file2.cc')
+  assert.equal(findChangedFile(src, 'last')?.path, 'src/file10.cc')
+  assert.equal(findChangedFile(publicFolder, 'first')?.path, 'src/public/deep/header.h')
+  assert.equal(findChangedFile(publicFolder, 'last')?.path, 'src/public/later/header.h')
+  assert.equal(findChangedFile(pip, 'first'), undefined)
+  assert.equal(findChangedFile(pip, 'last'), undefined)
 })
 
 test('scoped explorer retains repository-relative file paths and filters siblings', () => {
