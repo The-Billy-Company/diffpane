@@ -638,10 +638,32 @@
 }
 
 .agent-thread-detail-heading {
+  position: relative;
+  isolation: isolate;
   flex: 1;
   min-width: 0;
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--thread-divider);
+  padding: clamp(12px, 2.4vh, 18px) clamp(14px, 2.8vw, 24px);
+  border: 1px solid color-mix(in oklab, var(--mark-color) 21%, var(--line));
+  border-radius: 12px;
+  background: linear-gradient(112deg, var(--surface), color-mix(in oklab, var(--mark-color) 11%, var(--surface)));
+}
+
+.agent-thread-detail-heading::before {
+  --thread-strand: color-mix(in oklab, var(--mark-color) 32%, transparent);
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 0 auto;
+  width: min(55%, 390px);
+  border-radius: inherit;
+  background: repeating-radial-gradient(
+    ellipse 270px 135px at 104% 112%,
+    transparent 0 12px,
+    var(--thread-strand) 12.5px 13.5px,
+    transparent 14px 18px
+  );
+  mask-image: linear-gradient(115deg, transparent 12%, #000 94%);
+  pointer-events: none;
+  content: '';
 }
 
 .agent-thread-detail-meta,
