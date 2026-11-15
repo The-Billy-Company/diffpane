@@ -280,8 +280,6 @@ export function createAgentThreadPanel(
   function selectProject(path: string) {
     projectFilter = path
     applyFilters()
-    setProjectsOpen(false)
-    roster.focus({ preventScroll: true })
   }
 
   function projectButton(path: string, title: string, count: number) {

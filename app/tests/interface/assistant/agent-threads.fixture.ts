@@ -109,17 +109,31 @@ export async function run() {
     )
 
     const projects = requireElement(host, 'nav[aria-label="Projects"]', HTMLElement)
-    button(projects, 'juniper').click()
+    const juniper = button(projects, 'juniper')
+    juniper.focus()
+    juniper.click()
     assert(
-      button(host, 'Show projects').getAttribute('aria-expanded') === 'false',
-      'The project picker stayed expanded.',
+      button(host, 'Hide projects').getAttribute('aria-expanded') === 'true' && !projects.inert,
+      'Selecting a project closed the project sidebar.',
     )
+    assert(
+      document.activeElement === button(projects, 'juniper'),
+      'Selecting a project moved focus out of the sidebar.',
+    )
+    assert(!host.textContent.includes('Compare release notes'), 'The project filter did not narrow the thread list.')
+    button(projects, 'marigold').click()
+    assert(!host.textContent.includes('Inspect the parser'), 'Switching projects did not update the thread list.')
+    button(projects, 'All projects').click()
+    assert(host.textContent.includes('Inspect the parser'), 'All projects did not restore the thread list.')
+    button(projects, 'juniper').click()
+
+    button(host, 'Hide projects').click()
+    assert(button(host, 'Show projects').getAttribute('aria-expanded') === 'false', 'The sidebar did not collapse.')
     assert(projects.inert, 'The collapsed project picker stayed interactive.')
     await eventually(
       () => !projects.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) || projects.clientWidth === 0,
-      'The project picker stayed visible after selection.',
+      'The project picker stayed visible after toggling it closed.',
     )
-    assert(!host.textContent.includes('Compare release notes'), 'The project filter did not narrow the thread list.')
     button(host, 'Show projects').click()
     assert(button(host, 'Hide projects').getAttribute('aria-expanded') === 'true', 'The project picker did not reopen.')
     assert(!projects.inert, 'The reopened project picker is not interactive.')
