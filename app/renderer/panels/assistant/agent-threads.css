@@ -189,9 +189,25 @@
   border-radius: 6px;
 }
 
-.agent-thread-provider-mark svg {
-  width: 15px;
-  height: 15px;
+.agent-thread-provider-mark img {
+  display: block;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.agent-thread-provider-mark[data-provider='antigravity'] img {
+  width: 24px;
+  height: 24px;
+}
+
+.agent-thread-provider-mark .agent-thread-provider-logo-light,
+:root[data-theme='light'] .agent-thread-provider-mark[data-provider='cursor'] img:first-child {
+  display: none;
+}
+
+:root[data-theme='light'] .agent-thread-provider-mark .agent-thread-provider-logo-light {
+  display: block;
 }
 
 .agent-thread-source-copy {

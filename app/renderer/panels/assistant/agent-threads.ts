@@ -4,6 +4,11 @@ import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } fr
 import { reportError } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { drawThreadInspector, drawThreadTrail } from '../art/assistant.ts'
+import antigravityLogo from './provider-logos/antigravity.png'
+import claudeCodeLogo from './provider-logos/claude-code.png'
+import codexLogo from './provider-logos/codex.png'
+import cursorDarkLogo from './provider-logos/cursor-dark.png'
+import cursorLightLogo from './provider-logos/cursor-light.png'
 import './agent-threads.css'
 
 const glyphs = {
@@ -16,11 +21,13 @@ const glyphs = {
     '<path d="M13 6a5.1 5.1 0 0 0-8.6-1.7L2.5 6m0 0h3.3M2.5 6V2.7M3 10a5.1 5.1 0 0 0 8.6 1.7l1.9-1.7m0 0h-3.3m3.3 0v3.3"/>',
   search: '<circle cx="7" cy="7" r="4"/><path d="m10 10 3 3"/>',
   down: '<path d="M8 3.25v9.5m-3.75-3.75L8 12.75 11.75 9"/>',
-  codex: '<path d="m4 4 3 4-3 4m5 0h3"/>',
-  claude: '<path d="M8 2v12M2.8 5l10.4 6m0-6L2.8 11M5 2.8l6 10.4m0-10.4L5 13.2"/>',
-  cursor: '<path d="m3.5 2.5 9 4.5-4 1-1.5 4.5zM8.5 8l4 4.5"/>',
-  antigravity:
-    '<path d="M8 2.25A6.5 6.5 0 0 0 13.75 8 6.5 6.5 0 0 0 8 13.75 6.5 6.5 0 0 0 2.25 8 6.5 6.5 0 0 0 8 2.25Z"/>',
+}
+
+const providerLogos: Record<AgentProvider, string> = {
+  codex: codexLogo, // Codex app mark from the ChatGPT desktop bundle.
+  claude: claudeCodeLogo, // Anthropic's Claude Code VS Code extension icon.
+  antigravity: antigravityLogo, // Full-color mark from antigravity.google/press.
+  cursor: cursorDarkLogo, // 2D cube variants from cursor.com/brand.
 }
 
 const providers = ['codex', 'claude', 'antigravity', 'cursor'] satisfies AgentProvider[]
@@ -40,6 +47,15 @@ interface ThreadPanelOptions {
 
 function icon(name: keyof typeof glyphs) {
   return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyphs[name]}</svg>`
+}
+
+function providerMark(provider: AgentProvider, label = '') {
+  const attributes = label ? `role="img" aria-label="${label}" title="${label}"` : 'aria-hidden="true"'
+  const lightLogo =
+    provider === 'cursor' ? `<img class="agent-thread-provider-logo-light" src="${cursorLightLogo}" alt="">` : ''
+  return `<span class="agent-thread-provider-mark" data-provider="${provider}" ${attributes}>
+    <img src="${providerLogos[provider]}" alt="">${lightLogo}
+  </span>`
 }
 
 function node<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, className: string, text?: string) {
@@ -102,9 +118,7 @@ function renderTime(element: HTMLTimeElement, stamp: number, now: number) {
 function createThreadRow(provider: AgentProvider) {
   const button = node('button', 'agent-thread-row')
   button.type = 'button'
-  const mark = node('span', 'agent-thread-provider-mark')
-  mark.dataset.provider = provider
-  mark.innerHTML = icon(provider)
+  button.innerHTML = providerMark(provider, agentProviderNames[provider])
   const content = node('span', 'agent-thread-row-content')
   const title = node('strong', 'agent-thread-row-title')
   const activity = node('span', 'agent-thread-row-activity')
@@ -113,8 +127,7 @@ function createThreadRow(provider: AgentProvider) {
   const time = node('time', 'agent-thread-time')
   meta.append(state, time)
   content.append(title, activity)
-  mark.title = agentProviderNames[provider]
-  button.append(mark, content, meta)
+  button.append(content, meta)
   return { button, title, activity, state, time }
 }
 
@@ -157,7 +170,7 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
       ${providers
         .map(
           provider => `<button class="agent-thread-source" type="button" data-provider="${provider}" aria-pressed="false">
-            <span class="agent-thread-provider-mark" data-provider="${provider}">${icon(provider)}</span>
+            ${providerMark(provider)}
             <span class="agent-thread-source-copy"><strong>${agentProviderNames[provider]}</strong><span data-source-count>Connecting…</span></span>
           </button>`,
         )
