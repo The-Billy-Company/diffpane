@@ -263,13 +263,17 @@ function isAgentThreadList(value) {
 function isAgentThreadFile(value) {
   return isRecord(value) && isString(value.path) && optional(isPositive)(value.line)
 }
+function isAgentThreadImage(value) {
+  return isRecord(value) && isString(value.name) && optional(isString)(value.dataUrl)
+}
 function isAgentThreadEvent(value) {
   if (
     !isRecord(value) ||
     !isString(value.text) ||
     !optional(isString)(value.toolName) ||
     !optional(isString)(value.toolDescription) ||
-    !optional(arrayOf(isAgentThreadFile))(value.files)
+    !optional(arrayOf(isAgentThreadFile))(value.files) ||
+    !optional(arrayOf(isAgentThreadImage))(value.images)
   )
     return false
   return (

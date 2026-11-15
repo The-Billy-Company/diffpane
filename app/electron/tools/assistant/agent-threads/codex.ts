@@ -1,15 +1,22 @@
 import { execFile } from 'node:child_process'
+import { constants } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { promisify } from 'node:util'
-import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
+import { isAgentThreadImageDataUrl } from '../../../../shared/agent-threads.ts'
+import type { AgentThreadEvent, AgentThreadFile, AgentThreadImage } from '../../../../shared/agent-threads.ts'
+import { mediaType } from '../../../../shared/documents/media-types.ts'
+import { parseCodexPrompt } from './codex-prompt.ts'
 import { latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const run = promisify(execFile)
 const recentLimit = 40
+const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024
+// The selected transcript, including its encoded previews, is sent over Electron IPC in one response.
+const MAX_TRANSCRIPT_IMAGE_BYTES = 64 * 1024 * 1024
 const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
 const rolloutPattern = new RegExp(`^rollout-.*-(${uuid})\\.jsonl$`, 'i')
 const lockPattern = new RegExp(`^(${uuid})\\.lock$`, 'i')
@@ -42,10 +49,119 @@ function transcriptText(value: unknown): string {
     .join('\n')
 }
 
-function message(kind: 'user' | 'assistant', content: unknown): AgentThreadEvent[] {
+function assistantMessage(content: unknown): AgentThreadEvent[] {
   const text = transcriptText(content).trim()
   if (!text) return []
-  return [{ kind, text }]
+  return [{ kind: 'assistant', text }]
+}
+
+interface ImageInput {
+  path?: string
+  dataUrl?: string
+}
+
+interface EmbeddedImages {
+  text: string
+  turnId: string
+  urls: (string | undefined)[]
+}
+
+interface TranscriptImages {
+  pending?: EmbeddedImages
+  local: Map<AgentThreadImage, string>
+  remaining: number
+}
+
+function imageInputs(content: unknown): ImageInput[] {
+  if (!Array.isArray(content)) return []
+  return content.flatMap<ImageInput>(part => {
+    const input = object(part)
+    if (input?.type === 'local_image') return [{ path: string(input.path) }]
+    if (input?.type === 'image') return [{ dataUrl: string(input.url) }]
+    return []
+  })
+}
+
+function legacyImageInputs(payload: Record<string, unknown>): ImageInput[] {
+  const remote = Array.isArray(payload.images) ? payload.images.map(url => ({ dataUrl: string(url) })) : []
+  const local = Array.isArray(payload.local_images) ? payload.local_images.map(file => ({ path: string(file) })) : []
+  return [...remote, ...local]
+}
+
+function embeddedImages(payload: Record<string, unknown>): EmbeddedImages | undefined {
+  if (!Array.isArray(payload.content)) return undefined
+  const parts = payload.content.map(object)
+  const urls = parts.flatMap(part =>
+    part?.type === 'input_image' ? [isAgentThreadImageDataUrl(part.image_url) ? part.image_url : undefined] : [],
+  )
+  if (!urls.length) return undefined
+  const text = parts
+    .flatMap((part, index) => {
+      if (part?.type !== 'input_text') return []
+      const value = string(part.text)
+      if (value.startsWith('<image ') && parts[index + 1]?.type === 'input_image') return []
+      if (value === '</image>' && parts[index - 1]?.type === 'input_image') return []
+      return value ? [value] : []
+    })
+    .join('\n')
+    .trim()
+  const turnId = string(object(payload.internal_chat_message_metadata_passthrough)?.turn_id)
+  return { text, turnId, urls }
+}
+
+function attachImageData(image: AgentThreadImage, url: unknown, images: TranscriptImages) {
+  if (isAgentThreadImageDataUrl(url) && url.length <= images.remaining) {
+    image.dataUrl = url
+    images.remaining -= url.length
+  }
+}
+
+function userMessage(
+  content: unknown,
+  inputs: ImageInput[],
+  turnId: string,
+  transcript?: TranscriptImages,
+): AgentThreadEvent[] {
+  const raw = transcriptText(content).trim()
+  const { text, files, imageNames } = parseCodexPrompt(raw)
+  const pending = transcript?.pending
+  if (transcript) transcript.pending = undefined
+  const embedded =
+    pending?.text === raw && (!pending.turnId || !turnId || pending.turnId === turnId) ? pending.urls : []
+  const images: AgentThreadImage[] = []
+  if (transcript) {
+    const count = Math.max(inputs.length, imageNames?.length ?? 0, embedded.length)
+    for (let index = 0; index < count; index++) {
+      const input = inputs[index]
+      const filename = input?.path
+      const name = filename?.match(/[^\\/]+$/u)?.[0] ?? imageNames?.[index] ?? `Image ${index + 1}`
+      const image: AgentThreadImage = { name }
+      attachImageData(image, embedded[index] ?? input?.dataUrl, transcript)
+      if (!image.dataUrl && filename && path.isAbsolute(filename)) transcript.local.set(image, filename)
+      images.push(image)
+    }
+  }
+  if (!text && !files?.length && !images.length) return []
+  return [{ kind: 'user', text, ...(files?.length ? { files } : {}), ...(images.length ? { images } : {}) }]
+}
+
+async function localImageUrl(filename: string, remaining: number): Promise<string | undefined> {
+  const type = mediaType(filename)
+  if (!type?.startsWith('image/') || type === 'image/svg+xml') return undefined
+  const prefix = `data:${type};base64,`
+  if (remaining <= prefix.length) return undefined
+  try {
+    await using file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
+    const info = await file.stat()
+    const encodedSize = Math.ceil(info.size / 3) * 4 + prefix.length
+    if (!info.isFile() || !info.size || info.size > MAX_LOCAL_IMAGE_BYTES || encodedSize > remaining) return undefined
+    const buffer = Buffer.allocUnsafe(info.size)
+    const { bytesRead } = await file.read(buffer)
+    return bytesRead === info.size ? prefix + buffer.toString('base64') : undefined
+  } catch {
+    // Desktop screenshot paths may have expired since the prompt was recorded.
+    return undefined
+  }
 }
 
 function reasoningSummary(item: Record<string, unknown>, seen: Set<string>): AgentThreadEvent[] {
@@ -116,10 +232,8 @@ function commandEvent(item: Record<string, unknown>, cwd: string, summary = fals
 
 function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean): AgentThreadEvent[] {
   switch (item.type) {
-    case 'UserMessage':
-      return message('user', item.content)
     case 'AgentMessage':
-      return message('assistant', item.content)
+      return assistantMessage(item.content)
     case 'FileChange':
       if (item.status === 'failed' || item.status === 'declined') return []
       return edit(item.changes, cwd)
@@ -143,19 +257,29 @@ function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean)
 function parseRollout(
   record: unknown,
   cwd: string,
-  { summary = false, seenReasoning }: { summary?: boolean; seenReasoning?: Set<string> },
+  {
+    summary = false,
+    seenReasoning,
+    images,
+  }: { summary?: boolean; seenReasoning?: Set<string>; images?: TranscriptImages },
 ): AgentThreadEvent[] {
   const entry = object(record)
   const payload = object(entry?.payload)
   if (!payload) return []
-  // Older rollouts may store user-visible reasoning summaries only in response items.
-  if (entry?.type === 'response_item' && payload.type === 'reasoning' && seenReasoning)
-    return reasoningSummary(payload, seenReasoning)
+  if (entry?.type === 'response_item') {
+    // Older rollouts may store user-visible reasoning summaries only in response items.
+    if (payload.type === 'reasoning' && seenReasoning) return reasoningSummary(payload, seenReasoning)
+    // The model input contains the stored image bytes. Its text can also contain private context.
+    if (images && payload.type === 'message' && payload.role === 'user') images.pending = embeddedImages(payload)
+    return []
+  }
   if (entry?.type !== 'event_msg') return []
   switch (payload.type) {
     case 'item_completed': {
       const item = object(payload.item)
       if (item?.type === 'Reasoning' && seenReasoning) return reasoningSummary(item, seenReasoning)
+      if (item?.type === 'UserMessage')
+        return userMessage(item.content, images ? imageInputs(item.content) : [], string(payload.turn_id), images)
       return item ? parseItem(item, cwd, summary) : []
     }
     case 'item_started': {
@@ -164,20 +288,23 @@ function parseRollout(
       return parseItem(item, cwd, summary)
     }
     case 'user_message':
-      return message('user', payload.message)
+      return userMessage(payload.message, images ? legacyImageInputs(payload) : [], string(payload.turn_id), images)
     case 'agent_message':
-      return message('assistant', payload.message)
+      return assistantMessage(payload.message)
     case 'patch_apply_end':
       return payload.success === true ? edit(payload.changes, cwd) : []
     case 'exec_command_end':
       return commandEvent(payload, cwd, summary)
     case 'task_started':
     case 'turn_started':
+      if (images) images.pending = undefined
       return [{ kind: 'status', text: 'Turn started' }]
     case 'task_complete':
     case 'turn_completed':
+      if (images) images.pending = undefined
       return [{ kind: 'status', text: 'Turn finished' }]
     case 'turn_aborted':
+      if (images) images.pending = undefined
       return [{ kind: 'status', text: 'Turn interrupted' }]
     case 'error': {
       const text = string(payload.message)
@@ -420,10 +547,21 @@ export const codexSource: AgentThreadSource = {
     return threads.filter(thread => thread !== undefined)
   },
   open(thread) {
-    return readJsonLines(thread.locator, () => {
-      const seenReasoning = new Set<string>()
-      return record => parseRollout(record, thread.cwd, { seenReasoning })
-    })
+    return {
+      async read() {
+        const images: TranscriptImages = { local: new Map(), remaining: MAX_TRANSCRIPT_IMAGE_BYTES }
+        const reader = readJsonLines(thread.locator, () => {
+          const seenReasoning = new Set<string>()
+          return record => parseRollout(record, thread.cwd, { seenReasoning, images })
+        })
+        const events = await reader.read()
+        for (const [image, filename] of images.local) {
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Apply the byte budget before opening the next image.
+          attachImageData(image, await localImageUrl(filename, images.remaining), images)
+        }
+        return events
+      },
+    }
   },
   async summarize(thread) {
     const records = await recentJsonRecords(thread.locator)

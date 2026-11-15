@@ -31,10 +31,23 @@ export interface AgentThreadFile {
   line?: number
 }
 
+export interface AgentThreadImage {
+  name: string
+  dataUrl?: string
+}
+
+export function isAgentThreadImageDataUrl(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^data:image\/(?:png|apng|jpeg|gif|webp|avif|bmp|x-icon);base64,[a-z0-9+/]/i.test(value)
+  )
+}
+
 export interface AgentThreadEvent {
   kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'edit' | 'status' | 'notice'
   text: string
   files?: AgentThreadFile[]
+  images?: AgentThreadImage[]
   toolName?: string
   toolDescription?: string
 }

@@ -7,7 +7,8 @@ import '../../../renderer/shell/workspace/style.css'
 import '../../../renderer/shell/workspace/theme-tokens.css'
 import '../../../renderer/shell/workspace/theme.css'
 
-const { document, window, HTMLElement, HTMLDivElement, HTMLInputElement, HTMLDetailsElement, Event } = globalThis
+const { document, window, HTMLElement, HTMLDivElement, HTMLImageElement, HTMLInputElement, HTMLDetailsElement, Event } =
+  globalThis
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)
@@ -264,6 +265,18 @@ export async function run(longCommand: string) {
       () => host.textContent.includes('This arrived after the snapshot.'),
       'Manual refresh did not reload the conversation.',
     )
+
+    const screenshot = requireElement(host, 'img[alt="Parser screenshot.png"]', HTMLImageElement)
+    await eventually(
+      () => screenshot.naturalWidth === 2 && screenshot.naturalHeight === 1,
+      'The screenshot did not decode.',
+    )
+    const imageTurn = screenshot.closest('.agent-thread-turn[data-role="user"]')
+    assert(
+      imageTurn && !imageTurn.querySelector('.agent-thread-prompt'),
+      'An image-only turn should have no empty prompt bubble.',
+    )
+    assert(imageTurn.textContent.includes('Unavailable screenshot.png'), 'The missing screenshot was not labeled.')
 
     const map = requireElement(host, '.agent-thread-minimap', HTMLElement)
     await eventually(() => map.checkVisibility(), 'The thread map did not appear for the long conversation.')

@@ -32,7 +32,21 @@ const snapshot: AgentThreadEvent[] = [
   },
   { kind: 'status', text: 'Turn finished' },
 ]
-const newEvents: AgentThreadEvent[] = [{ kind: 'assistant', text: 'This arrived after the snapshot.' }]
+const newEvents: AgentThreadEvent[] = [
+  { kind: 'assistant', text: 'This arrived after the snapshot.' },
+  {
+    kind: 'user',
+    text: '',
+    images: [
+      {
+        name: 'Parser screenshot.png',
+        dataUrl:
+          'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGPwa1tXvuYgAAqvA2cKS3ZXAAAAAElFTkSuQmCC',
+      },
+      { name: 'Unavailable screenshot.png' },
+    ],
+  },
+]
 for (let turn = 1; turn <= 12; turn++) {
   newEvents.push(
     { kind: 'user', text: `Can you check parser example ${turn}?` },

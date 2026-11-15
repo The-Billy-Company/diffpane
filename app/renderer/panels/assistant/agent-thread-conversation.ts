@@ -1,5 +1,10 @@
-import { agentProviderNames } from '../../../shared/agent-threads.ts'
-import type { AgentProvider, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
+import { agentProviderNames, isAgentThreadImageDataUrl } from '../../../shared/agent-threads.ts'
+import type {
+  AgentProvider,
+  AgentThreadEvent,
+  AgentThreadFile,
+  AgentThreadImage,
+} from '../../../shared/agent-threads.ts'
 import { renderAssistantMarkdown } from './assistant-content.js'
 import './agent-thread-conversation.css'
 
@@ -39,6 +44,24 @@ function fileReferences(files: readonly AgentThreadFile[], onOpenFile: Conversat
     references.append(reference)
   }
   return references
+}
+
+function imageAttachments(images: readonly AgentThreadImage[]) {
+  const attachments = node('div', 'agent-thread-images')
+  for (const { name, dataUrl } of images) {
+    const unavailable = () => node('span', 'agent-thread-image-unavailable', `${name} · Preview unavailable`)
+    if (!isAgentThreadImageDataUrl(dataUrl)) {
+      attachments.append(unavailable())
+      continue
+    }
+    const image = node('img', 'agent-thread-image')
+    image.alt = name
+    image.decoding = 'async'
+    image.addEventListener('error', () => image.replaceWith(unavailable()), { once: true })
+    image.src = dataUrl
+    attachments.append(image)
+  }
+  return attachments
 }
 
 function turn(role: 'user' | 'assistant', author: string, providerMark?: HTMLElement) {
@@ -205,7 +228,8 @@ function renderTurns(events: readonly AgentThreadEvent[], { provider, providerMa
     }
     const hasText = Boolean(event.text.trim())
     const files = event.files ?? []
-    if (!hasText && !files.length) continue
+    const images = event.images ?? []
+    if (!hasText && !files.length && !images.length) continue
     flushTools()
     if (event.kind === 'thinking') {
       if (hasText) replyBody().append(thinkingDisclosure(event.text))
@@ -222,13 +246,16 @@ function renderTurns(events: readonly AgentThreadEvent[], { provider, providerMa
       body = replyBody()
       if (hasText) body.append(assistantMarkdown(event.text))
     }
+    if (images.length) body.append(imageAttachments(images))
     if (files.length) body.append(fileReferences(files, onOpenFile))
   }
   flushTools()
   if (
     events.some(event => event.kind === 'tool' || event.kind === 'edit') &&
     !events.some(
-      event => (event.kind === 'assistant' || event.kind === 'user' || event.kind === 'thinking') && event.text.trim(),
+      event =>
+        (event.kind === 'assistant' || event.kind === 'user' || event.kind === 'thinking') &&
+        (event.text.trim() || event.images?.length),
     )
   ) {
     list.prepend(

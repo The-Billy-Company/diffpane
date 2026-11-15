@@ -7,6 +7,7 @@ import type {
   AgentThread,
   AgentThreadEvent,
   AgentThreadFile,
+  AgentThreadImage,
   AgentThreadList,
   AgentThreadStatus,
 } from '../../../shared/agent-threads.ts'
@@ -370,13 +371,18 @@ function isAgentThreadFile(value: unknown): value is AgentThreadFile {
   return isRecord(value) && isString(value.path) && optional(isPositive)(value.line)
 }
 
+function isAgentThreadImage(value: unknown): value is AgentThreadImage {
+  return isRecord(value) && isString(value.name) && optional(isString)(value.dataUrl)
+}
+
 function isAgentThreadEvent(value: unknown): value is AgentThreadEvent {
   if (
     !isRecord(value) ||
     !isString(value.text) ||
     !optional(isString)(value.toolName) ||
     !optional(isString)(value.toolDescription) ||
-    !optional(arrayOf(isAgentThreadFile))(value.files)
+    !optional(arrayOf(isAgentThreadFile))(value.files) ||
+    !optional(arrayOf(isAgentThreadImage))(value.images)
   )
     return false
   return (
