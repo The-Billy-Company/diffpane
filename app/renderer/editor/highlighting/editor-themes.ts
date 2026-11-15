@@ -135,6 +135,8 @@ const editorRoles = {
   'diffEditor.insertedLineBackground': 'transparent',
   'diffEditor.removedLineBackground': 'transparent',
   'diffEditor.diagonalFill': 'transparent',
+  'diffEditor.move.border': 'editorChromeIcon',
+  'diffEditor.moveActive.border': 'violet',
   'diffEditorGutter.insertedLineBackground': 'addedGutter',
   'diffEditorGutter.removedLineBackground': 'removedGutter',
   'diffEditorOverview.insertedForeground': 'addedEdge',

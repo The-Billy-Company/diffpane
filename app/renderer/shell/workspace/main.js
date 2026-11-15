@@ -2601,6 +2601,7 @@ function setCardEditor(card, state) {
       renderGutterMenu: false,
       renderOverviewRuler: false,
       hideUnchangedRegions: { enabled: false },
+      experimental: { showMoves: true },
       maxComputationTime: 150,
       maxFileSize: 2,
       enableSplitViewResizing: true,

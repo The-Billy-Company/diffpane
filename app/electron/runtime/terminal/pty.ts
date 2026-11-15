@@ -134,7 +134,7 @@ function shellSettings() {
   }
 
   const shell = unixShell(user.shell)
-  // Login profiles can add user tools. Exclude launcher paths such as a repository's npm bin directory.
+  // Login profiles can add user tools. Exclude launcher paths such as a repository's node_modules/.bin directory.
   Object.assign(env, {
     PATH: (process.platform === 'darwin' ? macOsPath : standardUnixPath).join(':'),
     HOME: user.homedir,

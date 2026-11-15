@@ -1,9 +1,9 @@
-import { execFileSync, spawn } from 'node:child_process'
-import { constants } from 'node:fs'
-import { chmod, cp, lstat, mkdir, mkdtemp, writeFile, rename, readFile, readlink, rm, symlink } from 'node:fs/promises'
+import { execFile, execFileSync, spawn } from 'node:child_process'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { packager } from '@electron/packager'
 import { appError } from '../../shared/recovery/app-errors.ts'
 import { setupHowMany } from '../dependencies/setup-howmany.ts'
@@ -68,6 +68,36 @@ const identity = signingIdentity()
 const adHoc = identity === '-'
 if (adHoc) console.warn('Using ad hoc signing. macOS may ask for Diffpane Keychain access again after a rebuild.')
 
+const execute = promisify(execFile)
+const languageServerPackages = ['basedpyright', 'typescript', 'typescript-language-server']
+const languageServerPaths = languageServerPackages.map(name => `node_modules/${name}`)
+const copyExclusions = [
+  '*README.md',
+  '*.test.mjs',
+  '*.test.ts',
+  '.DS_Store',
+  '.git',
+  'package-lock.json',
+  'pnpm-lock.yaml',
+  'yarn.lock',
+  '*.o',
+  '*.obj',
+  'node_gyp_bins',
+]
+
+async function copyPayloads(target: string, sources: string[], exclusions: string[] = []) {
+  await execute('/usr/bin/rsync', [
+    '--recursive',
+    '--relative',
+    '--perms',
+    '--copy-links',
+    ...[...copyExclusions, ...exclusions].map(pattern => `--exclude=${pattern}`),
+    '--',
+    ...sources,
+    `${target}/`,
+  ])
+}
+
 async function buildRenderer() {
   const child = spawn('pnpm', ['run', 'build'], { stdio: 'inherit' })
   await new Promise<void>((resolve, reject) => {
@@ -117,36 +147,43 @@ const [bundle] = await (async () => {
             throw error
           })
           if (info?.isFile()) await chmod(helper, (info.mode & 0o777) | 0o111)
-          // Child processes already use these physical paths. Move the staged
-          // payloads directly so ASAR does not index and copy them a second time.
+          // Copy the large trees in one native pass per destination. Packager
+          // still prunes the dependencies that Electron loads from ASAR.
           const unpacked = `${buildPath}.asar.unpacked`
-          await Promise.all([
-            mkdir(path.join(unpacked, 'node_modules'), { recursive: true }),
-            mkdir(path.join(unpacked, 'resources'), { recursive: true }),
+          await mkdir(unpacked, { recursive: true })
+          // Packager's production filter keeps the empty package roots even
+          // when their contents are excluded.
+          const copies = await Promise.allSettled([
+            copyPayloads(buildPath, ['dist']),
+            copyPayloads(
+              unpacked,
+              [...languageServerPaths, 'resources/howmany'],
+              [
+                '/node_modules/basedpyright/dist/pyright.js',
+                '/node_modules/basedpyright/dist/pyright.js.map',
+                '/node_modules/basedpyright/dist/pyright-langserver.js.map',
+                '/node_modules/typescript/bin/tsc',
+                '/node_modules/typescript/lib/tsc.js',
+                '/node_modules/typescript/lib/_tsc.js',
+                '/node_modules/typescript-language-server/lib/cli.mjs.map',
+                '/resources/howmany/build.json',
+              ],
+            ),
+            ...languageServerPaths.map(directory =>
+              rm(path.join(buildPath, directory), { recursive: true, force: true }),
+            ),
           ])
-          for (const directory of [
-            'node_modules/basedpyright',
-            'node_modules/typescript',
-            'node_modules/typescript-language-server',
-            'resources/howmany',
-          ]) {
-            // oxlint-disable-next-line eslint/no-await-in-loop -- Finish each move before staging the next packaged payload.
-            await rename(path.join(buildPath, directory), path.join(unpacked, directory))
+          for (const copy of copies) {
+            if (copy.status === 'rejected') throw appError(copy.reason, { operation: 'prepare-install' })
           }
         },
       ],
       ignore: [
-        /^\/(?!(?:app|dist|legal|node_modules|resources)(?:\/|$)|package\.json$)/,
+        /^\/(?!(?:app|legal|node_modules)(?:\/|$)|package\.json$)/,
         /^\/app\/(?!(?:electron|shared)(?:\/|$))/,
-        /^\/resources\/(?!howmany(?:\/|$))/,
-        /^\/resources\/howmany\/build\.json$/,
         /^\/node_modules\/\.vite[^/]*(?:\/|$)/,
         /^\/node_modules\/node-pty\/prebuilds\/(?!darwin-)/,
-        // Ship the language servers and their standard libraries without CLI-only
-        // compiler entry points and source maps.
-        /^\/node_modules\/basedpyright\/dist\/(?:pyright\.js|pyright(?:-langserver)?\.js\.map)$/,
-        /^\/node_modules\/typescript\/(?:bin\/tsc|lib\/_?tsc\.js)$/,
-        /^\/node_modules\/typescript-language-server\/lib\/cli\.mjs\.map$/,
+        new RegExp(`^/node_modules/(?:${languageServerPackages.join('|')})/`),
         /README\.md$/,
         /\.test\.(mjs|ts)$/,
       ],
@@ -168,11 +205,8 @@ let shortcutCreated = false
 let backup = false
 let appInstalled = false
 try {
-  await cp(app, stagedApp, {
-    recursive: true,
-    verbatimSymlinks: true,
-    mode: constants.COPYFILE_FICLONE,
-  })
+  // macOS cp clones files on APFS and falls back to copying across volumes.
+  await execute('/bin/cp', ['-cR', app, stagedApp])
   if (adHoc) execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp], { stdio: 'inherit' })
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagedApp], { stdio: 'inherit' })
   // Signature verification alone does not check whether Electron can load and launch the native code.

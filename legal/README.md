@@ -2,7 +2,7 @@
 doc_radar:
   sentinels:
     - file: app/tooling/distribution/install.ts
-      contains: ['dist|legal|node_modules']
+      contains: ['legal|node_modules']
 ---
 
 # Third-party notices

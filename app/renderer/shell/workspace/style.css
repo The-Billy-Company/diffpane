@@ -862,6 +862,25 @@ button svg,
 .monaco-diff-editor .delete-sign {
   color: var(--removed);
 }
+.monaco-diff-editor .moved-blocks-lines path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.monaco-diff-editor .diff-moved-code-block {
+  --vscode-disabledForeground: var(--muted);
+}
+.monaco-diff-editor .diff-moved-code-block .action-label {
+  font-size: var(--text-caption);
+}
+.monaco-diff-editor .diff-moved-code-block .action-item:not(.disabled) .action-label {
+  border-radius: 4px;
+  color: var(--violet);
+
+  &:is(:hover, :focus-visible, .checked) {
+    background-color: var(--violet-surface);
+  }
+}
 .monaco-editor .margin-view-overlays .current-line-margin {
   border: 0;
 }
