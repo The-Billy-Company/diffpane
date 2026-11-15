@@ -13,6 +13,7 @@ app.setPath('userData', profile)
 app.setAppLogsPath(path.join(profile, 'logs'))
 
 const route = '/__agent-threads-integration__'
+const longCommand = `cat fixtures/${'greeting'.repeat(200)}.txt && printf 'Parser fixture read\\n'`
 const snapshot: AgentThreadEvent[] = [
   { kind: 'user', text: 'How does the parser handle a greeting?' },
   { kind: 'thinking', text: 'I’ll inspect the **greeting fixture**.' },
@@ -20,7 +21,8 @@ const snapshot: AgentThreadEvent[] = [
     kind: 'tool',
     toolName: 'exec_command',
     toolDescription: 'Check the parser fixture',
-    text: 'cat fixtures/greeting.txt',
+    text: longCommand,
+    files: [{ path: '/projects/juniper/fixtures/greeting.txt' }],
   },
   { kind: 'tool', toolName: 'apply_patch', toolDescription: 'Add a parser example', text: 'Update docs/parser.md' },
   { kind: 'thinking', text: 'The fixture confirms the expected value.' },
@@ -81,7 +83,7 @@ async function run(): Promise<void> {
     })
     await browser.loadURL(new URL(route, url).href)
     await browser.webContents.executeJavaScript(
-      'import("/tests/interface/assistant/agent-threads.fixture.ts").then(module => module.run())',
+      `import("/tests/interface/assistant/agent-threads.fixture.ts").then(module => module.run(${JSON.stringify(longCommand)}))`,
     )
     console.info('Agent Threads integration passed.')
   } finally {

@@ -41,7 +41,7 @@ async function eventually(condition: () => unknown, message: string): Promise<vo
   }
 }
 
-export async function run() {
+export async function run(longCommand: string) {
   const app = requireElement(document, '#app', HTMLDivElement)
   const workspace = document.createElement('section')
   const host = document.createElement('main')
@@ -85,8 +85,9 @@ export async function run() {
       return bridge.read(id, selection)
     },
     clear: async () => {},
-    file: async () => {
-      throw new Error('The fixture does not expose files.')
+    file: async (_selection, path) => {
+      assert(path === '/projects/juniper/fixtures/greeting.txt', 'The tool file reference sent the wrong path.')
+      return { kind: 'preview', text: 'Hello from the parser fixture.', limited: false }
     },
   }
   const panel = createAgentThreadPanel(host, {
@@ -203,8 +204,54 @@ export async function run() {
         tools.textContent.includes('Add a parser example'),
       'The expanded tool calls are missing source names or descriptions.',
     )
+    const conversation = requireElement(host, '.agent-thread-conversation', HTMLElement)
     const raw = requireElement(tools, '.agent-thread-tool-detail', HTMLDetailsElement)
     assert(!raw.open, 'Opening the tool group exposed raw command details.')
+    const rowSummary = requireElement(raw, ':scope > summary', HTMLElement)
+    assert(
+      rowSummary.textContent.includes('exec_command') && rowSummary.textContent.includes('Check the parser fixture'),
+      'The tool row description was missing from its disclosure.',
+    )
+    const { top, width } = rowSummary.getBoundingClientRect()
+    rowSummary.focus({ preventScroll: true })
+    rowSummary.click()
+    await eventually(
+      () => raw.open && raw.querySelector('.agent-thread-tool-raw'),
+      'Opening a tool row did not expose its command.',
+    )
+    const command = requireElement(raw, '.agent-thread-tool-raw', HTMLElement)
+    assert(command.textContent === longCommand, 'Opening the tool row changed the saved command.')
+    assert(command.scrollWidth <= command.clientWidth + 1, 'The long command did not wrap within its code block.')
+    const groupBounds = tools.getBoundingClientRect()
+    const commandBounds = command.getBoundingClientRect()
+    assert(
+      commandBounds.left >= groupBounds.left && commandBounds.right <= groupBounds.right,
+      'The expanded command overflowed the tool group.',
+    )
+    assert(
+      conversation.scrollLeft === 0 && conversation.scrollWidth === conversation.clientWidth,
+      'Opening the command made the conversation scroll horizontally.',
+    )
+    const openedBounds = rowSummary.getBoundingClientRect()
+    assert(
+      Math.abs(openedBounds.top - top) <= 1 &&
+        Math.abs(openedBounds.width - width) <= 1 &&
+        document.activeElement === rowSummary,
+      'Opening the command moved its tool row or focus.',
+    )
+    rowSummary.click()
+    assert(!raw.open && tools.open, 'Closing a tool row also closed the tool group.')
+    const reference = button(tools, 'greeting.txt')
+    reference.click()
+    await eventually(
+      () => host.textContent.includes('Hello from the parser fixture.'),
+      'The tool file reference did not open a preview.',
+    )
+    button(host, 'Close file preview').click()
+    assert(
+      document.activeElement === reference,
+      'Closing the preview did not restore focus to the tool file reference.',
+    )
 
     await delay(3_200)
     assert(lists === 1 && reads === 1, 'Agent Threads polled for updates.')
@@ -231,7 +278,6 @@ export async function run() {
       'The thread map did not show each kind of activity in the conversation.',
     )
 
-    const conversation = requireElement(host, '.agent-thread-conversation', HTMLElement)
     const maxScroll = conversation.scrollHeight - conversation.clientHeight
     const minPosition = Number(position.min || 0)
     const maxPosition = Number(position.max || 100)

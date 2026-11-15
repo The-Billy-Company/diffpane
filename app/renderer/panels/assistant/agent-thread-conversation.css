@@ -10,9 +10,10 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden auto;
   overscroll-behavior: contain;
   scrollbar-color: var(--scrollbar) transparent;
+  scrollbar-gutter: stable both-edges;
   scrollbar-width: thin;
   user-select: text;
 }
@@ -34,10 +35,11 @@
   --thread-author-label-gap: 10px;
   --author-indent: calc(var(--thread-avatar-size) + var(--thread-author-label-gap));
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 30px;
-  width: min(100%, 860px);
+  width: min(100%, var(--thread-reading-width));
   margin-inline: auto;
-  padding: 30px clamp(20px, 5vw, 50px) 64px;
+  padding: 30px var(--thread-reading-gutter) 64px;
 }
 
 .agent-thread-turn {
@@ -93,6 +95,7 @@
 .agent-thread-turn-body {
   --thread-body-gap: 12px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--thread-body-gap);
   min-width: 0;
   max-width: 100%;
@@ -123,7 +126,7 @@
   }
 
   .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-tool-group {
-    --thread-marker-center: 16.5px;
+    --thread-marker-center: 19px;
     --thread-marker-radius: 2px;
     --thread-marker-fill: color-mix(in oklab, var(--thread-trail-color) 24%, var(--workbench-background));
     --thread-trail-offset: calc(var(--thread-avatar-size) / 2 - var(--author-indent) - 1px);
@@ -218,46 +221,58 @@
 }
 
 .agent-thread-tool-group {
-  width: fit-content;
   min-width: 0;
-  max-width: 100%;
   border: 1px solid var(--line);
   border-radius: 9px;
-  background: color-mix(in oklab, var(--surface-raised) 55%, var(--surface));
+  background: var(--surface);
   color: var(--muted);
   font-size: var(--text-label);
   line-height: var(--leading-ui);
 }
 
-.agent-thread-tool-group[open] {
-  width: 100%;
-}
-
-.agent-thread-tool-summary {
+.agent-thread-tool-summary,
+.agent-thread-tool-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   min-width: 0;
-  padding: 7px 10px;
-  border-radius: 8px;
+  min-height: 36px;
+  padding: 8px 12px;
   list-style: none;
 }
 
-summary.agent-thread-tool-summary,
-.agent-thread-tool-detail > summary {
+.agent-thread-tool-summary {
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--surface-raised) 65%, var(--surface));
+}
+
+.agent-thread-tool-group[open] > .agent-thread-tool-summary {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.agent-thread-tool-group:not([open]) > .agent-thread-tool-entry .agent-thread-tool-row {
+  border-radius: 8px;
+}
+
+summary:is(.agent-thread-tool-summary, .agent-thread-tool-row) {
   cursor: pointer;
 }
 
-summary.agent-thread-tool-summary::-webkit-details-marker {
+summary:is(.agent-thread-tool-summary, .agent-thread-tool-row)::-webkit-details-marker {
   display: none;
 }
 
-summary.agent-thread-tool-summary:hover {
+summary:is(.agent-thread-tool-summary, .agent-thread-tool-row):is(:hover, :focus-visible) {
   background: var(--hover);
   color: var(--text);
 }
 
-summary.agent-thread-tool-summary::after {
+summary:is(.agent-thread-tool-summary, .agent-thread-tool-row):focus-visible {
+  outline-offset: -2px;
+}
+
+:is(.agent-thread-tool-summary, .agent-thread-tool-row)::after {
   flex: none;
   width: 6px;
   height: 6px;
@@ -268,8 +283,17 @@ summary.agent-thread-tool-summary::after {
   content: '';
 }
 
-.agent-thread-tool-group[open] > summary::after {
+.agent-thread-tool-row:not(summary)::after {
+  visibility: hidden;
+}
+
+.agent-thread-tool-group[open] > summary::after,
+.agent-thread-tool-detail[open] > summary::after {
   transform: translateY(1.5px) rotate(225deg);
+}
+
+.agent-thread-tool-detail[open] {
+  padding-bottom: 10px;
 }
 
 .agent-thread-tool-icon {
@@ -288,77 +312,57 @@ summary.agent-thread-tool-summary::after {
 .agent-thread-tool-copy {
   display: flex;
   flex: 1;
-  flex-wrap: wrap;
   align-items: baseline;
-  gap: 1px 8px;
+  gap: 2px 9px;
   min-width: 0;
+}
+
+.agent-thread-tool-row .agent-thread-tool-copy {
+  display: grid;
+}
+
+.agent-thread-tool-row .agent-thread-tool-copy:has(.agent-thread-tool-preview) {
+  grid-template-columns: minmax(94px, 18%) minmax(0, 1fr);
 }
 
 .agent-thread-tool-name {
   color: var(--text);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
 }
 
-.agent-thread-tool-preview {
+.agent-thread-tool-summary .agent-thread-tool-preview,
+.agent-thread-tool-detail .agent-thread-tool-preview {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-thread-tool-group[open] .agent-thread-tool-preview {
-  white-space: normal;
-}
-
 .agent-thread-tool-list {
-  display: grid;
-  gap: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.agent-thread-tool-entry,
-.agent-thread-tool-group > .agent-thread-tool-contents {
-  padding: 9px 11px;
+.agent-thread-tool-list > .agent-thread-tool-entry {
   border-top: 1px solid var(--line);
 }
 
-.agent-thread-tool-description {
-  margin: 2px 0 0;
-  white-space: pre-wrap;
-}
-
-.agent-thread-tool-detail {
-  margin-top: 5px;
-}
-
-.agent-thread-tool-detail > summary {
-  width: fit-content;
-  padding-block: 1px;
-}
-
-.agent-thread-tool-detail > summary:hover {
-  color: var(--text);
-}
-
 .agent-thread-tool-raw {
-  max-height: 260px;
-  margin: 0;
+  max-height: min(240px, 40vh);
+  margin: 0 12px;
   padding: 10px;
-  overflow: auto;
+  overflow: hidden auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-inset);
   color: var(--text);
   font: var(--text-label) / 1.55 var(--editor-font, var(--font-mono));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
   scrollbar-color: var(--scrollbar) transparent;
   scrollbar-width: thin;
   tab-size: 2;
-}
-
-.agent-thread-tool-detail .agent-thread-tool-raw {
-  margin-top: 4px;
 }
 
 .agent-thread-references {
@@ -368,9 +372,8 @@ summary.agent-thread-tool-summary::after {
   min-width: 0;
 }
 
-.agent-thread-tool-raw + .agent-thread-references,
 .agent-thread-tool-entry > .agent-thread-references {
-  margin-top: 6px;
+  padding: 0 12px 10px;
 }
 
 .agent-thread-reference,
@@ -556,5 +559,9 @@ button.agent-thread-reference:hover,
 
   .agent-thread-turn[data-role='user'] {
     max-width: 94%;
+  }
+
+  .agent-thread-tool-row .agent-thread-tool-copy:has(.agent-thread-tool-preview) {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

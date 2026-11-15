@@ -79,23 +79,52 @@ function thinkingDisclosure(text: string) {
 
 function describeTool(event: AgentThreadEvent) {
   const name = event.toolName ?? (event.kind === 'edit' ? 'File change' : 'Tool call')
-  const description = event.toolDescription?.trim() ?? ''
   const text = event.text.trimEnd()
-  return { name, description, raw: text === description || text === name ? '' : text, files: event.files ?? [] }
+  const raw = text && text !== name ? event.text : ''
+  const description = event.toolDescription?.trim()
+  const preview =
+    description && description !== name ? description : (raw.trimStart().split('\n', 1)[0]?.slice(0, 180) ?? '')
+  return { name, preview, raw, files: event.files ?? [] }
 }
 
 type ToolCall = ReturnType<typeof describeTool>
 
-function toolContents(tool: ToolCall, onOpenFile: ConversationOptions['onOpenFile']) {
-  const contents = node('div', 'agent-thread-tool-contents')
+function toolHeading(tag: 'summary' | 'div', className: string, name: string, preview: string, showIcon = false) {
+  const heading = node(tag, className)
+  if (showIcon) {
+    const icon = node('span', 'agent-thread-tool-icon', '›_')
+    icon.setAttribute('aria-hidden', 'true')
+    heading.append(icon)
+  }
+  const copy = node('span', 'agent-thread-tool-copy')
+  copy.append(node('span', 'agent-thread-tool-name', name))
+  if (preview) {
+    const label = node('span', 'agent-thread-tool-preview', preview)
+    label.title = preview
+    copy.append(label)
+  }
+  heading.append(copy)
+  return heading
+}
+
+function appendToolEntry(
+  item: HTMLElement,
+  tool: ToolCall,
+  onOpenFile: ConversationOptions['onOpenFile'],
+  showIcon = false,
+) {
+  const row = toolHeading(tool.raw ? 'summary' : 'div', 'agent-thread-tool-row', tool.name, tool.preview, showIcon)
   if (tool.raw) {
+    const disclosure = node('details', 'agent-thread-tool-detail')
     const pre = node('pre', 'agent-thread-tool-raw', tool.raw)
     pre.tabIndex = 0
     pre.setAttribute('aria-label', `${tool.name} details`)
-    contents.append(pre)
+    disclosure.append(row, pre)
+    item.append(disclosure)
+  } else {
+    item.append(row)
   }
-  if (tool.files.length) contents.append(fileReferences(tool.files, onOpenFile))
-  return contents
+  if (tool.files.length) item.append(fileReferences(tool.files, onOpenFile))
 }
 
 function toolGroup(
@@ -103,48 +132,40 @@ function toolGroup(
   followingEvents: readonly AgentThreadEvent[],
   onOpenFile: ConversationOptions['onOpenFile'],
 ) {
-  const first = describeTool(firstEvent)
-  const tools = [first, ...followingEvents.map(describeTool)]
-  const isSingle = tools.length === 1
-  const hasDetails = !isSingle || Boolean(first.raw || first.files.length)
-  const summary = node(hasDetails ? 'summary' : 'div', 'agent-thread-tool-summary')
-  const icon = node('span', 'agent-thread-tool-icon', '›_')
-  icon.setAttribute('aria-hidden', 'true')
-  const copy = node('span', 'agent-thread-tool-copy')
-  copy.append(node('span', 'agent-thread-tool-name', isSingle ? first.name : `${tools.length} tool calls`))
-  const names = [...new Set(tools.map(tool => tool.name))]
-  const preview = isSingle ? first.description : names.slice(0, 3).join(', ') + (names.length > 3 ? ', …' : '')
-  if (preview) copy.append(node('span', 'agent-thread-tool-preview', preview))
-  summary.append(icon, copy)
-  if (!hasDetails) {
+  if (!followingEvents.length) {
     const group = node('div', 'agent-thread-tool-group')
-    group.append(summary)
+    const item = node('div', 'agent-thread-tool-entry')
+    appendToolEntry(item, describeTool(firstEvent), onOpenFile, true)
+    group.append(item)
     return group
   }
 
+  const tools = [firstEvent, ...followingEvents].map(describeTool)
+  const names = [...new Set(tools.map(tool => tool.name))]
+  const summary = toolHeading(
+    'summary',
+    'agent-thread-tool-summary',
+    `${tools.length} tool calls`,
+    names.slice(0, 3).join(', ') + (names.length > 3 ? ', …' : ''),
+    true,
+  )
   const group = node('details', 'agent-thread-tool-group')
   group.append(summary)
-  group.addEventListener('toggle', () => {
-    if (!group.open || group.childElementCount > 1) return
-    if (isSingle) {
-      group.append(toolContents(first, onOpenFile))
-      return
-    }
+
+  function renderEntries() {
+    if (group.childElementCount > 1) return
     const list = node('ul', 'agent-thread-tool-list')
     for (const tool of tools) {
       const item = node('li', 'agent-thread-tool-entry')
-      item.append(node('span', 'agent-thread-tool-name', tool.name))
-      if (tool.description) item.append(node('p', 'agent-thread-tool-description', tool.description))
-      if (tool.raw) {
-        const details = node('details', 'agent-thread-tool-detail')
-        details.append(node('summary', '', 'Details'), toolContents(tool, onOpenFile))
-        item.append(details)
-      } else if (tool.files.length) {
-        item.append(fileReferences(tool.files, onOpenFile))
-      }
+      appendToolEntry(item, tool, onOpenFile)
       list.append(item)
     }
     group.append(list)
+  }
+
+  summary.addEventListener('click', renderEntries, { once: true })
+  group.addEventListener('toggle', () => {
+    if (group.open) renderEntries()
   })
   return group
 }
