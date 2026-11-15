@@ -4,7 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import type { AgentThreadEvent, AgentThreadStatus } from '../../../../shared/agent-threads.ts'
-import { activityText, readJsonLines, recentJsonRecords } from './source.ts'
+import { latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sessionId = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
@@ -78,16 +78,21 @@ function toolEvent(tool: unknown, cwd: string): AgentThreadEvent[] {
   const name = string(call?.name)
   if (!name) return []
   const args = object(call?.args)
+  const description = string(args?.toolSummary) || string(args?.Description ?? args?.description) || string(args?.title)
   const verb = fileTools.get(name)
   const filename = string(args?.Path ?? args?.AbsolutePath ?? args?.TargetFile)
   if (verb && filename && !filename.includes('\0')) {
-    const text = `${verb} ${path.basename(filename)}`
     const rawLine = args?.StartLine
     const line = typeof rawLine === 'number' && Number.isSafeInteger(rawLine) && rawLine > 0 ? rawLine : undefined
-    return [{ kind: 'tool', text, files: path.isAbsolute(filename) || cwd ? [{ path: filename, line }] : undefined }]
+    return [
+      toolCall(name, {
+        kind: verb === 'Reading' ? 'tool' : 'edit',
+        description: description || `${verb} ${path.basename(filename)}`,
+        files: path.isAbsolute(filename) || cwd ? [{ path: filename, line }] : undefined,
+      }),
+    ]
   }
-  const summary = name === 'run_command' && string(args?.toolSummary)
-  return [{ kind: 'tool', text: summary || name.replaceAll('_', ' ') }]
+  return [toolCall(name, { description })]
 }
 
 function events(value: unknown, cwd: string): AgentThreadEvent[] {
@@ -103,13 +108,9 @@ function events(value: unknown, cwd: string): AgentThreadEvent[] {
   ]
 }
 
-async function latestActivity(locator: string, cwd: string) {
+async function summarizeTranscript(locator: string, cwd: string) {
   const records = await recentJsonRecords(locator)
-  for (const record of records.toReversed()) {
-    const item = events(record, cwd).findLast(event => event.kind !== 'user')
-    if (item) return activityText(item.text)
-  }
-  return undefined
+  return latestActivity(records.flatMap(record => events(record, cwd)).filter(event => event.kind !== 'user'))
 }
 
 function threadStatus(row: Record<string, unknown>): AgentThreadStatus {
@@ -161,7 +162,7 @@ async function indexedThreads(gemini: string, product: string) {
           updatedAt: Date.parse(string(row.last_modified_time).replace(' ', 'T')) || 0,
           active: status === 'running',
           status,
-          activity: await latestActivity(locator, cwd).catch(() => undefined),
+          activity: await summarizeTranscript(locator, cwd).catch(() => undefined),
         }
       }),
   )
@@ -222,18 +223,20 @@ export function createAntigravitySource(gemini: string): AgentThreadSource {
     },
 
     summarize(thread) {
-      return latestActivity(thread.locator, thread.cwd)
+      return summarizeTranscript(thread.locator, thread.cwd)
     },
 
     open(thread) {
-      let lastStep = -1
-      return readJsonLines(thread.locator, value => {
-        const step = object(value)?.step_index
-        if (typeof step !== 'number') return events(value, thread.cwd)
-        // Antigravity can replace its materialized transcript as new steps are saved.
-        if (step <= lastStep) return []
-        lastStep = step
-        return events(value, thread.cwd)
+      return readJsonLines(thread.locator, () => {
+        let lastStep = -1
+        return value => {
+          const step = object(value)?.step_index
+          if (typeof step === 'number') {
+            if (step <= lastStep) return []
+            lastStep = step
+          }
+          return events(value, thread.cwd)
+        }
       })
     },
   }

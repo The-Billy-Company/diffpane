@@ -9,7 +9,6 @@ import type {
   AgentThreadFile,
   AgentThreadList,
   AgentThreadStatus,
-  AgentThreadUpdate,
 } from '../../../shared/agent-threads.ts'
 import type { BillyClaim, BillyClaimsResult } from '../../../shared/billy/claims.ts'
 import type {
@@ -372,22 +371,21 @@ function isAgentThreadFile(value: unknown): value is AgentThreadFile {
 }
 
 function isAgentThreadEvent(value: unknown): value is AgentThreadEvent {
-  if (!isRecord(value) || !isString(value.text) || !optional(arrayOf(isAgentThreadFile))(value.files)) return false
+  if (
+    !isRecord(value) ||
+    !isString(value.text) ||
+    !optional(isString)(value.toolName) ||
+    !optional(isString)(value.toolDescription) ||
+    !optional(arrayOf(isAgentThreadFile))(value.files)
+  )
+    return false
   return (
     value.kind === 'user' ||
     value.kind === 'assistant' ||
     value.kind === 'tool' ||
     value.kind === 'edit' ||
+    value.kind === 'notice' ||
     value.kind === 'status'
-  )
-}
-
-function isAgentThreadUpdate(value: unknown): value is AgentThreadUpdate {
-  return (
-    isRecord(value) &&
-    isString(value.subscription) &&
-    arrayOf(isAgentThreadEvent)(value.events) &&
-    optional(isString)(value.error)
   )
 }
 
@@ -978,11 +976,9 @@ const API = {
   },
   agentThreads: {
     list: () => invoke('agent-threads-list', isAgentThreadList),
-    follow: (id: string, subscription: string) => invoke('agent-threads-follow', isVoid, id, subscription),
-    stop: (subscription: string) => invoke('agent-threads-stop', isVoid, subscription),
-    file: (subscription: string, path: string) => invoke('agent-threads-file', isAgentFileView, subscription, path),
-    onUpdate: (callback: (update: AgentThreadUpdate) => void) =>
-      listen('agent-threads-update', isAgentThreadUpdate, callback),
+    read: (id: string, selection: string) => invoke('agent-threads-read', arrayOf(isAgentThreadEvent), id, selection),
+    clear: (selection: string) => invoke('agent-threads-clear', isVoid, selection),
+    file: (selection: string, path: string) => invoke('agent-threads-file', isAgentFileView, selection, path),
   },
   ideas: {
     list: () => invoke('ideas-list', arrayOf(isIdea)),

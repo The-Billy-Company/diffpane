@@ -13,7 +13,8 @@ The greeting draws the Creature beside a source page and uses the small panel gl
 - [`assistant.js`](assistant.js) — Owns the conversation, streaming request lifecycle, settings, and selected context.
 - [`assistant-content.js`](assistant-content.js) — Renders sanitized messages, tool activity, and edit proposals.
 - [`assistant.css`](assistant.css) — Styles the conversation, composer, and activity cards.
-- [`agent-threads.ts`](agent-threads.ts) — Groups local Codex, Claude Code, Antigravity, and Cursor threads by project and follows the selected transcript beside the live roster. File links open the workspace editor or a read-only text preview.
+- [`agent-threads.ts`](agent-threads.ts) — Opens a full window view of local Codex, Claude Code, Antigravity, and Cursor threads, with project and agent filters and manual refresh.
+- [`agent-thread-conversation.ts`](agent-thread-conversation.ts) — Shows the selected conversation with Markdown replies and collapsed tool activity. File links open the workspace editor or a read-only text preview.
 - [`creature-glyph.ts`](creature-glyph.ts) — Defines the Creature glyph used in the panel and its entry points.
 
 Run `pnpm run dev .` and open The Creature or Agent threads from the workspace title bar.

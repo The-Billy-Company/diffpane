@@ -1,0 +1,334 @@
+.agent-thread-conversation {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-color: var(--scrollbar) transparent;
+  scrollbar-width: thin;
+  user-select: text;
+}
+
+.agent-thread-conversation :is(button, summary):focus-visible,
+.agent-thread-tool-raw:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.agent-thread-conversation:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.agent-thread-turns {
+  --author-indent: 34px;
+  display: grid;
+  gap: 30px;
+  width: min(100%, 860px);
+  margin-inline: auto;
+  padding: 30px clamp(20px, 5vw, 50px) 64px;
+}
+
+.agent-thread-turn {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-thread-turn[data-role='user'] {
+  justify-self: end;
+  justify-items: end;
+  max-width: min(88%, 60ch);
+}
+
+.agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body {
+  margin-inline-start: var(--author-indent);
+}
+
+.agent-thread-author {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+}
+
+.agent-thread-turn[data-role='user'] .agent-thread-author {
+  padding-inline-end: 5px;
+  color: var(--muted);
+}
+
+.agent-thread-avatar,
+.agent-thread-author .agent-thread-provider-mark {
+  width: 24px;
+  height: 24px;
+}
+
+.agent-thread-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  border: 1px solid color-mix(in oklab, currentColor 16%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--mark-color, var(--accent)) 9%, var(--surface-raised));
+  color: var(--mark-color, var(--accent));
+  font-size: var(--text-label);
+  line-height: 1;
+  user-select: none;
+}
+
+.agent-thread-turn-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agent-thread-turn-body .agent-thread-markdown,
+.agent-thread-prompt {
+  font: var(--text-subheading) / var(--leading-prose) var(--font-prose);
+  color: var(--text);
+}
+
+.agent-thread-prompt {
+  padding: 10px 15px;
+  border: 1px solid color-mix(in oklab, var(--line) 70%, var(--accent-surface));
+  border-radius: 14px 14px 4px 14px;
+  background: color-mix(in oklab, var(--accent-surface) 45%, var(--surface-raised));
+  white-space: pre-wrap;
+}
+
+.agent-thread-tool-group {
+  width: fit-content;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--surface-raised) 55%, var(--surface));
+  color: var(--muted);
+  font-size: var(--text-label);
+  line-height: var(--leading-ui);
+}
+
+.agent-thread-tool-group[open] {
+  width: 100%;
+}
+
+.agent-thread-tool-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  list-style: none;
+}
+
+summary.agent-thread-tool-summary,
+.agent-thread-tool-detail > summary {
+  cursor: pointer;
+}
+
+summary.agent-thread-tool-summary::-webkit-details-marker {
+  display: none;
+}
+
+summary.agent-thread-tool-summary:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+summary.agent-thread-tool-summary::after {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-inline: 3px 2px;
+  border-inline-end: 1px solid currentColor;
+  border-block-end: 1px solid currentColor;
+  transform: translateY(-1.5px) rotate(45deg);
+  content: '';
+}
+
+.agent-thread-tool-group[open] > summary::after {
+  transform: translateY(1.5px) rotate(225deg);
+}
+
+.agent-thread-tool-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 19px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-inset);
+  font: var(--text-caption) / 1 var(--font-mono);
+  user-select: none;
+}
+
+.agent-thread-tool-copy {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 1px 8px;
+  min-width: 0;
+}
+
+.agent-thread-tool-name {
+  color: var(--text);
+  font-weight: var(--weight-medium);
+}
+
+.agent-thread-tool-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-thread-tool-group[open] .agent-thread-tool-preview {
+  white-space: normal;
+}
+
+.agent-thread-tool-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-thread-tool-entry,
+.agent-thread-tool-group > .agent-thread-tool-contents {
+  padding: 9px 11px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-thread-tool-description {
+  margin: 2px 0 0;
+  white-space: pre-wrap;
+}
+
+.agent-thread-tool-detail {
+  margin-top: 5px;
+}
+
+.agent-thread-tool-detail > summary {
+  width: fit-content;
+  padding-block: 1px;
+}
+
+.agent-thread-tool-detail > summary:hover {
+  color: var(--text);
+}
+
+.agent-thread-tool-raw {
+  max-height: 260px;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text);
+  font: var(--text-label) / 1.55 var(--editor-font, var(--font-mono));
+  scrollbar-color: var(--scrollbar) transparent;
+  scrollbar-width: thin;
+  tab-size: 2;
+}
+
+.agent-thread-tool-detail .agent-thread-tool-raw {
+  margin-top: 4px;
+}
+
+.agent-thread-references {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-thread-tool-raw + .agent-thread-references,
+.agent-thread-tool-entry > .agent-thread-references {
+  margin-top: 6px;
+}
+
+.agent-thread-reference,
+.agent-thread-conversation-retry {
+  width: fit-content;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-label);
+}
+
+.agent-thread-reference {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.agent-thread-reference:hover,
+.agent-thread-conversation-retry:hover {
+  border-color: var(--control-border);
+  background: var(--hover);
+}
+
+.agent-thread-conversation-state {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 6px;
+  min-height: 100%;
+  padding: 32px 20px;
+  color: var(--muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.agent-thread-conversation-state strong {
+  color: var(--text);
+  font-size: var(--text-subheading);
+  font-weight: var(--weight-semibold);
+}
+
+.agent-thread-conversation-state p {
+  max-width: 50ch;
+  margin: 0;
+}
+
+.agent-thread-conversation-retry {
+  margin-top: 6px;
+}
+
+.agent-thread-conversation-notice {
+  margin: 0;
+  padding: 10px 13px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-body);
+}
+
+@media (max-width: 550px) {
+  .agent-thread-turns {
+    gap: 24px;
+    padding: 22px 16px 42px;
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body {
+    margin-inline-start: 0;
+  }
+
+  .agent-thread-turn[data-role='user'] {
+    max-width: 94%;
+  }
+}

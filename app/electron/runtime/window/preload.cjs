@@ -264,21 +264,21 @@ function isAgentThreadFile(value) {
   return isRecord(value) && isString(value.path) && optional(isPositive)(value.line)
 }
 function isAgentThreadEvent(value) {
-  if (!isRecord(value) || !isString(value.text) || !optional(arrayOf(isAgentThreadFile))(value.files)) return false
+  if (
+    !isRecord(value) ||
+    !isString(value.text) ||
+    !optional(isString)(value.toolName) ||
+    !optional(isString)(value.toolDescription) ||
+    !optional(arrayOf(isAgentThreadFile))(value.files)
+  )
+    return false
   return (
     value.kind === 'user' ||
     value.kind === 'assistant' ||
     value.kind === 'tool' ||
     value.kind === 'edit' ||
+    value.kind === 'notice' ||
     value.kind === 'status'
-  )
-}
-function isAgentThreadUpdate(value) {
-  return (
-    isRecord(value) &&
-    isString(value.subscription) &&
-    arrayOf(isAgentThreadEvent)(value.events) &&
-    optional(isString)(value.error)
   )
 }
 function isAgentFileView(value) {
@@ -816,10 +816,9 @@ const API = {
   },
   agentThreads: {
     list: () => invoke('agent-threads-list', isAgentThreadList),
-    follow: (id, subscription) => invoke('agent-threads-follow', isVoid, id, subscription),
-    stop: subscription => invoke('agent-threads-stop', isVoid, subscription),
-    file: (subscription, path) => invoke('agent-threads-file', isAgentFileView, subscription, path),
-    onUpdate: callback => listen('agent-threads-update', isAgentThreadUpdate, callback),
+    read: (id, selection) => invoke('agent-threads-read', arrayOf(isAgentThreadEvent), id, selection),
+    clear: selection => invoke('agent-threads-clear', isVoid, selection),
+    file: (selection, path) => invoke('agent-threads-file', isAgentFileView, selection, path),
   },
   ideas: {
     list: () => invoke('ideas-list', arrayOf(isIdea)),

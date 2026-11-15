@@ -8,27 +8,26 @@ function event(type: string, data: object = {}) {
   return `${JSON.stringify({ type: 'event_msg', payload: { type, ...data } })}\n`
 }
 
-test('tails persisted Codex edits without exposing raw model context or repeating events', async () => {
+test('reads a Codex conversation from its first message without exposing raw model context', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-thread-'))
   const locator = path.join(cwd, 'thread.jsonl')
   try {
     await writeFile(
       locator,
-      `${JSON.stringify({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ text: '<internal context>' }] } })}\n${event('task_started')}`,
+      `${event('task_started')}${event('user_message', { message: 'Read the example.' })}${JSON.stringify({
+        type: 'response_item',
+        payload: { type: 'message', role: 'user', content: [{ text: '<internal context>'.repeat(44_000) }] },
+      })}\n`,
     )
     const reader = codexSource.open({ provider: 'codex', id: 'thread', cwd, locator, title: 'Thread', updatedAt: 0 })
-    await expect(reader.read()).resolves.toEqual([{ kind: 'status', text: 'Turn started' }])
-
     await appendFile(
       locator,
-      event('item_completed', {
-        item: { type: 'FileChange', status: 'completed', changes: { 'first.ts': { type: 'add' } } },
+      event('exec_command_end', {
+        command: ['/bin/zsh', '-lc', 'cat first.ts'],
+        parsed_cmd: [{ type: 'read', path: 'first.ts' }],
+        aggregated_output: '<private output>',
       }),
     )
-    await expect(reader.read()).resolves.toEqual([
-      { kind: 'edit', text: 'Edited a file', files: [{ path: path.join(cwd, 'first.ts') }] },
-    ])
-
     await appendFile(
       locator,
       event('item_completed', {
@@ -39,10 +38,26 @@ test('tails persisted Codex edits without exposing raw model context or repeatin
         },
       }),
     )
-    await expect(reader.read()).resolves.toEqual([
-      { kind: 'edit', text: 'Edited a file', files: [{ path: path.join(cwd, 'second.ts'), line: 7 }] },
-    ])
-    await expect(reader.read()).resolves.toEqual([])
+    const snapshot = [
+      { kind: 'status', text: 'Turn started' },
+      { kind: 'user', text: 'Read the example.' },
+      {
+        kind: 'tool',
+        text: 'cat first.ts',
+        toolName: 'Shell',
+        toolDescription: 'Read first.ts',
+        files: [{ path: path.join(cwd, 'first.ts') }],
+      },
+      {
+        kind: 'edit',
+        text: '',
+        toolName: 'apply_patch',
+        toolDescription: 'Edit second.ts',
+        files: [{ path: path.join(cwd, 'second.ts'), line: 7 }],
+      },
+    ]
+    await expect(reader.read()).resolves.toEqual(snapshot)
+    await expect(reader.read()).resolves.toEqual(snapshot)
   } finally {
     await rm(cwd, { force: true, recursive: true })
   }

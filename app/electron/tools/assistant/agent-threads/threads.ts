@@ -6,14 +6,13 @@ import type {
   AgentProvider,
   AgentThreadEvent,
   AgentThreadList,
-  AgentThreadUpdate,
 } from '../../../../shared/agent-threads.ts'
 import { Repository } from '../../../workspace/repository/repository.mjs'
 import { antigravitySource } from './antigravity.ts'
 import { claudeSource } from './claude.ts'
 import { codexSource } from './codex.ts'
 import { cursorSource } from './cursor.ts'
-import type { AgentThreadReader, AgentThreadRecord, AgentThreadSource } from './source.ts'
+import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sources: [AgentProvider, AgentThreadSource][] = [
   ['claude', claudeSource],
@@ -21,7 +20,6 @@ const sources: [AgentProvider, AgentThreadSource][] = [
   ['codex', codexSource],
   ['antigravity', antigravitySource],
 ]
-const POLL_MS = 350
 const PREVIEW_BYTES = 256 * 1024
 const MAX_LINKS = 4000
 const PROJECT_CACHE_MS = 60_000
@@ -39,12 +37,9 @@ async function projectDirectory(cwd: string): Promise<string> {
   }
 }
 
-interface Stream {
-  subscription: string
-  reader: AgentThreadReader
+interface Selection {
+  id: string
   files: Set<string>
-  timer?: ReturnType<typeof setTimeout>
-  error?: string
 }
 
 export class AgentThreads {
@@ -53,7 +48,7 @@ export class AgentThreads {
   #projects = new Map<string, { expiresAt: number; root: Promise<string> }>()
   #summaries = new Map<string, { locator: string; updatedAt: number; activity?: string }>()
   #listing?: Promise<AgentThreadList>
-  #stream?: Stream
+  #selection?: Selection
 
   constructor(threadSources = sources) {
     this.#sources = threadSources
@@ -143,68 +138,51 @@ export class AgentThreads {
     return activity
   }
 
-  follow(id: string, subscription: string, publish: (update: AgentThreadUpdate) => void) {
+  async read(id: string, selectionId: string): Promise<AgentThreadEvent[]> {
     const selected = this.#threads.get(id)
     if (!selected) throw new Error('This agent thread is unavailable. Refresh the thread list and try again.')
-    this.stop()
     const [thread, source] = selected
-    const stream: Stream = { subscription, reader: source.open(thread), files: new Set() }
-    this.#stream = stream
-
-    const poll = async () => {
-      let events: AgentThreadEvent[] = []
-      let error: string | undefined
-      try {
-        events = await stream.reader.read()
-      } catch {
-        error = 'Waiting to reconnect to the agent transcript…'
-      }
-      if (this.#stream !== stream) return
-      events = events.slice(-500)
-      for (const event of events) {
-        event.text = event.text.slice(0, 48 * 1024)
-        if (event.files) {
-          event.files = event.files.slice(0, 100).flatMap(file => {
-            if (
-              !file.path ||
-              file.path.includes('\0') ||
-              file.path.length > 4096 ||
-              (!path.isAbsolute(file.path) && !thread.cwd)
-            )
-              return []
-            const absolute = path.resolve(thread.cwd, file.path)
-            stream.files.delete(absolute)
-            stream.files.add(absolute)
-            if (stream.files.size > MAX_LINKS) {
-              const oldest = stream.files.values().next().value
-              if (oldest !== undefined) stream.files.delete(oldest)
-            }
-            const line =
-              file.line !== undefined && Number.isSafeInteger(file.line) && file.line > 0 ? file.line : undefined
-            return [{ path: absolute, line }]
-          })
-        }
-      }
-      if (events.length || error !== stream.error) publish({ subscription, events, error })
-      stream.error = error
-      stream.timer = setTimeout(() => void poll(), POLL_MS)
+    const selection = { id: selectionId, files: new Set<string>() }
+    this.#selection = selection
+    const reader = source.open(thread)
+    let events: AgentThreadEvent[]
+    try {
+      events = await reader.read()
+    } finally {
+      reader.close?.()
     }
-    stream.timer = setTimeout(() => void poll(), 0)
+    if (this.#selection !== selection) return []
+
+    for (const event of events) {
+      event.text = event.text.slice(0, 48 * 1024)
+      event.files = event.files?.slice(0, 100).flatMap(file => {
+        if (
+          !file.path ||
+          file.path.includes('\0') ||
+          file.path.length > 4096 ||
+          (!path.isAbsolute(file.path) && !thread.cwd)
+        )
+          return []
+        const absolute = path.resolve(thread.cwd, file.path)
+        if (!selection.files.has(absolute) && selection.files.size >= MAX_LINKS) return []
+        selection.files.add(absolute)
+        const line = file.line !== undefined && Number.isSafeInteger(file.line) && file.line > 0 ? file.line : undefined
+        return [{ path: absolute, line }]
+      })
+    }
+    return events
   }
 
-  stop(subscription?: string) {
-    if (!this.#stream || (subscription !== undefined && this.#stream.subscription !== subscription)) return
-    clearTimeout(this.#stream.timer)
-    this.#stream.reader.close?.()
-    this.#stream = undefined
+  clear(selectionId?: string) {
+    if (selectionId === undefined || this.#selection?.id === selectionId) this.#selection = undefined
   }
 
   async file(
-    subscription: string,
+    selectionId: string,
     filename: string,
     workspace?: { root: string; scope: string },
   ): Promise<AgentFileView> {
-    if (this.#stream?.subscription !== subscription || !this.#stream.files.has(filename)) {
+    if (this.#selection?.id !== selectionId || !this.#selection.files.has(filename)) {
       throw new Error('This file link is no longer available in the selected thread.')
     }
     const absolute = await realpath(filename)

@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { promisify } from 'node:util'
 import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
-import { latestActivity, readJsonLines, recentJsonRecords } from './source.ts'
+import { latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const run = promisify(execFile)
@@ -62,23 +62,37 @@ function fileChanges(changes: unknown, cwd: string): AgentThreadFile[] {
 function edit(changes: unknown, cwd: string): AgentThreadEvent[] {
   const files = fileChanges(changes, cwd)
   if (!files.length) return []
-  return [{ kind: 'edit', text: files.length === 1 ? 'Edited a file' : `Edited ${files.length} files`, files }]
+  const filename = files[0]?.path
+  const description = files.length === 1 && filename ? `Edit ${path.basename(filename)}` : `Edit ${files.length} files`
+  return [toolCall('apply_patch', { kind: 'edit', description, files })]
+}
+
+function commandDescription(part: Record<string, unknown> | undefined): string {
+  const filename = string(part?.path)
+  const name = string(part?.name) || (filename && path.basename(filename))
+  const query = string(part?.query)
+  switch (part?.type) {
+    case 'read':
+      return name ? `Read ${name}` : 'Read a file'
+    case 'search':
+      return query ? `Search for ${query}` : 'Search files'
+    case 'list_files':
+      return name ? `List files in ${name}` : 'List files'
+    default:
+      return ''
+  }
 }
 
 function commandEvent(item: Record<string, unknown>, cwd: string, summary = false): AgentThreadEvent[] {
-  const parts = item.parsed_cmd
-  const files: AgentThreadFile[] = []
-  if (Array.isArray(parts)) {
-    for (const candidate of parts) {
-      const part = object(candidate)
-      const filename = string(part?.path)
-      if (part?.type === 'read' && filename) files.push({ path: path.resolve(string(item.cwd) || cwd, filename) })
-    }
-  }
-  if (summary) return [{ kind: 'tool', text: 'Shell command', files }]
+  const parts = Array.isArray(item.parsed_cmd) ? item.parsed_cmd.map(object) : []
+  const files = parts.flatMap(part => {
+    const filename = string(part?.path)
+    return part?.type === 'read' && filename ? [{ path: path.resolve(string(item.cwd) || cwd, filename) }] : []
+  })
   const command = Array.isArray(item.command) ? item.command.map(string).join(' ') : string(item.command)
-  const text = command.replace(/^.*?\s-lc\s+(?=.)/, '').slice(0, 400)
-  return [{ kind: 'tool', text: text || 'Ran a command', files }]
+  const text = summary ? '' : command.replace(/^.*?\s-(?:lc|c)\s+(?=.)/, '').trim()
+  const description = string(item.description) || (parts.length === 1 ? commandDescription(parts[0]) : '')
+  return [toolCall('Shell', { description: description || (summary ? '' : text.split('\n', 1)[0]), text, files })]
 }
 
 function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean): AgentThreadEvent[] {
@@ -92,13 +106,16 @@ function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean)
       return edit(item.changes, cwd)
     case 'CommandExecution':
       return commandEvent(item, cwd, summary)
-    case 'McpToolCall':
-      return [
-        {
-          kind: 'tool',
-          text: [string(item.server), string(item.tool)].filter(Boolean).join(' / ') || 'Called an MCP tool',
-        },
-      ]
+    case 'McpToolCall': {
+      const name = string(item.tool) || string(item.server) || 'MCP tool'
+      const description = string(object(item.arguments)?.description) || string(item.server)
+      return [toolCall(name, { description })]
+    }
+    case 'Extension': {
+      const name = string(item.kind)
+      if (!name) return []
+      return [toolCall(name, { description: string(object(item.action)?.query) })]
+    }
     default:
       return []
   }
@@ -167,7 +184,8 @@ async function openThreads(sessions: string, locks: string): Promise<OpenThreads
     // Codex keeps a writer lock while a thread is loaded, including when waiting for its next prompt.
     const executable = process.platform === 'darwin' ? '/usr/sbin/lsof' : 'lsof'
     const { stdout } = await run(executable, ['-n', '-P', '-a', '-c', 'codex', '-u', userInfo().username, '-Fn'], {
-      timeout: 1_500,
+      // Checking every open Codex window can exceed a short timeout on a busy machine.
+      timeout: 5_000,
       maxBuffer: 2 * 1024 * 1024,
     })
     for (const entry of stdout.split('\n')) {
@@ -345,7 +363,7 @@ export const codexSource: AgentThreadSource = {
     return threads.filter(thread => thread !== undefined)
   },
   open(thread) {
-    return readJsonLines(thread.locator, record => parseRollout(record, thread.cwd))
+    return readJsonLines(thread.locator, () => record => parseRollout(record, thread.cwd))
   },
   async summarize(thread) {
     const records = await recentJsonRecords(thread.locator)

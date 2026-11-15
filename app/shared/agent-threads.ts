@@ -32,15 +32,11 @@ export interface AgentThreadFile {
 }
 
 export interface AgentThreadEvent {
-  kind: 'user' | 'assistant' | 'tool' | 'edit' | 'status'
+  kind: 'user' | 'assistant' | 'tool' | 'edit' | 'status' | 'notice'
   text: string
   files?: AgentThreadFile[]
-}
-
-export interface AgentThreadUpdate {
-  subscription: string
-  events: AgentThreadEvent[]
-  error?: string
+  toolName?: string
+  toolDescription?: string
 }
 
 export type AgentFileView = { kind: 'workspace'; path: string } | { kind: 'preview'; text: string; limited: boolean }

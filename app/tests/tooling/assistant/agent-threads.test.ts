@@ -60,7 +60,7 @@ test('keeps stable cross-provider thread identities and groups worktrees by proj
     ['codex', { list: listCodex, open, summarize }],
     ['claude', { list: async () => [claude], open }],
   ])
-  t.onTestFinished(() => tracker.stop())
+  t.onTestFinished(() => tracker.clear())
 
   const first = await tracker.list()
   expect(first.unavailable).toEqual([])
@@ -79,5 +79,5 @@ test('keeps stable cross-provider thread identities and groups worktrees by proj
   const partial = await tracker.list()
   expect(partial.unavailable).toEqual(['codex'])
   expect(partial.threads.map(thread => thread.id)).toEqual(['claude:thread'])
-  expect(() => tracker.follow('codex:thread', 'previous', () => {})).not.toThrow()
+  await expect(tracker.read('codex:thread', 'previous')).resolves.toEqual([])
 })

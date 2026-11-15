@@ -11,7 +11,7 @@ function step(step_index: number, type: string, source: string, fields: object) 
   return `${JSON.stringify({ step_index, type, source, ...fields })}\n`
 }
 
-test('reads Antigravity status, project and appended activity from live local storage', async () => {
+test('reads Antigravity project status and snapshots from local storage', async () => {
   const gemini = await mkdtemp(path.join(tmpdir(), 'diffpane-antigravity-'))
   const product = path.join(gemini, 'antigravity')
   const id = 'a0f751b6-7a1c-4c5a-8e47-367de9a3f018'
@@ -65,27 +65,42 @@ test('reads Antigravity status, project and appended activity from live local st
     const [thread] = threads
     ok(thread)
     const reader = source.open(thread)
-    await expect(reader.read()).resolves.toEqual([
+    const initial = [
       { kind: 'user', text: 'Review the docs' },
-      { kind: 'tool', text: 'Reading README.md', files: [{ path: 'README.md', line: 4 }] },
-    ])
+      {
+        kind: 'tool',
+        text: '',
+        toolName: 'read_file',
+        toolDescription: 'Reading README.md',
+        files: [{ path: 'README.md', line: 4 }],
+      },
+    ]
+    await expect(reader.read()).resolves.toEqual(initial)
 
     const toolResult = step(3, 'GENERIC', 'MODEL', { content: '<raw output>' })
     const answer = step(4, 'PLANNER_RESPONSE', 'MODEL', { content: 'Review complete.' })
     await appendFile(locator, toolResult)
-    await expect(reader.read()).resolves.toEqual([])
+    await expect(reader.read()).resolves.toEqual(initial)
     await appendFile(locator, answer)
-    await expect(reader.read()).resolves.toEqual([{ kind: 'assistant', text: 'Review complete.' }])
+    const assistant = { kind: 'assistant', text: 'Review complete.' }
+    await expect(reader.read()).resolves.toEqual([...initial, assistant])
 
-    const addendum = step(5, 'PLANNER_RESPONSE', 'MODEL', { content: 'One more thing.' })
+    const addendum = step(5, 'PLANNER_RESPONSE', 'MODEL', {
+      content: 'One more thing.',
+      tool_calls: [{ name: 'run_command', args: { toolSummary: 'Check spelling', CommandLine: '<command input>' } }],
+    })
     await writeFile(`${locator}.next`, start + toolResult + answer + addendum)
     await rename(`${locator}.next`, locator)
-    await expect(reader.read()).resolves.toEqual([{ kind: 'assistant', text: 'One more thing.' }])
-    await expect(reader.read()).resolves.toEqual([])
+    await expect(reader.read()).resolves.toEqual([
+      ...initial,
+      assistant,
+      { kind: 'assistant', text: 'One more thing.' },
+      { kind: 'tool', text: '', toolName: 'run_command', toolDescription: 'Check spelling' },
+    ])
 
     writer.exec("UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE', not_fully_idle = 0")
     await expect(source.list()).resolves.toMatchObject([
-      { id, active: false, status: 'idle', activity: 'One more thing.' },
+      { id, active: false, status: 'idle', activity: 'Check spelling' },
     ])
   } finally {
     await rm(gemini, { force: true, recursive: true })

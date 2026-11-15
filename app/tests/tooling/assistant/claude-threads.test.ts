@@ -43,19 +43,47 @@ test('attaches to an open Claude Code session before its transcript exists', asy
     },
   )
   const file = path.join(cwd, 'example.txt')
-  expect(await reader.read()).toEqual([
+  const first = [
     { kind: 'user', text: 'Edit the example.' },
     { kind: 'assistant', text: 'I will update the example.' },
-    { kind: 'tool', text: 'Edit', files: [{ path: file }] },
-  ])
+    { kind: 'edit', text: '', toolName: 'Edit', toolDescription: 'Edit example.txt', files: [{ path: file }] },
+  ]
+  expect(await reader.read()).toEqual(first)
 
   await writeRecords({
     type: 'user',
     message: { content: [{ type: 'tool_result', tool_use_id: 'toolu_edit' }] },
     toolUseResult: { filePath: file, structuredPatch: [{ newStart: 3 }] },
   })
-  expect(await reader.read()).toEqual([{ kind: 'edit', text: 'Updated file', files: [{ path: file, line: 3 }] }])
-  await writeRecords({ type: 'system', subtype: 'turn_duration' })
-  expect(await reader.read()).toEqual([{ kind: 'status', text: 'Turn finished' }])
-  expect(await reader.read()).toEqual([])
+  await writeRecords(
+    {
+      type: 'assistant',
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            id: 'toolu_bash',
+            name: 'Bash',
+            input: {
+              description: 'Verify the changed example',
+              command: 'cat example.txt',
+            },
+          },
+        ],
+      },
+    },
+    { type: 'system', subtype: 'turn_duration' },
+    { type: 'ai-title', aiTitle: 'Saved example changes', cwd },
+  )
+  expect(await reader.read()).toEqual([
+    ...first.slice(0, 2),
+    { ...first[2], files: [{ path: file, line: 3 }] },
+    { kind: 'tool', text: 'cat example.txt', toolName: 'Bash', toolDescription: 'Verify the changed example' },
+    { kind: 'status', text: 'Turn finished' },
+  ])
+
+  run.mockResolvedValue({ stdout: '[]' })
+  await expect(claudeSource.list()).resolves.toMatchObject([
+    { id, cwd, title: 'Saved example changes', provider: 'claude', status: 'recent' },
+  ])
 })

@@ -760,7 +760,7 @@ function createWindow(directory = null) {
   })
   window.on('closed', () => {
     resetBillyReview(session)
-    agentThreads.get(session)?.stop()
+    agentThreads.get(session)?.clear()
     sessions.delete(windowId)
     mediaSessions.delete(session.mediaToken)
     session.finishFlush?.(true)
@@ -772,7 +772,7 @@ function createWindow(directory = null) {
     session.rendererReady = false
     runBackground('stop-terminal', () => terminal.reset())
     session.claude.reset()
-    agentThreads.get(session)?.stop()
+    agentThreads.get(session)?.clear()
     agentThreads.delete(session)
     session.finishFlush?.(false)
     if (directory && wasReady && !fatal)
@@ -1126,23 +1126,23 @@ handle('agent-threads-list', session => {
   return threads.list()
 })
 
-handle('agent-threads-follow', (session, _event, id, subscription) => {
+handle('agent-threads-read', (session, _event, id, selection) => {
   const threads = agentThreads.get(session)
-  if (!threads || typeof id !== 'string' || typeof subscription !== 'string' || subscription.length !== 36)
+  if (!threads || typeof id !== 'string' || typeof selection !== 'string' || selection.length !== 36)
     throw new Error('Choose an available agent thread.')
-  threads.follow(id, subscription, update => send(session.contents, 'agent-threads-update', update))
+  return threads.read(id, selection)
 })
 
-handle('agent-threads-stop', (session, _event, subscription) => {
-  if (typeof subscription === 'string') agentThreads.get(session)?.stop(subscription)
+handle('agent-threads-clear', (session, _event, selection) => {
+  if (typeof selection === 'string') agentThreads.get(session)?.clear(selection)
 })
 
-handle('agent-threads-file', (session, _event, subscription, filename) => {
+handle('agent-threads-file', (session, _event, selection, filename) => {
   const threads = agentThreads.get(session)
-  if (!threads || typeof subscription !== 'string' || typeof filename !== 'string')
+  if (!threads || typeof selection !== 'string' || typeof filename !== 'string')
     throw new Error('Choose an available agent file link.')
   const { repositoryRoot: root, repositoryScope: scope } = session
-  return threads.file(subscription, filename, root && scope ? { root, scope } : undefined)
+  return threads.file(selection, filename, root && scope ? { root, scope } : undefined)
 })
 
 /** @type {Record<string, (store: IdeaStore, root: string, input: unknown, sender: WebContents) => unknown>} */

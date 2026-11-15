@@ -4,11 +4,19 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { AgentThreadEvent, AgentThreadFile, AgentThreadStatus } from '../../../../shared/agent-threads.ts'
-import { latestActivity, readJsonLines, recentJsonRecords } from './source.ts'
-import type { AgentThreadSource } from './source.ts'
+import {
+  activityText,
+  latestActivity,
+  readJsonLines,
+  recentJsonRecords,
+  sampleJsonRecords,
+  toolCall,
+} from './source.ts'
+import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const run = promisify(execFile)
 const uuid = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
+const recentLimit = 40
 const editTools = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 const fileTools = new Set([...editTools, 'Read', 'LSP'])
 
@@ -135,8 +143,17 @@ function fileReference(inputPath: unknown, cwd: string, line?: unknown): AgentTh
     : { path: filename }
 }
 
+function toolDescription(name: string, input: Record<string, unknown> | undefined, file?: AgentThreadFile) {
+  const label = string(input?.description) || string(input?.summary) || string(input?.title)
+  if (label) return label
+  if (file) return `${name} ${path.basename(file.path)}`
+  if (name === 'WebSearch' || name === 'ToolSearch') return string(input?.query)
+  if (name === 'Grep' || name === 'Glob') return string(input?.pattern)
+  return ''
+}
+
 function claudeEvents(initialCwd: string, summary = false) {
-  const toolCalls = new Map<string, { name: string; file?: AgentThreadFile }>()
+  const toolCalls = new Map<string, AgentThreadEvent>()
   return (record: unknown): AgentThreadEvent[] => {
     const row = object(record)
     if (!row || row.isMeta || row.isSidechain) return []
@@ -152,10 +169,13 @@ function claudeEvents(initialCwd: string, summary = false) {
       if (!block) continue
       if (block.type === 'text') {
         const text = string(block.text)
-        if (text && !/^<(?:local-command-|ide_|session-start-hook)/.test(text)) {
+        if (
+          text &&
+          !/^<(?:local-command-|command-name>|ide_|session-start-hook|system-reminder>|task-notification>)/.test(text)
+        ) {
           events.push({ kind: row.isApiErrorMessage ? 'status' : row.type, text })
         }
-      } else if (block.type === 'tool_use') {
+      } else if (row.type === 'assistant' && block.type === 'tool_use') {
         const name = string(block.name)
         const input = object(block.input)
         const id = string(block.id)
@@ -163,37 +183,80 @@ function claudeEvents(initialCwd: string, summary = false) {
         const file = fileTools.has(name)
           ? fileReference(input?.file_path ?? input?.notebook_path, cwd, input?.offset ?? input?.line)
           : undefined
-        toolCalls.set(id, { name, file })
+        const command = name === 'Bash' && !summary ? string(input?.command) : ''
+        const event = toolCall(name, {
+          kind: editTools.has(name) ? 'edit' : 'tool',
+          description: toolDescription(name, input, file) || command.split('\n', 1)[0],
+          text: command,
+          files: file && [file],
+        })
+        toolCalls.set(id, event)
         if (toolCalls.size > 256) {
           const oldest = toolCalls.keys().next().value
           if (oldest) toolCalls.delete(oldest)
         }
-        const description = summary ? '' : string(input?.description) || (name === 'Bash' ? string(input?.command) : '')
-        events.push({ kind: 'tool', text: description ? `${name} · ${description}` : name, files: file && [file] })
+        events.push(event)
       } else if (block.type === 'tool_result') {
         const id = string(block.tool_use_id)
         const tool = toolCalls.get(id)
         toolCalls.delete(id)
         if (block.is_error) {
-          if (tool) events.push({ kind: 'status', text: `${tool.name} failed`, files: tool.file && [tool.file] })
+          if (tool) events.push({ kind: 'status', text: `${tool.toolName} failed` })
           continue
         }
         const result = object(row.toolUseResult)
         const patch = result?.structuredPatch
         const firstChange = Array.isArray(patch) ? object(patch[0])?.newStart : undefined
-        if (tool ? editTools.has(tool.name) : Array.isArray(patch)) {
-          const file = fileReference(result?.filePath ?? tool?.file?.path, cwd, firstChange)
-          if (file)
-            events.push({
-              kind: 'edit',
-              text: result?.type === 'create' ? 'Created file' : 'Updated file',
-              files: [file],
-            })
+        if (tool?.kind === 'edit') {
+          const file = fileReference(result?.filePath ?? tool.files?.[0]?.path, cwd, firstChange)
+          if (file) tool.files = [file]
         }
       }
     }
     return events
   }
+}
+
+async function savedThreads(directory: string, liveIds: Set<string>): Promise<AgentThreadRecord[]> {
+  const projects = path.join(directory, 'projects')
+  const entries = await readdir(projects, { withFileTypes: true }).catch(() => [])
+  const transcripts = await Promise.all(
+    entries
+      .filter(entry => entry.isDirectory())
+      .map(async project => {
+        const folder = path.join(projects, project.name)
+        const names = await readdir(folder, { withFileTypes: true }).catch(() => [])
+        return Promise.all(
+          names.map(async entry => {
+            const id = path.basename(entry.name, '.jsonl')
+            if (!entry.isFile() || !entry.name.endsWith('.jsonl') || !uuid.test(id) || liveIds.has(id)) return undefined
+            const locator = path.join(folder, entry.name)
+            const info = await stat(locator).catch(() => undefined)
+            return info?.isFile() ? { id, locator, updatedAt: info.mtimeMs } : undefined
+          }),
+        )
+      }),
+  )
+  const recent = transcripts
+    .flat()
+    .filter(entry => entry !== undefined)
+    .toSorted((left, right) => right.updatedAt - left.updatedAt)
+    .slice(0, recentLimit)
+  const records = await Promise.all(
+    recent.map(async ({ id, locator, updatedAt }) => {
+      const [start, end] = await Promise.all([sampleJsonRecords(locator, 'start'), recentJsonRecords(locator)])
+      const rows = [...start, ...end].map(object)
+      const cwd = rows.map(row => absoluteDirectory(row?.cwd)).findLast(Boolean)
+      if (!cwd) return undefined
+      const prompt = start.flatMap(claudeEvents(cwd)).find(event => event.kind === 'user')?.text
+      const customTitle = rows.findLast(row => row?.type === 'custom-title')?.customTitle
+      const aiTitle = rows.findLast(row => row?.type === 'ai-title')?.aiTitle
+      const inferredTitle = [string(customTitle), string(aiTitle), prompt].find(Boolean)
+      const title = activityText(inferredTitle ?? '') ?? path.basename(cwd)
+      return { id, locator, updatedAt, provider: 'claude', cwd, title, status: 'recent' } satisfies AgentThreadRecord
+    }),
+  )
+  return records.filter(record => record !== undefined)
 }
 
 export const claudeSource: AgentThreadSource = {
@@ -209,7 +272,7 @@ export const claudeSource: AgentThreadSource = {
       const existing = session && sessions.get(session.id)
       if (session && (!existing || session.updatedAt > existing.updatedAt)) sessions.set(session.id, session)
     }
-    return Promise.all(
+    const live = await Promise.all(
       [...sessions.values()].map(async session => {
         const { locator, modifiedAt } = await transcript(directory, session)
         return {
@@ -222,31 +285,21 @@ export const claudeSource: AgentThreadSource = {
           status: session.status,
           activity: session.activity,
           updatedAt: Math.max(session.updatedAt, modifiedAt),
-        }
+        } satisfies AgentThreadRecord
       }),
     )
+    return [...live, ...(await savedThreads(directory, new Set(sessions.keys())))]
   },
 
   open(thread) {
     const directory = configDirectory()
-    const parse = claudeEvents(thread.cwd)
-    let locator = thread.locator
-    let reader = readJsonLines(locator, parse)
-    let nextLookup = 0
     return {
       async read() {
         // An idle session can be selected before Claude creates its transcript on the first prompt.
-        if (Date.now() >= nextLookup) {
-          nextLookup = Date.now() + 2_000
-          if (!(await stat(locator).catch(() => undefined))?.isFile()) {
-            const match = await transcript(directory, thread)
-            if (match.locator !== locator) {
-              locator = match.locator
-              reader = readJsonLines(locator, parse)
-            }
-          }
-        }
-        return reader.read()
+        const locator = (await stat(thread.locator).catch(() => undefined))?.isFile()
+          ? thread.locator
+          : (await transcript(directory, thread)).locator
+        return readJsonLines(locator, () => claudeEvents(thread.cwd)).read()
       },
     }
   },

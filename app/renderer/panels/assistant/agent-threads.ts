@@ -1,9 +1,10 @@
 import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import { agentProviderNames } from '../../../shared/agent-threads.ts'
-import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
+import type { AgentProvider, AgentThread, AgentThreadFile } from '../../../shared/agent-threads.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
-import { drawThreadInspector, drawThreadTrail } from '../art/assistant.ts'
+import { drawThreadTrail } from '../art/assistant.ts'
+import { renderAgentThreadConversation } from './agent-thread-conversation.ts'
 import antigravityLogo from './provider-logos/antigravity.png'
 import claudeCodeLogo from './provider-logos/claude-code.png'
 import codexLogo from './provider-logos/codex.png'
@@ -13,6 +14,9 @@ import './agent-threads.css'
 
 const glyphs = {
   activity: '<path d="M1.5 8h3l1.7-4.5 3.1 9 1.9-4.5h3.3"/>',
+  arrow: '<path d="M13 8H3m4-4L3 8l4 4"/>',
+  next: '<path d="m6 4 4 4-4 4"/>',
+  sidebar: '<rect x="2" y="3.25" width="12" height="9.5" rx="1.4"/><path d="M6.25 3.25v9.5"/>',
   close: '<path d="m4 4 8 8m0-8-8 8"/>',
   folder:
     '<path d="M2 5a1.5 1.5 0 0 1 1.5-1.5h3L8 5h4.5A1.5 1.5 0 0 1 14 6.5V11a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11z"/>',
@@ -31,31 +35,20 @@ const providerLogos: Record<AgentProvider, string> = {
 }
 
 const providers = ['codex', 'claude', 'antigravity', 'cursor'] satisfies AgentProvider[]
-const eventLabels = { user: 'You', assistant: 'Assistant', tool: 'Tool', edit: 'File change', status: 'Status' }
 const stateLabels = { running: 'Running', idle: 'Idle', recent: 'Recent', unknown: 'Unknown', stale: 'Stale' }
-const MAX_EVENTS = 500
-const REFRESH_MS = 3000
 const NO_PROJECT = 'unassigned'
-const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
 type ThreadState = keyof typeof stateLabels
 
 interface ThreadPanelOptions {
   api: DiffpaneApi['agentThreads']
   openWorkspaceFile: (file: AgentThreadFile) => unknown
+  onVisibilityChange?: (visible: boolean) => void
 }
 
 function icon(name: keyof typeof glyphs) {
   return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${glyphs[name]}</svg>`
-}
-
-function providerMark(provider: AgentProvider, label = '') {
-  const attributes = label ? `role="img" aria-label="${label}" title="${label}"` : 'aria-hidden="true"'
-  const lightLogo =
-    provider === 'cursor' ? `<img class="agent-thread-provider-logo-light" src="${cursorLightLogo}" alt="">` : ''
-  return `<span class="agent-thread-provider-mark" data-provider="${provider}" ${attributes}>
-    <img src="${providerLogos[provider]}" alt="">${lightLogo}
-  </span>`
 }
 
 function node<Tag extends keyof HTMLElementTagNameMap>(tag: Tag, className: string, text?: string) {
@@ -77,384 +70,359 @@ function projectOf(thread: AgentThread) {
   return thread.projectRoot ?? (thread.cwd || NO_PROJECT)
 }
 
-function workingFolder(cwd: string, project: string) {
-  if (!cwd || cwd === project) return ''
-  const name = basename(cwd)
-  if (name !== basename(project)) return name
-  // Linked checkouts can have the same name as the primary checkout.
-  return cwd.match(/[^\\/]+[\\/][^\\/]+[\\/]*$/u)?.[0] ?? name
+function projectName(path: string) {
+  return path === NO_PROJECT ? 'No project' : basename(path)
 }
 
-function setText(element: HTMLElement, text: string) {
-  if (element.textContent !== text) element.textContent = text
+function providerLogo(provider: AgentProvider) {
+  const dark = `<img class="agent-thread-provider-logo" alt="" src="${providerLogos[provider]}">`
+  return provider === 'cursor'
+    ? `${dark}<img class="agent-thread-provider-logo agent-thread-provider-logo-light" alt="" src="${cursorLightLogo}">`
+    : dark
+}
+
+function providerMark(provider: AgentProvider) {
+  const mark = node('span', 'agent-thread-provider-mark')
+  mark.dataset.provider = provider
+  mark.innerHTML = providerLogo(provider)
+  return mark
 }
 
 function renderState(element: HTMLElement, state: ThreadState) {
-  if (element.dataset.state !== state) element.dataset.state = state
-  setText(element, stateLabels[state])
+  element.dataset.state = state
+  element.textContent = stateLabels[state]
 }
 
-function renderTime(element: HTMLTimeElement, stamp: number, now: number) {
+function renderTime(element: HTMLTimeElement, stamp: number, now: number, absolute = false) {
   const date = new Date(stamp)
   element.hidden = stamp <= 0 || !Number.isFinite(date.getTime())
   if (element.hidden) return
   const elapsed = Math.max(0, now - stamp)
-  const label =
-    elapsed < 60_000
-      ? 'Now'
-      : elapsed < 3_600_000
-        ? `${Math.floor(elapsed / 60_000)}m`
-        : elapsed < 86_400_000
-          ? `${Math.floor(elapsed / 3_600_000)}h`
-          : `${Math.floor(elapsed / 86_400_000)}d`
-  const iso = date.toISOString()
-  if (element.dateTime !== iso) {
-    element.dateTime = iso
-    element.title = timeFormat.format(stamp)
-  }
-  setText(element, label)
+  element.dateTime = date.toISOString()
+  element.title = timeFormat.format(stamp)
+  element.textContent =
+    absolute || elapsed >= 604_800_000
+      ? absolute
+        ? element.title
+        : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      : elapsed < 60_000
+        ? 'Just now'
+        : elapsed < 3_600_000
+          ? `${Math.floor(elapsed / 60_000)}m ago`
+          : elapsed < 86_400_000
+            ? `${Math.floor(elapsed / 3_600_000)}h ago`
+            : `${Math.floor(elapsed / 86_400_000)}d ago`
 }
 
-function createThreadRow(provider: AgentProvider) {
-  const button = node('button', 'agent-thread-row')
-  button.type = 'button'
-  button.innerHTML = providerMark(provider, agentProviderNames[provider])
-  const content = node('span', 'agent-thread-row-content')
-  const title = node('strong', 'agent-thread-row-title')
-  const activity = node('span', 'agent-thread-row-activity')
-  const meta = node('span', 'agent-thread-row-meta')
-  const state = node('span', 'agent-thread-state')
-  const time = node('time', 'agent-thread-time')
-  meta.append(state, time)
-  content.append(title, activity)
-  button.append(content, meta)
-  return { button, title, activity, state, time }
-}
-
-function createProject(path: string, name: string) {
-  const group = node('section', 'agent-thread-group')
-  const heading = node('header', 'agent-thread-group-heading')
-  const title = node('h4', '', name)
-  const summary = node('span', '')
-  heading.innerHTML = icon('folder')
-  heading.append(title, summary)
-  heading.title = path === NO_PROJECT ? name : path
-  group.append(heading)
-  const button = node('button', 'agent-thread-project')
-  button.type = 'button'
-  button.title = heading.title
-  button.innerHTML = icon('folder')
-  const navTitle = node('span', 'agent-thread-project-name', name)
-  const count = node('span', 'agent-thread-project-count')
-  button.append(navTitle, count)
-  const option = node('option', '', name)
-  option.value = path
-  return { group, summary, button, count, option }
-}
-
-export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorkspaceFile }: ThreadPanelOptions) {
-  host.className = 'agent-threads'
+export function createAgentThreadPanel(
+  host: HTMLElement,
+  { api, openWorkspaceFile, onVisibilityChange }: ThreadPanelOptions,
+) {
+  host.classList.add('agent-threads')
+  host.hidden = true
   host.setAttribute('aria-labelledby', 'agent-threads-title')
   host.innerHTML = `
-    <header class="agent-thread-header">
-      <span class="agent-thread-header-mark">${icon('activity')}</span>
-      <div class="agent-thread-header-title">
-        <h2 id="agent-threads-title">Agent threads</h2>
-        <p data-overview>Local agent activity</p>
+    <header class="agent-thread-topbar">
+      <button class="agent-thread-control agent-thread-sidebar-toggle" type="button" data-projects-toggle aria-controls="agent-thread-projects">
+        ${icon('sidebar')}
+      </button>
+      <h1 class="agent-thread-app-title" id="agent-threads-title" data-app-title>${icon('activity')}<span>Agent threads</span></h1>
+      <button class="agent-thread-control" type="button" data-back aria-label="Back to threads" hidden>${icon('arrow')}<span>Threads</span></button>
+      <div class="agent-thread-topbar-end">
+        <span class="agent-thread-sync" role="status" data-sync></span>
+        <button class="agent-thread-control" type="button" data-refresh aria-label="Refresh threads" title="Refresh threads">${icon('refresh')}<span>Refresh</span></button>
+        <span class="agent-thread-topbar-rule" aria-hidden="true"></span>
+        <button class="agent-thread-control" type="button" data-close aria-label="Back to workspace" title="Back to workspace">${icon('close')}<span>Workspace</span></button>
       </div>
-      <span class="agent-thread-sync" role="status" data-sync>Connecting…</span>
-      <button class="agent-thread-icon" type="button" data-refresh aria-label="Refresh threads" title="Refresh threads">${icon('refresh')}</button>
-      <button class="agent-thread-icon" type="button" data-close aria-label="Close agent threads" title="Close agent threads">${icon('close')}</button>
     </header>
-    <div class="agent-thread-providers" role="group" aria-label="Filter by agent">
-      ${providers
-        .map(
-          provider => `<button class="agent-thread-source" type="button" data-provider="${provider}" aria-pressed="false">
-            ${providerMark(provider)}
-            <span class="agent-thread-source-copy"><strong>${agentProviderNames[provider]}</strong><span data-source-count>Connecting…</span></span>
-          </button>`,
-        )
-        .join('')}
-    </div>
-    <div class="agent-thread-layout">
-      <nav class="agent-thread-projects" aria-label="Projects">
-        <h3>Projects</h3>
-        <div data-projects>
-          <button class="agent-thread-project" type="button" data-all-projects aria-current="true">
-            ${icon('grid')}<span class="agent-thread-project-name">All projects</span><span class="agent-thread-project-count"></span>
-          </button>
+    <div class="agent-thread-browser" data-browser data-projects-open="true">
+      <nav id="agent-thread-projects" class="agent-thread-projects" aria-label="Projects">
+        <div class="agent-thread-projects-content">
+          <h2>Projects</h2>
+          <div data-projects></div>
         </div>
       </nav>
-      <section class="agent-thread-roster" aria-label="Thread roster">
-        <header class="agent-thread-roster-heading">
-          <div class="agent-thread-roster-title">
-            <h3>Threads</h3>
-            <span data-matches></span>
-            <select class="agent-thread-project-select" aria-label="Project"><option value="">All projects</option></select>
+      <section class="agent-thread-roster" aria-label="Threads" tabindex="-1" data-roster>
+        <div class="agent-thread-filters">
+          <div class="agent-thread-query-tools">
+            <label class="agent-thread-search">${icon('search')}<input type="search" aria-label="Search threads" placeholder="Search threads" /></label>
+            <button class="agent-thread-control agent-thread-running" type="button" aria-pressed="false" data-running><span></span>Running</button>
           </div>
-          <div class="agent-thread-filters">
-            <label class="agent-thread-search">${icon('search')}<input type="search" aria-label="Search threads" placeholder="Search threads" autofocus /></label>
-            <button class="agent-thread-filter" type="button" aria-pressed="false" data-running>Running</button>
+          <div class="agent-thread-providers" role="group" aria-label="Filter by agent">
+            <button class="agent-thread-source" type="button" aria-pressed="true" data-any-agent>All agents</button>
+            ${providers
+              .map(
+                provider => `
+              <button class="agent-thread-source" type="button" aria-pressed="false" data-source="${provider}" data-provider="${provider}">
+                ${providerLogo(provider)}<span>${agentProviderNames[provider]}</span><span class="agent-thread-source-count" data-source-count></span>
+              </button>`,
+              )
+              .join('')}
           </div>
-        </header>
-        <div class="agent-thread-list" tabindex="0" aria-label="Threads by project">
-          <div class="agent-thread-empty" data-roster-empty>
-            <svg class="agent-thread-empty-art" viewBox="9 4 69 50" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" hidden></svg>
-            <p>Finding local agent threads…</p>
-          </div>
+        </div>
+        <div class="agent-thread-list" data-list>
+          <div class="agent-thread-list-content" data-list-content></div>
         </div>
       </section>
-      <section class="agent-thread-inspector" aria-label="Selected thread">
-        <div class="agent-thread-inspector-empty">
-          <svg class="agent-thread-empty-art" viewBox="9 4 69 50" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
-          <p>Select a thread to see its activity.</p>
-        </div>
-        <header class="agent-thread-inspector-heading" hidden>
-          <div class="agent-thread-inspector-meta">
-            <span class="agent-thread-inspector-provider"></span>
-            <span class="agent-thread-state"></span>
+    </div>
+    <section class="agent-thread-detail" aria-label="Conversation" data-detail hidden>
+      <header class="agent-thread-detail-header">
+        <div class="agent-thread-detail-heading">
+          <div class="agent-thread-detail-meta">
+            <span class="agent-thread-detail-provider" data-detail-provider></span>
+            <span class="agent-thread-detail-project" data-detail-project></span>
+            <span class="agent-thread-state" data-detail-state></span>
           </div>
-          <h3></h3>
-          <p class="agent-thread-cwd"></p>
-        </header>
-        <div class="agent-thread-activity-heading" hidden>
-          <h4>Activity</h4>
-          <span data-following></span>
-          <button class="agent-thread-filter" type="button" data-latest hidden>${icon('down')}Latest</button>
+          <h2 tabindex="-1" data-detail-title></h2>
+          <div class="agent-thread-detail-context">
+            <time data-detail-time></time>
+            <span class="agent-thread-cwd" data-detail-cwd></span>
+          </div>
         </div>
-        <div class="agent-thread-events" role="log" aria-live="off" aria-label="Thread activity" tabindex="0" hidden></div>
-        <section class="agent-thread-preview" aria-label="File preview" hidden>
-          <header>
-            <strong></strong>
-            <button type="button" class="agent-thread-icon" data-close-preview aria-label="Close file preview" title="Close file preview">${icon('close')}</button>
-          </header>
-          <p hidden>Showing the first 256 KiB</p>
-          <pre tabindex="0"></pre>
-        </section>
+        <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')} Latest</button>
+      </header>
+      <div class="agent-thread-transcript" data-conversation></div>
+      <section class="agent-thread-preview" aria-label="File preview" data-preview hidden>
+        <header>
+          <strong></strong>
+          <button type="button" class="agent-thread-control" data-close-preview aria-label="Close file preview" title="Close file preview">${icon('close')}</button>
+        </header>
+        <p hidden>Showing the first 256 KiB</p>
+        <pre tabindex="0"></pre>
       </section>
-    </div>`
+    </section>`
 
+  const browser = requireElement(host, '[data-browser]', HTMLDivElement)
+  const sidebar = requireElement(host, '#agent-thread-projects', HTMLElement)
+  const projectNav = requireElement(sidebar, '[data-projects]', HTMLDivElement)
+  const sidebarToggle = requireElement(host, '[data-projects-toggle]', HTMLButtonElement)
+  const back = requireElement(host, '[data-back]', HTMLButtonElement)
+  const appTitle = requireElement(host, '[data-app-title]', HTMLElement)
   const sync = requireElement(host, '[data-sync]', HTMLElement)
-  const overview = requireElement(host, '[data-overview]', HTMLParagraphElement)
+  const roster = requireElement(host, '[data-roster]', HTMLElement)
   const refresh = requireElement(host, '[data-refresh]', HTMLButtonElement)
   const query = requireElement(host, 'input[type=search]', HTMLInputElement)
   const running = requireElement(host, '[data-running]', HTMLButtonElement)
-  const projectNav = requireElement(host, '[data-projects]', HTMLDivElement)
-  const allProjects = requireElement(host, '[data-all-projects]', HTMLButtonElement)
-  const projectSelect = requireElement(host, '.agent-thread-project-select', HTMLSelectElement)
-  const totalProjectsCount = requireElement(allProjects, '.agent-thread-project-count', HTMLSpanElement)
-  const matches = requireElement(host, '[data-matches]', HTMLElement)
-  const list = requireElement(host, '.agent-thread-list', HTMLDivElement)
-  const empty = requireElement(list, '[data-roster-empty]', HTMLDivElement)
-  const emptyMessage = requireElement(empty, 'p', HTMLParagraphElement)
-  const trail = requireElement(empty, 'svg', SVGSVGElement)
+  const list = requireElement(host, '[data-list]', HTMLDivElement)
+  const listContent = requireElement(list, '[data-list-content]', HTMLDivElement)
+  const allAgents = requireElement(host, '[data-any-agent]', HTMLButtonElement)
   const sources = new Map(
     providers.map(provider => {
-      const button = requireElement(host, `.agent-thread-source[data-provider="${provider}"]`, HTMLButtonElement)
+      const button = requireElement(host, `[data-source="${provider}"]`, HTMLButtonElement)
       return [provider, { button, count: requireElement(button, '[data-source-count]', HTMLElement) }]
     }),
   )
-  const inspectorEmpty = requireElement(host, '.agent-thread-inspector-empty', HTMLDivElement)
-  const inspectorArt = requireElement(inspectorEmpty, 'svg', SVGSVGElement)
-  const inspector = requireElement(host, '.agent-thread-inspector-heading', HTMLElement)
-  const inspectorTitle = requireElement(inspector, 'h3', HTMLHeadingElement)
-  const inspectorProvider = requireElement(inspector, '.agent-thread-inspector-provider', HTMLSpanElement)
-  const inspectorState = requireElement(inspector, '.agent-thread-state', HTMLSpanElement)
-  const inspectorCwd = requireElement(inspector, '.agent-thread-cwd', HTMLParagraphElement)
-  const activityHeader = requireElement(host, '.agent-thread-activity-heading', HTMLDivElement)
-  const following = requireElement(activityHeader, '[data-following]', HTMLSpanElement)
-  const latest = requireElement(activityHeader, '[data-latest]', HTMLButtonElement)
-  const events = requireElement(host, '.agent-thread-events', HTMLDivElement)
-  const preview = requireElement(host, '.agent-thread-preview', HTMLElement)
+
+  const detail = requireElement(host, '[data-detail]', HTMLElement)
+  const detailTitle = requireElement(detail, '[data-detail-title]', HTMLHeadingElement)
+  const detailProvider = requireElement(detail, '[data-detail-provider]', HTMLElement)
+  const detailProject = requireElement(detail, '[data-detail-project]', HTMLElement)
+  const detailState = requireElement(detail, '[data-detail-state]', HTMLElement)
+  const detailCwd = requireElement(detail, '[data-detail-cwd]', HTMLElement)
+  const detailTime = requireElement(detail, '[data-detail-time]', HTMLTimeElement)
+  const conversation = requireElement(detail, '[data-conversation]', HTMLDivElement)
+  const latest = requireElement(detail, '[data-latest]', HTMLButtonElement)
+  const preview = requireElement(detail, '[data-preview]', HTMLElement)
   const previewTitle = requireElement(preview, 'strong', HTMLElement)
   const previewContents = requireElement(preview, 'pre', HTMLPreElement)
   const previewLimit = requireElement(preview, 'p', HTMLParagraphElement)
-  const closePreview = requireElement(preview, '[data-close-preview]', HTMLButtonElement)
 
-  const rows = new Map<string, ReturnType<typeof createThreadRow>>()
-  const projects = new Map<string, ReturnType<typeof createProject>>()
-  const threads = new Map<string, AgentThread>()
+  let threads = new Map<string, AgentThread>()
+  const rowButtons = new Map<string, HTMLButtonElement>()
   let unavailable = new Set<AgentProvider>()
-  let stale = false
   let loaded = false
-  let providerFilter: AgentProvider | undefined
-  let projectFilter = ''
-  let runningOnly = false
-
-  let subscription = ''
-  let replaceHistory = false
-  let listTimer = 0
+  let listError = false
   let listing = false
+  let reading = false
+  let disposed = false
+  let lastChecked = 0
+  let projectFilter = ''
+  let providerFilter: AgentProvider | undefined
+  let runningOnly = false
+  let projectsOpen = true
+  let returnFocus: HTMLElement | null = null
+  let previousListTop = 0
   let selected: AgentThread | undefined
-  let selectedFile: AgentThreadFile | undefined
+  let selection = ''
   let fileButton: HTMLButtonElement | undefined
   let fileRequest = 0
-  let disposed = false
 
   function stateOf(thread: AgentThread): ThreadState {
-    if (stale || unavailable.has(thread.provider) || !threads.has(thread.id)) return 'stale'
-    return thread.status ?? 'unknown'
+    return listError || unavailable.has(thread.provider) ? 'stale' : (thread.status ?? 'unknown')
   }
 
-  function stopFollowing() {
-    const previous = subscription
-    subscription = ''
-    if (previous) void api.stop(previous).catch((error: unknown) => reportError(error, { silent: true }))
-    fileRequest++
-    selectedFile = undefined
-    fileButton = undefined
-    previewContents.textContent = ''
-    preview.hidden = true
+  function updateTopbar() {
+    sidebarToggle.hidden = Boolean(selected)
+    appTitle.classList.toggle('agent-thread-app-title-compact', Boolean(selected))
+    back.hidden = !selected
+    sync.hidden = Boolean(selected)
+    const label = selected ? 'Refresh conversation' : 'Refresh threads'
+    refresh.setAttribute('aria-label', label)
+    refresh.title = label
+    refresh.disabled = selected ? reading : listing
   }
 
-  function showFollowError(error: unknown) {
-    following.textContent = reportError(error, { silent: true }).message
-  }
-
-  async function readFile(file: AgentThreadFile, focus: boolean) {
-    const current = subscription
-    const request = ++fileRequest
-    try {
-      const result = await api.file(current, file.path)
-      if (subscription !== current || request !== fileRequest) return
-      if (result.kind === 'workspace') {
-        if (focus) {
-          close()
-          try {
-            await openWorkspaceFile({ ...file, path: result.path })
-          } catch (error) {
-            reportError(error)
-          }
-        }
-        return
-      }
-      previewTitle.textContent = basename(file.path)
-      previewTitle.title = file.path
-      setText(previewContents, result.text)
-      previewLimit.hidden = !result.limited
-      preview.hidden = false
-      if (focus) {
-        previewContents.focus({ preventScroll: true })
-        if (file.line) {
-          const lineHeight = Number.parseFloat(getComputedStyle(previewContents).lineHeight)
-          previewContents.scrollTop = (file.line - 1) * lineHeight
-        }
-      }
-    } catch (error) {
-      if (subscription === current && request === fileRequest) {
-        if (focus) showFollowError(error)
-        else if (!preview.hidden) previewContents.textContent = 'This file is no longer available.'
-      }
-    }
-  }
-
-  function renderEvent(event: AgentThreadEvent) {
-    const article = node('article', 'agent-thread-event')
-    article.dataset.kind = event.kind
-    const label =
-      event.kind === 'assistant' && selected ? agentProviderNames[selected.provider] : eventLabels[event.kind]
-    article.append(node('h4', '', label), node('p', '', event.text))
-    for (const file of event.files ?? []) {
-      const link = node('button', 'agent-thread-file', `${basename(file.path)}${file.line ? `:${file.line}` : ''}`)
-      link.type = 'button'
-      link.title = file.path
-      link.addEventListener('click', () => {
-        if (!preview.hidden && selectedFile?.path !== file.path) preview.hidden = true
-        fileButton = link
-        selectedFile = file
-        void readFile(file, true).catch(showFollowError)
-      })
-      article.append(link)
-    }
-    return article
-  }
-
-  function nearLatest() {
-    return events.scrollHeight - events.scrollTop - events.clientHeight < 48
-  }
-
-  function scrollToLatest() {
-    events.scrollTop = events.scrollHeight
-    latest.hidden = true
-  }
-
-  function updateLatestButton() {
-    latest.hidden = nearLatest()
-  }
-
-  const eventSize = new ResizeObserver(updateLatestButton)
-  eventSize.observe(events)
-
-  const unsubscribe = api.onUpdate(update => {
-    if (!host.open || update.subscription !== subscription) return
-    setText(
-      following,
-      update.error ?? (events.childElementCount || update.events.length ? 'Following' : 'Waiting for activity…'),
-    )
-    if (update.events.length) {
-      const follow = nearLatest()
-      const previousScroll = events.scrollTop
-      const fragment = document.createDocumentFragment()
-      for (const event of update.events.slice(-MAX_EVENTS)) fragment.append(renderEvent(event))
-      if (replaceHistory) events.replaceChildren(fragment)
-      else events.append(fragment)
-      while (events.childElementCount > MAX_EVENTS) events.firstElementChild?.remove()
-      if (follow) scrollToLatest()
-      else {
-        if (replaceHistory) events.scrollTop = previousScroll
-        latest.hidden = nearLatest()
-      }
-      replaceHistory = false
-    }
-    if (!preview.hidden && selectedFile) {
-      const path = selectedFile.path
-      if (update.events.some(event => event.kind === 'edit' && event.files?.some(file => file.path === path)))
-        void readFile(selectedFile, false).catch(showFollowError)
-    }
-  })
-
-  function renderInspector() {
-    if (!selected) return
-    inspectorEmpty.hidden = true
-    inspector.hidden = activityHeader.hidden = events.hidden = false
-    setText(inspectorTitle, selected.title)
-    inspectorTitle.title = selected.title
-    setText(inspectorProvider, agentProviderNames[selected.provider])
-    inspectorProvider.dataset.provider = selected.provider
-    renderState(inspectorState, stateOf(selected))
-    setText(inspectorCwd, selected.cwd || 'Working folder unavailable')
-    inspectorCwd.title = selected.cwd
-  }
-
-  async function followThread(thread: AgentThread) {
-    const sameThread = selected?.id === thread.id
-    if (sameThread && subscription) return
-    if (selected) rows.get(selected.id)?.button.setAttribute('aria-pressed', 'false')
-    stopFollowing()
-    selected = thread
-    rows.get(thread.id)?.button.setAttribute('aria-pressed', 'true')
-    replaceHistory = sameThread && Boolean(events.childElementCount)
-    if (!replaceHistory) {
-      events.replaceChildren()
-      latest.hidden = true
-    }
-    renderInspector()
-    const current = crypto.randomUUID()
-    subscription = current
-    setText(following, replaceHistory ? 'Reconnecting…' : 'Waiting for activity…')
-    try {
-      await api.follow(thread.id, current)
-    } catch (error) {
-      if (subscription !== current) return
-      subscription = ''
-      showFollowError(error)
-    }
+  function setProjectsOpen(open: boolean) {
+    projectsOpen = open
+    browser.dataset.projectsOpen = String(open)
+    sidebar.inert = !open
+    sidebarToggle.setAttribute('aria-expanded', String(open))
+    const label = open ? 'Hide projects' : 'Show projects'
+    sidebarToggle.setAttribute('aria-label', label)
+    sidebarToggle.title = label
   }
 
   function selectProject(path: string) {
     projectFilter = path
-    projectSelect.value = path
     applyFilters()
+    setProjectsOpen(false)
+    roster.focus({ preventScroll: true })
+  }
+
+  function projectButton(path: string, title: string, count: number) {
+    const button = node('button', 'agent-thread-project')
+    button.type = 'button'
+    button.title = path && path !== NO_PROJECT ? path : title
+    button.setAttribute('aria-current', String(projectFilter === path))
+    button.innerHTML = icon(path ? 'folder' : 'grid')
+    button.append(
+      node('span', 'agent-thread-project-name', title),
+      node('span', 'agent-thread-project-count', String(count)),
+    )
+    button.addEventListener('click', () => selectProject(path))
+    return button
+  }
+
+  function createThreadRow(thread: AgentThread, now: number) {
+    const button = node('button', 'agent-thread-row')
+    button.type = 'button'
+    const content = node('span', 'agent-thread-row-content')
+    const title = node('strong', 'agent-thread-row-title', thread.title)
+    title.title = thread.title
+    const activity = node('span', 'agent-thread-row-activity')
+    const excerpt = thread.activity?.replace(/\s+/gu, ' ').trim()
+    const worktree = thread.cwd && thread.cwd !== projectOf(thread) ? basename(thread.cwd) : ''
+    activity.textContent = [agentProviderNames[thread.provider], worktree, excerpt].filter(Boolean).join(' · ')
+    content.append(title, activity)
+    const meta = node('span', 'agent-thread-row-meta')
+    const state = node('span', 'agent-thread-state')
+    renderState(state, stateOf(thread))
+    const time = node('time', 'agent-thread-time')
+    renderTime(time, thread.updatedAt, now)
+    meta.append(state, time)
+    const arrow = node('span', 'agent-thread-row-arrow')
+    arrow.innerHTML = icon('next')
+    button.append(providerMark(thread.provider), content, meta, arrow)
+    button.addEventListener('click', () => openThread(thread))
+    rowButtons.set(thread.id, button)
+    return button
+  }
+
+  function renderRoster() {
+    const terms = query.value.trim().toLowerCase().split(/\s+/u)
+    const now = lastChecked || Date.now()
+    const projects = new Map<string, { total: number; matches: AgentThread[] }>()
+    const byProvider = new Map<AgentProvider, number>()
+    for (const thread of threads.values()) {
+      const path = projectOf(thread)
+      const group = projects.get(path) ?? { total: 0, matches: [] }
+      projects.set(path, group)
+      group.total++
+      if (projectFilter && projectFilter !== path) continue
+      byProvider.set(thread.provider, (byProvider.get(thread.provider) ?? 0) + 1)
+      if (providerFilter && providerFilter !== thread.provider) continue
+      if (runningOnly && stateOf(thread) !== 'running') continue
+      const searchable = [thread.title, thread.activity, thread.cwd, path, agentProviderNames[thread.provider]]
+        .join(' ')
+        .toLowerCase()
+      if (!terms.every(term => searchable.includes(term))) continue
+      group.matches.push(thread)
+    }
+
+    allAgents.setAttribute('aria-pressed', String(!providerFilter))
+    for (const [provider, source] of sources) {
+      source.button.setAttribute('aria-pressed', String(providerFilter === provider))
+      source.count.textContent = loaded ? String(byProvider.get(provider) ?? 0) : ''
+      const missing = unavailable.has(provider)
+      source.button.dataset.unavailable = String(missing)
+      source.button.title = missing ? `${agentProviderNames[provider]} sessions could not be refreshed` : ''
+    }
+
+    const scope = projectFilter === NO_PROJECT ? 'with no project' : `in ${projectName(projectFilter)}`
+    roster.setAttribute('aria-label', projectFilter ? `Threads ${scope}` : 'Threads')
+
+    const activeProject =
+      document.activeElement instanceof HTMLButtonElement && projectNav.contains(document.activeElement)
+        ? [...projectNav.children].indexOf(document.activeElement)
+        : -1
+    projectNav.replaceChildren(
+      projectButton('', 'All projects', threads.size),
+      ...[...projects].map(([path, count]) => projectButton(path, projectName(path), count.total)),
+    )
+    const previousProject = projectNav.children.item(activeProject)
+    if (previousProject instanceof HTMLElement) previousProject.focus({ preventScroll: true })
+
+    rowButtons.clear()
+    const content = document.createDocumentFragment()
+    for (const [path, group] of projects) {
+      if (!group.matches.length && path !== projectFilter) continue
+      const section = node('section', 'agent-thread-group')
+      const heading = node('header', 'agent-thread-group-heading')
+      heading.innerHTML = icon('folder')
+      heading.append(node('h2', '', projectName(path)), node('span', '', threadCount(group.matches.length)))
+      heading.title = path === NO_PROJECT ? '' : path
+      section.append(heading)
+      if (group.matches.length) {
+        const rows = node('div', 'agent-thread-group-rows')
+        rows.append(...group.matches.map(thread => createThreadRow(thread, now)))
+        section.append(rows)
+      }
+      content.append(section)
+    }
+    if (!rowButtons.size) {
+      const empty = node('div', 'agent-thread-empty')
+      const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      art.setAttribute('class', 'agent-thread-empty-art')
+      art.setAttribute('viewBox', '9 4 69 50')
+      art.setAttribute('aria-hidden', 'true')
+      art.setAttribute('stroke-linecap', 'round')
+      art.setAttribute('stroke-linejoin', 'round')
+      if (!listing) {
+        drawThreadTrail(art)
+        empty.append(art)
+      }
+      const title =
+        !loaded && listing
+          ? 'Finding local threads…'
+          : listError
+            ? 'Couldn’t load local threads'
+            : threads.size
+              ? 'No matching threads'
+              : 'No local threads found'
+      empty.append(node('p', 'agent-thread-empty-title', title))
+      if (loaded || listError) {
+        empty.append(
+          node(
+            'p',
+            '',
+            listError
+              ? 'Use Refresh to try again.'
+              : threads.size
+                ? 'Try a different search or filter.'
+                : 'Saved sessions will appear here when you refresh.',
+          ),
+        )
+      }
+      const emptyContainer = content.firstElementChild ?? content
+      emptyContainer.append(empty)
+    }
+    const focusedId =
+      document.activeElement instanceof HTMLButtonElement && list.contains(document.activeElement)
+        ? document.activeElement.dataset.threadId
+        : undefined
+    for (const [id, button] of rowButtons) button.dataset.threadId = id
+    listContent.replaceChildren(content)
+    if (focusedId) (rowButtons.get(focusedId) ?? query).focus({ preventScroll: true })
   }
 
   function applyFilters() {
@@ -462,220 +430,200 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
     list.scrollTop = 0
   }
 
-  function renderRoster() {
-    const terms = query.value.trim().toLowerCase().split(/\s+/u)
-    const now = Date.now()
-    const counts = new Map<string, { visible: number; total: number; running: number }>()
-    const byProvider = new Map(providers.map(provider => [provider, { total: 0, running: 0 }]))
-    let totalRunning = 0
-    let visible = 0
-    for (const [id, thread] of threads) {
-      const path = projectOf(thread)
-      const name = path === NO_PROJECT ? 'No project' : basename(path)
-      const state = stateOf(thread)
-      const isRunning = state === 'running'
-      let project = projects.get(path)
-      if (!project) {
-        project = createProject(path, name)
-        projects.set(path, project)
-        project.button.addEventListener('click', () => selectProject(path))
-        projectNav.append(project.button)
-        projectSelect.append(project.option)
-        list.append(project.group)
-      }
+  function clearSelection() {
+    const previous = selection
+    selection = ''
+    reading = false
+    fileRequest++
+    if (previous) void api.clear(previous).catch((error: unknown) => reportError(error, { silent: true }))
+    preview.hidden = true
+    previewContents.textContent = ''
+    fileButton = undefined
+  }
 
-      let row = rows.get(id)
-      if (!row) {
-        row = createThreadRow(thread.provider)
-        rows.set(id, row)
-        row.button.addEventListener('click', () => {
-          const current = threads.get(id)
-          if (current) void followThread(current).catch(showFollowError)
-        })
+  async function readFile(file: AgentThreadFile, button?: HTMLButtonElement) {
+    const current = selection
+    const request = ++fileRequest
+    fileButton = button
+    try {
+      const result = await api.file(current, file.path)
+      if (selection !== current || request !== fileRequest) return
+      if (result.kind === 'workspace') {
+        close()
+        try {
+          await openWorkspaceFile({ ...file, path: result.path })
+        } catch (error) {
+          reportError(error)
+        }
+        return
       }
-      if (row.button.parentElement !== project.group) project.group.append(row.button)
-
-      setText(row.title, thread.title)
-      row.title.title = thread.title
-      const description = [agentProviderNames[thread.provider], workingFolder(thread.cwd, path), thread.activity]
-        .filter(Boolean)
-        .join(' · ')
-      setText(row.activity, description)
-      row.activity.title = [agentProviderNames[thread.provider], thread.cwd, thread.activity]
-        .filter(Boolean)
-        .join(' · ')
-      renderState(row.state, state)
-      renderTime(row.time, thread.updatedAt, now)
-      row.button.setAttribute('aria-pressed', String(selected?.id === id))
-      const searchable = [thread.title, thread.activity, thread.cwd, path, agentProviderNames[thread.provider]]
-        .join(' ')
-        .toLowerCase()
-      const matchesFilter =
-        (!projectFilter || projectFilter === path) &&
-        (!providerFilter || providerFilter === thread.provider) &&
-        (!runningOnly || isRunning) &&
-        terms.every(term => searchable.includes(term))
-      if (!matchesFilter && document.activeElement === row.button) query.focus({ preventScroll: true })
-      row.button.hidden = !matchesFilter
-
-      const provider = byProvider.get(thread.provider)
-      if (provider) {
-        provider.total++
-        if (isRunning) provider.running++
+      previewTitle.textContent = basename(file.path)
+      previewTitle.title = file.path
+      previewContents.textContent = result.text
+      previewLimit.hidden = !result.limited
+      preview.hidden = false
+      previewContents.focus({ preventScroll: true })
+      const lineHeight = Number.parseFloat(getComputedStyle(previewContents).lineHeight)
+      previewContents.scrollTop = file.line ? (file.line - 1) * lineHeight : 0
+    } catch (error) {
+      if (selection === current && request === fileRequest) {
+        preview.hidden = false
+        previewTitle.textContent = basename(file.path)
+        previewLimit.hidden = true
+        previewContents.textContent = reportError(error, { silent: true }).message
+        previewContents.focus({ preventScroll: true })
       }
-      const count = counts.get(path) ?? { visible: 0, total: 0, running: 0 }
-      count.total++
-      if (isRunning) {
-        totalRunning++
-        count.running++
-      }
-      if (matchesFilter) {
-        visible++
-        count.visible++
-      }
-      counts.set(path, count)
-    }
-    for (const [id, row] of rows) {
-      if (threads.has(id)) continue
-      if (document.activeElement === row.button) query.focus({ preventScroll: true })
-      row.button.remove()
-      rows.delete(id)
-    }
-    for (const [path, project] of projects) {
-      const count = counts.get(path)
-      if (!count) {
-        if (document.activeElement === project.button) allProjects.focus({ preventScroll: true })
-        project.group.remove()
-        project.button.remove()
-        project.option.remove()
-        projects.delete(path)
-        continue
-      }
-      setText(project.count, count.running ? `${count.running} running` : String(count.total))
-      project.count.dataset.active = String(Boolean(count.running))
-      project.count.title = threadCount(count.total)
-      setText(
-        project.summary,
-        count.running ? `${count.running} running · ${threadCount(count.total)}` : threadCount(count.total),
-      )
-      project.button.setAttribute('aria-current', String(projectFilter === path))
-      project.group.hidden = !count.visible
-    }
-    allProjects.setAttribute('aria-current', String(!projectFilter))
-    setText(totalProjectsCount, String(threads.size))
-    setText(matches, loaded ? String(visible) : '')
-    if (loaded) {
-      const projectTotal = counts.size - Number(counts.has(NO_PROJECT))
-      setText(
-        overview,
-        `${totalRunning} running · ${threadCount(threads.size)} · ${projectTotal} ${projectTotal === 1 ? 'project' : 'projects'}`,
-      )
-    }
-    empty.hidden = visible > 0
-    if (!empty.hidden) {
-      if (loaded && !trail.childElementCount) drawThreadTrail(trail)
-      trail.toggleAttribute('hidden', !loaded)
-      setText(
-        emptyMessage,
-        threads.size
-          ? 'No threads match these filters.'
-          : loaded
-            ? 'No local agent threads found.'
-            : 'Finding local agent threads…',
-      )
-    }
-    for (const [provider, source] of sources) {
-      const count = byProvider.get(provider)
-      const status = stale || unavailable.has(provider) ? (count?.total ? 'Stale' : 'Unavailable') : ''
-      source.button.setAttribute('aria-pressed', String(providerFilter === provider))
-      setText(
-        source.count,
-        status || (loaded && count ? `${count.running} running · ${count.total} total` : 'Connecting…'),
-      )
-      source.button.dataset.status = status.toLowerCase()
-    }
-    if (selected) {
-      selected = threads.get(selected.id) ?? selected
-      renderInspector()
     }
   }
 
-  async function refreshList() {
-    if (!host.open || listing) return
-    window.clearTimeout(listTimer)
-    listing = true
+  function updateLatestButton() {
+    latest.hidden = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 72
+  }
+
+  async function readThread(thread: AgentThread, preserveScroll = false) {
+    const previousTop = conversation.scrollTop
+    const atEnd = conversation.scrollHeight - previousTop - conversation.clientHeight < 72
+    clearSelection()
+    const current = crypto.randomUUID()
+    selection = current
+    reading = true
+    updateTopbar()
+    renderAgentThreadConversation(conversation, { provider: thread.provider, loading: true })
+    updateLatestButton()
     try {
-      const result = await api.list()
-      if (!host.open || disposed) return
-      unavailable = new Set(result.unavailable)
-      stale = false
-      const incoming = new Map(result.threads.map(thread => [thread.id, thread]))
-      for (const [id, thread] of threads) {
-        if (!incoming.has(id) && !unavailable.has(thread.provider)) threads.delete(id)
-      }
-      for (const [id, thread] of incoming) threads.set(id, thread)
-      if (projectFilter && ![...threads.values()].some(thread => projectOf(thread) === projectFilter)) {
-        projectFilter = ''
-        projectSelect.value = ''
-      }
-      loaded = true
-      const online = providers.length - unavailable.size
-      sync.title = ''
-      sync.dataset.state = online === providers.length ? 'live' : online ? 'partial' : 'offline'
-      setText(
-        sync,
-        online === providers.length
-          ? 'Updating live'
-          : online
-            ? `${online} of ${providers.length} sources available`
-            : 'Sources unavailable',
-      )
-      renderRoster()
-      if (!subscription) {
-        const current = selected
-          ? threads.get(selected.id)
-          : [...threads.values()].find(thread => stateOf(thread) !== 'stale')
-        if (current && stateOf(current) !== 'stale') void followThread(current).catch(showFollowError)
-      }
+      const events = await api.read(thread.id, current)
+      if (selection !== current) return
+      renderAgentThreadConversation(conversation, {
+        provider: thread.provider,
+        providerMark: providerMark(thread.provider),
+        events,
+        onOpenFile: (file, button) => void readFile(file, button),
+      })
+      conversation.scrollTop = preserveScroll ? (atEnd ? conversation.scrollHeight : previousTop) : 0
     } catch (error) {
-      if (!host.open || disposed) return
-      stale = true
-      sync.dataset.state = 'offline'
-      setText(sync, 'Retrying sources…')
-      sync.title = reportError(error, { silent: true }).message
-      renderRoster()
+      if (selection !== current) return
+      reportError(error, { silent: true })
+      renderAgentThreadConversation(conversation, {
+        provider: thread.provider,
+        error: 'Couldn’t read this conversation.',
+        onRetry: requestRefresh,
+      })
     } finally {
-      listing = false
-      if (host.open && !disposed) listTimer = window.setTimeout(requestRefresh, REFRESH_MS)
+      if (selection === current) {
+        reading = false
+        updateTopbar()
+        updateLatestButton()
+      }
     }
   }
 
   function requestRefresh() {
-    void refreshList().catch((error: unknown) => reportError(error))
+    const operation = selected ? readThread(selected, true) : refreshList()
+    void operation.catch((error: unknown) => reportError(error))
   }
 
-  function stopUpdates() {
-    window.clearTimeout(listTimer)
-    stopFollowing()
+  function openThread(thread: AgentThread) {
+    previousListTop = list.scrollTop
+    selected = thread
+    browser.hidden = true
+    detail.hidden = false
+    detailTitle.textContent = thread.title
+    detailProvider.replaceChildren(
+      providerMark(thread.provider),
+      document.createTextNode(agentProviderNames[thread.provider]),
+    )
+    detailProject.textContent = projectName(projectOf(thread))
+    detailProject.hidden = projectOf(thread) === NO_PROJECT
+    detailCwd.textContent = thread.cwd
+    detailCwd.title = thread.cwd
+    detailCwd.hidden = !thread.cwd
+    renderState(detailState, stateOf(thread))
+    renderTime(detailTime, thread.updatedAt, lastChecked, true)
+    void readThread(thread).catch((error: unknown) => reportError(error))
+    detailTitle.focus({ preventScroll: true })
+  }
+
+  function backToThreads() {
+    if (!selected) return
+    const id = selected.id
+    clearSelection()
+    selected = undefined
+    conversation.replaceChildren()
+    detail.hidden = true
+    browser.hidden = false
+    list.scrollTop = previousListTop
+    updateTopbar()
+    ;(rowButtons.get(id) ?? roster).focus({ preventScroll: true })
+  }
+
+  async function refreshList() {
+    if (host.hidden || listing) return
+    listing = true
+    sync.textContent = 'Reading local sessions…'
+    sync.dataset.state = ''
+    updateTopbar()
+    if (!loaded) renderRoster()
+    try {
+      const result = await api.list()
+      if (disposed) return
+      unavailable = new Set(result.unavailable)
+      const incoming = new Map(result.threads.map(thread => [thread.id, thread]))
+      for (const [id, thread] of threads) {
+        if (!incoming.has(id) && unavailable.has(thread.provider)) incoming.set(id, thread)
+      }
+      threads = incoming
+      if (projectFilter && ![...threads.values()].some(thread => projectOf(thread) === projectFilter))
+        projectFilter = ''
+      loaded = true
+      listError = false
+      lastChecked = Date.now()
+      sync.textContent = unavailable.size
+        ? `${unavailable.size} ${unavailable.size === 1 ? 'source' : 'sources'} unavailable`
+        : 'Local snapshot'
+      sync.title = `Checked ${timeFormat.format(lastChecked)}`
+      sync.dataset.state = unavailable.size ? 'warning' : ''
+    } catch (error) {
+      if (disposed) return
+      listError = true
+      sync.textContent = 'Refresh failed'
+      sync.title = reportError(error, { silent: true }).message
+      sync.dataset.state = 'warning'
+    } finally {
+      listing = false
+      if (!disposed) {
+        updateTopbar()
+        renderRoster()
+      }
+    }
   }
 
   function close() {
-    if (!host.open) return
-    stopUpdates()
-    host.close()
+    if (host.hidden) return
+    const previous = returnFocus
+    returnFocus = null
+    host.hidden = true
+    if (selected) {
+      clearSelection()
+      selected = undefined
+      conversation.replaceChildren()
+      detail.hidden = true
+      browser.hidden = false
+    }
+    updateTopbar()
+    onVisibilityChange?.(false)
+    if (previous?.isConnected) previous.focus({ preventScroll: true })
   }
 
-  host.addEventListener('close', () => {
-    if (!host.open) stopUpdates()
-  })
   requireElement(host, '[data-close]', HTMLButtonElement).addEventListener('click', close)
+  sidebarToggle.addEventListener('click', () => {
+    setProjectsOpen(!projectsOpen)
+    if (projectsOpen) projectNav.querySelector<HTMLElement>('[aria-current="true"]')?.focus({ preventScroll: true })
+  })
+  back.addEventListener('click', backToThreads)
   refresh.addEventListener('click', requestRefresh)
   query.addEventListener('input', applyFilters)
-  allProjects.addEventListener('click', () => selectProject(''))
-  projectSelect.addEventListener('change', () => selectProject(projectSelect.value))
-  running.addEventListener('click', () => {
-    runningOnly = !runningOnly
-    running.setAttribute('aria-pressed', String(runningOnly))
+  allAgents.addEventListener('click', () => {
+    providerFilter = undefined
     applyFilters()
   })
   for (const [provider, { button }] of sources) {
@@ -684,33 +632,60 @@ export function createAgentThreadPanel(host: HTMLDialogElement, { api, openWorks
       applyFilters()
     })
   }
-  events.addEventListener('scroll', updateLatestButton)
+  running.addEventListener('click', () => {
+    runningOnly = !runningOnly
+    running.setAttribute('aria-pressed', String(runningOnly))
+    applyFilters()
+  })
+  host.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return
+    if (event.target === query && query.value) {
+      event.preventDefault()
+      query.value = ''
+      applyFilters()
+      return
+    }
+    event.preventDefault()
+    if (!preview.hidden) closePreview()
+    else if (selected) backToThreads()
+    else close()
+  })
+  conversation.addEventListener('scroll', updateLatestButton, { passive: true })
+  conversation.addEventListener('toggle', () => requestAnimationFrame(updateLatestButton), { capture: true })
   latest.addEventListener('click', () => {
-    scrollToLatest()
-    events.focus({ preventScroll: true })
+    conversation.scrollTop = conversation.scrollHeight
+    conversation.focus({ preventScroll: true })
   })
-  closePreview.addEventListener('click', () => {
+  const transcriptSize = new ResizeObserver(updateLatestButton)
+  transcriptSize.observe(conversation)
+
+  function closePreview() {
     fileRequest++
-    selectedFile = undefined
     preview.hidden = true
-    if (fileButton?.isConnected) fileButton.focus()
-    else events.focus()
-  })
+    previewContents.textContent = ''
+    if (fileButton?.isConnected) fileButton.focus({ preventScroll: true })
+    else detailTitle.focus({ preventScroll: true })
+    fileButton = undefined
+  }
+  requireElement(preview, '[data-close-preview]', HTMLButtonElement).addEventListener('click', closePreview)
+
+  setProjectsOpen(true)
 
   return {
     open() {
-      if (host.open || disposed) return
-      if (!inspectorArt.childElementCount) drawThreadInspector(inspectorArt)
-      host.showModal()
+      if (!host.hidden || disposed) return
+      returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      host.hidden = false
+      updateTopbar()
+      onVisibilityChange?.(true)
+      roster.focus({ preventScroll: true })
       requestRefresh()
     },
     close,
     dispose() {
-      disposed = true
       close()
-      stopUpdates()
-      eventSize.disconnect()
-      unsubscribe()
+      disposed = true
+      transcriptSize.disconnect()
     },
   }
 }

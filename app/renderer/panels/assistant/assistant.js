@@ -92,7 +92,7 @@ export function createAssistant(
     <header class="claude-heading">
       <h2 id="claude-title"><span class="claude-brand">${creatureGlyph}</span>The Creature</h2>
       <div class="claude-tools">
-        <button type="button" class="claude-icon claude-threads-toggle" data-action="threads" aria-label="Open agent threads" title="Open agent threads" aria-controls="agent-threads" aria-haspopup="dialog"${openAgentThreads ? '' : ' hidden'}>${agentThreadsGlyph}<span>Agent threads</span></button>
+        <button type="button" class="claude-icon claude-threads-toggle" data-action="threads" aria-label="Open agent threads" title="Open agent threads" aria-controls="agent-threads"${openAgentThreads ? '' : ' hidden'}>${agentThreadsGlyph}<span>Agent threads</span></button>
         <button type="button" class="claude-icon" data-action="reset" aria-label="New conversation" title="New conversation">${icon('new')}</button>
         <button type="button" class="claude-icon" data-action="settings" aria-label="Creature settings" title="Creature settings" aria-haspopup="dialog">${icon('settings')}</button>
         <button type="button" class="claude-icon" data-action="close" aria-label="Close the Creature panel" title="Close the Creature panel">${icon('close')}</button>

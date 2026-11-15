@@ -2,9 +2,10 @@ import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { setImmediate } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
-import { activityText, latestActivity, readJsonLines, recentJsonRecords } from './source.ts'
+import { activityText, latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sessionId = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i
@@ -53,13 +54,22 @@ function fileUri(value: unknown): string {
   return path.isAbsolute(candidate) ? candidate : ''
 }
 
+function cursorUserText(value: unknown) {
+  const saved = string(value)
+  // Cursor wraps user queries with generated timestamps, task notifications and tool catalogs.
+  if (!/^<(?:timestamp>|available_subagent_types>|dynamic_tool_catalog>|system_notification>|user_query>)/.test(saved))
+    return saved
+  const query = /<user_query>([\s\S]*?)<\/user_query>\s*$/.exec(saved)?.[1]
+  return query?.trim() ?? ''
+}
+
 function toolEvent(block: Record<string, unknown>, summary = false): AgentThreadEvent[] {
   const name = string(block.name)
   if (!name) return []
   const input = object(decode(block.input))
-  if (!input) return []
-  const filename = fileTools.has(name) ? filePath(input.path ?? input.file_path) : ''
-  const offset = input.offset ?? input.line
+  const toolName = name === 'CallDynamicTool' ? string(input?.toolName) || name : name
+  const filename = fileTools.has(name) ? filePath(input?.path ?? input?.file_path) : ''
+  const offset = input?.offset ?? input?.line
   const files: AgentThreadFile[] = filename
     ? [
         {
@@ -68,12 +78,17 @@ function toolEvent(block: Record<string, unknown>, summary = false): AgentThread
         },
       ]
     : []
-  if (editTools.has(name)) {
-    return files.length ? [{ kind: 'edit', text: name === 'Delete' ? 'Deleted a file' : 'Edited a file', files }] : []
-  }
-  if (name === 'Read' && files.length) return [{ kind: 'tool', text: 'Read a file', files }]
-  const detail = !summary && name === 'Shell' ? string(input.description) || string(input.command).slice(0, 300) : ''
-  return [{ kind: 'tool', text: detail || name }]
+  const command = !summary && name === 'Shell' ? string(input?.command) : ''
+  const nativeDescription =
+    string(input?.description) || string(input?.title) || string(input?.summary) || string(input?.completed_subtitle)
+  const description =
+    nativeDescription ||
+    (filename
+      ? `${name} ${path.basename(filename)}`
+      : name === 'Grep'
+        ? string(input?.pattern)
+        : command.split('\n', 1)[0])
+  return [toolCall(toolName, { kind: editTools.has(name) ? 'edit' : 'tool', description, text: command, files })]
 }
 
 function transcriptEvents(record: unknown, summary = false): AgentThreadEvent[] {
@@ -95,7 +110,7 @@ function transcriptEvents(record: unknown, summary = false): AgentThreadEvent[] 
   for (const entry of content) {
     const block = object(entry)
     if (block?.type === 'text') {
-      const text = string(block.text)
+      const text = role === 'user' ? cursorUserText(block.text) : string(block.text)
       if (text) events.push({ kind: role, text })
     } else if (role === 'assistant' && block?.type === 'tool_use') {
       events.push(...toolEvent(block, summary))
@@ -192,7 +207,7 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
       "SELECT json_extract(value, '$.fullConversationHeadersOnly[#-1]') AS value FROM cursorDiskKV WHERE key = ? AND json_valid(value)",
     )
     const bubbleText = database.prepare(
-      "SELECT substr(json_extract(value, '$.text'), 1, 512) AS text FROM cursorDiskKV WHERE key = ? AND json_valid(value)",
+      "SELECT json_extract(value, '$.text') AS text FROM cursorDiskKV WHERE key = ? AND json_valid(value)",
     )
     for (const row of matches) {
       if (!row) continue
@@ -223,17 +238,14 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
       const fileAction = fileToolCases.get(toolCase)
       const filename = filePath(grouping?.toolDisplayPath)
       const bubbleId = string(last?.bubbleId)
+      const savedText = bubbleId && !toolCase ? bubbleText.get(`bubbleId:${id}:${bubbleId}`)?.text : undefined
       const activity = toolCase
         ? activityText(
             fileAction && filename
               ? `${fileAction} ${path.basename(filename)}`
-              : toolCase === 'shellToolCall'
-                ? 'Shell command'
-                : 'Tool call',
+              : (composerTools.get(toolCase) ?? 'Tool call'),
           )
-        : bubbleId
-          ? activityText(string(bubbleText.get(`bubbleId:${id}:${bubbleId}`)?.text))
-          : undefined
+        : activityText(last?.type === 1 ? cursorUserText(savedText) : string(savedText))
       result.set(id, {
         title: string(data?.name),
         cwd,
@@ -258,76 +270,90 @@ const fileToolCases = new Map([
   ['deleteToolCall', 'Delete'],
 ])
 
+const composerTools = new Map([
+  ...fileToolCases,
+  ['shellToolCall', 'Shell'],
+  ['taskToolCall', 'Task'],
+  ['communicateUpdateToolCall', 'UpdateCurrentStep'],
+  ['grepToolCall', 'Grep'],
+  ['awaitToolCall', 'AwaitShell'],
+  ['getMcpToolsToolCall', 'GetDynamicTools'],
+  ['askQuestionToolCall', 'AskQuestion'],
+  ['updateTodosToolCall', 'TodoWrite'],
+])
+
+function composerToolEvent(group: Record<string, unknown> | undefined, tool: Record<string, unknown>) {
+  const toolCase = string(group?.toolCallCase)
+  const storedName = string(tool.name)
+  const name = composerTools.get(toolCase) ?? (storedName === 'run_terminal_command_v2' ? 'Shell' : storedName)
+  const params = object(decode(tool.params))
+  const args = object(decode(tool.rawArgs))
+  return toolEvent({
+    name,
+    input: {
+      path: group?.toolDisplayPath ?? args?.path ?? params?.targetFile ?? params?.relativeWorkspacePath,
+      offset: args?.offset ?? params?.offset ?? params?.startLine,
+      description: params?.commandDescription ?? params?.description ?? args?.description,
+      command: params?.command ?? args?.command,
+      title: params?.title ?? args?.title,
+      pattern: args?.pattern ?? params?.pattern,
+      completed_subtitle: args?.completedSubtitle,
+    },
+  })
+}
+
 function composerReader(databasePath: string, id: string) {
-  let database: DatabaseSync | undefined
-  const seen = new Set<string>()
-  const finished = new Set<string>()
   const stableTools = new Set(['completed', 'error', 'failed', 'cancelled', 'rejected'])
   return {
     async read() {
-      database ??= new DatabaseSync(databasePath, { readOnly: true })
+      using database = new DatabaseSync(databasePath, { readOnly: true })
+      database.exec('BEGIN')
       const select = database.prepare('SELECT value FROM cursorDiskKV WHERE key = ?')
-      const chunks = database.prepare(
-        'SELECT value FROM cursorDiskKV WHERE key > ? AND key < ? ORDER BY key DESC LIMIT 3',
-      )
+      const selectBubble = database.prepare(`
+        SELECT json_extract(value, '$.text') AS text,
+               json_extract(value, '$.toolFormerData.name') AS name,
+               json_extract(value, '$.toolFormerData.status') AS status,
+               json_extract(value, '$.toolFormerData.params') AS params,
+               json_extract(value, '$.toolFormerData.rawArgs') AS rawArgs
+        FROM cursorDiskKV WHERE key = ? AND json_valid(value)
+      `)
+      const chunks = database.prepare('SELECT value FROM cursorDiskKV WHERE key > ? AND key < ? ORDER BY key')
       const prefix = `composerConvHeaders:${id}`
-      const rows = chunks.all(`${prefix}:`, `${prefix};`).toReversed()
+      const rows = chunks.all(`${prefix}:`, `${prefix};`)
       const state = rows.length ? undefined : object(decode(select.get(`composerData:${id}`)?.value))
       const headings = rows.length ? rows.map(row => decode(row.value)) : [state?.fullConversationHeadersOnly]
       const events: AgentThreadEvent[] = []
+      const seen = new Set<string>()
       for (const section of headings) {
         if (!Array.isArray(section)) continue
         for (const value of section) {
           const heading = object(value)
           const group = object(heading?.grouping)
           const bubbleId = string(heading?.bubbleId)
-          if (!bubbleId || group?.isSimulatedMsg) continue
+          if (!bubbleId || group?.isSimulatedMsg || seen.has(bubbleId)) continue
+          seen.add(bubbleId)
+          if (seen.size % 128 === 0) {
+            // oxlint-disable-next-line eslint/no-await-in-loop -- Keep the window responsive through long local reads.
+            await setImmediate()
+          }
           const toolStatus = string(group?.toolFormerStatus)
           const toolCase = string(group?.toolCallCase)
           const name = fileToolCases.get(toolCase)
-          if (!seen.has(bubbleId) && (!name || name === 'Read' || !toolStatus || stableTools.has(toolStatus))) {
-            const bubble = object(decode(select.get(`bubbleId:${id}:${bubbleId}`)?.value))
-            const tool = object(bubble?.toolFormerData)
-            const status = toolStatus || string(tool?.status)
-            const text = string(bubble?.text)
-            if (tool) {
-              if (name && name !== 'Read' && !stableTools.has(status)) continue
-              const params = object(decode(tool.params))
-              const args = object(decode(tool.rawArgs))
-              const filename =
-                group?.toolDisplayPath ?? args?.path ?? params?.targetFile ?? params?.relativeWorkspacePath
-              if (name && (name === 'Read' || status === 'completed')) {
-                events.push(
-                  ...toolEvent({ name, input: { path: filename, offset: args?.offset ?? params?.startLine } }),
-                )
-              } else if (toolCase === 'shellToolCall' || tool.name === 'run_terminal_command_v2') {
-                events.push(
-                  ...toolEvent({
-                    name: 'Shell',
-                    input: { description: params?.commandDescription, command: params?.command },
-                  }),
-                )
-              } else {
-                const toolName = string(tool.name)
-                if (toolName) events.push({ kind: 'tool', text: toolName })
-              }
-              seen.add(bubbleId)
-            } else if (text) {
-              events.push({ kind: heading?.type === 1 ? 'user' : 'assistant', text })
-              seen.add(bubbleId)
-            }
+          const bubble = selectBubble.get(`bubbleId:${id}:${bubbleId}`)
+          const status = toolStatus || string(bubble?.status)
+          const role = heading?.type === 1 ? 'user' : 'assistant'
+          const text = role === 'user' ? cursorUserText(bubble?.text) : string(bubble?.text)
+          if (bubble && (bubble.name || name)) {
+            if (name && name !== 'Read' && !stableTools.has(status)) continue
+            events.push(...composerToolEvent(group, bubble))
           }
-          if (typeof group?.turnDurationMs === 'number' && !finished.has(bubbleId)) {
-            finished.add(bubbleId)
+          if (text) events.push({ kind: role, text })
+          if (typeof group?.turnDurationMs === 'number') {
             events.push({ kind: 'status', text: 'Turn finished' })
           }
         }
       }
       return events
-    },
-    close() {
-      database?.close()
-      database = undefined
     },
   }
 }
@@ -430,7 +456,7 @@ export const cursorSource: AgentThreadSource = {
   },
   open(thread) {
     if (thread.locator.endsWith('state.vscdb')) return composerReader(thread.locator, thread.id)
-    return readJsonLines(thread.locator, transcriptEvents)
+    return readJsonLines(thread.locator, () => transcriptEvents)
   },
   async summarize(thread) {
     if (!thread.locator.endsWith('.jsonl')) return undefined

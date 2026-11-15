@@ -195,7 +195,7 @@ app.innerHTML = `
       <button type="button" id="content-search-toggle" class="titlebar-button" aria-label="Search in project" aria-haspopup="dialog" aria-controls="content-search" hidden>${icons.search}<span>Search</span></button>
       <button type="button" id="review-toggle" class="titlebar-button" aria-label="Review changes" aria-controls="change-review" aria-pressed="false" data-pending="false" hidden>${icons.review}<span>Changes</span></button>
       <button type="button" id="review-notes-toggle" class="titlebar-button" aria-label="Review notes" aria-controls="review-notes-panel" aria-expanded="false" hidden>${icons.note}<span>Notes</span></button>
-      <button type="button" id="agent-threads-toggle" class="titlebar-button" aria-label="Agent threads" title="Agent threads" aria-haspopup="dialog" aria-controls="agent-threads" hidden>${agentThreadsGlyph}<span>Agent threads</span></button>
+      <button type="button" id="agent-threads-toggle" class="titlebar-button" aria-label="Agent threads" title="Agent threads" aria-controls="agent-threads" hidden>${agentThreadsGlyph}<span>Agent threads</span></button>
       <button type="button" id="claude-toggle" class="titlebar-button" aria-label="The Creature" aria-controls="claude-panel" aria-expanded="false" hidden>${creatureGlyph}<span>The Creature</span></button>
       <button type="button" id="terminal-toggle" class="titlebar-button" aria-label="Terminal" aria-controls="terminal-dock" aria-expanded="false" hidden>${icons.terminal}<span>Terminal</span></button>
       <button type="button" id="settings-toggle" class="titlebar-button" aria-label="Settings" aria-haspopup="dialog" aria-controls="app-settings" hidden>${icons.settings}</button>
@@ -244,7 +244,7 @@ app.innerHTML = `
   </div>
   <section id="terminal-dock" aria-label="Workspace terminal" hidden></section>
   <footer class="statusbar"><span id="status-text">Opening workspace…</span><span class="statusbar-end" hidden><span class="current-only">Current file contents</span><span class="status-dot"></span><span id="save-state" role="status">Autosave on</span></span></footer>
-  <dialog id="agent-threads"></dialog>
+  <main id="agent-threads" hidden></main>
 `
 
 const ui = {
@@ -259,7 +259,7 @@ const ui = {
   reviewToggle: requireElement(app, '#review-toggle', HTMLButtonElement),
   reviewNotesToggle: requireElement(app, '#review-notes-toggle', HTMLButtonElement),
   reviewNotesPanel: requireElement(app, '#review-notes-panel', HTMLElement),
-  agentThreads: requireElement(app, '#agent-threads', HTMLDialogElement),
+  agentThreads: requireElement(app, '#agent-threads', HTMLElement),
   agentThreadsToggle: requireElement(app, '#agent-threads-toggle', HTMLButtonElement),
   claudePanel: requireElement(app, '#claude-panel', HTMLElement),
   claudeToggle: requireElement(app, '#claude-toggle', HTMLButtonElement),
@@ -350,21 +350,23 @@ function syncTerminalLayout() {
   if (!api.terminal || ui.terminalDock.hidden) return
   const bounds = ui.terminalDock.getBoundingClientRect()
   api.terminal.layout(
-    zenMode || document.querySelector('dialog[open]') ? 0 : bounds.height,
+    zenMode || !ui.agentThreads.hidden || document.querySelector('dialog[open]') ? 0 : bounds.height,
     window.innerHeight - bounds.bottom,
     activeScheme,
   )
 }
 const terminalBounds = new ResizeObserver(syncTerminalLayout)
-let modalOpen = false
-const workspaceDialogs = new MutationObserver(records => {
-  if (!records.some(record => record.target instanceof HTMLDialogElement)) return
+let workspaceCommandsSuspended = false
+function syncWorkspaceCommands() {
   syncTerminalLayout()
-  const active = Boolean(document.querySelector('dialog[open]'))
-  if (active === modalOpen) return
-  modalOpen = active
+  const active = !ui.agentThreads.hidden || Boolean(document.querySelector('dialog[open]'))
+  if (active === workspaceCommandsSuspended) return
+  workspaceCommandsSuspended = active
   shortcutSequence.reset()
   shortcutApi?.setModal?.(active)
+}
+const workspaceDialogs = new MutationObserver(records => {
+  if (records.some(record => record.target instanceof HTMLDialogElement)) syncWorkspaceCommands()
 })
 const unsubscribeTerminal = api.terminal?.onVisibility(visible => {
   ui.terminalDock.hidden = !visible
@@ -455,6 +457,11 @@ const agentThreadPanel =
   api.agentThreads &&
   createAgentThreadPanel(ui.agentThreads, {
     api: api.agentThreads,
+    onVisibilityChange: visible => {
+      if (visible) app.dataset.agentThreads = isMac ? 'mac' : 'active'
+      else delete app.dataset.agentThreads
+      syncWorkspaceCommands()
+    },
     openWorkspaceFile: async ({ path, line }) => {
       /** @type {FileAnchor | null} */
       const anchor = line ? { path, side: 'working', line, endLine: line, excerpt: '', direct: true } : null
@@ -3016,7 +3023,14 @@ document.addEventListener('pointerdown', () => shortcutSequence.reset(), { captu
 document.addEventListener(
   'keydown',
   event => {
-    if (!api || app.inert || closingRequested || settings?.isOpen || event.defaultPrevented) {
+    if (
+      !api ||
+      app.inert ||
+      !ui.agentThreads.hidden ||
+      closingRequested ||
+      settings?.isOpen ||
+      event.defaultPrevented
+    ) {
       shortcutSequence.reset()
       return
     }

@@ -13,6 +13,9 @@ body,
   display: flex;
   flex-direction: column;
 }
+#app[data-agent-threads] > :is(.titlebar, .workspace-notices, .workspace, #terminal-dock, .statusbar) {
+  display: none;
+}
 button,
 input,
 select {
