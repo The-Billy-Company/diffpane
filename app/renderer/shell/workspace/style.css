@@ -220,11 +220,10 @@ button svg,
 }
 .start-screen,
 .empty-state {
-  --idle-glow: color-mix(in oklab, var(--accent-surface) 60%, transparent);
   --idle-dots: color-mix(in oklab, var(--accent) 17%, transparent);
   position: relative;
   isolation: isolate;
-  background: radial-gradient(ellipse at 50% 35%, var(--idle-glow), transparent 70%), var(--workbench-background);
+  background: var(--workbench-background);
 }
 .start-screen::before,
 .empty-state::before {
