@@ -32,7 +32,7 @@ export interface AgentThreadFile {
 }
 
 export interface AgentThreadEvent {
-  kind: 'user' | 'assistant' | 'tool' | 'edit' | 'status' | 'notice'
+  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'edit' | 'status' | 'notice'
   text: string
   files?: AgentThreadFile[]
   toolName?: string

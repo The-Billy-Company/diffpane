@@ -62,3 +62,52 @@ test('reads a Codex conversation from its first message without exposing raw mod
     await rm(cwd, { force: true, recursive: true })
   }
 })
+
+test('displays each public Codex reasoning summary once in transcript order', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-reasoning-'))
+  t.onTestFinished(() => rm(cwd, { force: true, recursive: true }))
+  const locator = path.join(cwd, 'thread.jsonl')
+  const thread = { provider: 'codex' as const, id: 'thread', cwd, locator, title: 'Thread', updatedAt: 0 }
+  const internalReasoning = '<internal reasoning>'
+  const complete = (id: string, summary_text: string[]) =>
+    event('item_completed', { item: { type: 'Reasoning', id, summary_text, raw_content: [internalReasoning] } })
+  const response = (id: string, summary: string[]) =>
+    `${JSON.stringify({
+      type: 'response_item',
+      payload: {
+        type: 'reasoning',
+        id,
+        summary: [
+          ...summary.map(text => ({ type: 'summary_text', text })),
+          { type: 'reasoning_text', text: internalReasoning },
+        ],
+        content: [{ type: 'reasoning_text', text: internalReasoning }],
+        encrypted_content: '<encrypted reasoning>',
+      },
+    })}\n`
+  await writeFile(
+    locator,
+    [
+      event('user_message', { message: 'Inspect the workspace.' }),
+      complete('current', ['**Inspecting the project**', 'I’ll start with the entry point.']),
+      response('current', ['**Inspecting the project**', 'I’ll start with the entry point.']),
+      event('agent_message', { message: 'I found the entry point.' }),
+      response('legacy', ['**Reviewing the output**']),
+      complete('private', []),
+      response('private', []),
+    ].join(''),
+  )
+
+  const reader = codexSource.open(thread)
+  const transcript = [
+    { kind: 'user', text: 'Inspect the workspace.' },
+    { kind: 'thinking', text: '**Inspecting the project**\n\nI’ll start with the entry point.' },
+    { kind: 'assistant', text: 'I found the entry point.' },
+    { kind: 'thinking', text: '**Reviewing the output**' },
+  ]
+  await expect(reader.read()).resolves.toEqual(transcript)
+  await expect(codexSource.summarize?.(thread)).resolves.toBe('I found the entry point.')
+
+  await appendFile(locator, complete('refresh', ['**Checking the result**']))
+  await expect(reader.read()).resolves.toEqual([...transcript, { kind: 'thinking', text: '**Checking the result**' }])
+})

@@ -94,7 +94,7 @@
   max-width: 100%;
 }
 
-.agent-thread-turn-body .agent-thread-markdown,
+.agent-thread-turn-body > .agent-thread-markdown,
 .agent-thread-prompt {
   font: var(--text-subheading) / var(--leading-prose) var(--font-prose);
   color: var(--text);
@@ -106,6 +106,33 @@
   border-radius: 14px 14px 4px 14px;
   background: color-mix(in oklab, var(--accent-surface) 45%, var(--surface-raised));
   white-space: pre-wrap;
+}
+
+.agent-thread-thinking {
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-label);
+  line-height: var(--leading-ui);
+}
+
+.agent-thread-thinking > summary {
+  width: fit-content;
+  padding: 3px 6px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.agent-thread-thinking > summary:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.agent-thread-thinking > .agent-thread-markdown {
+  margin: 5px 0 2px 6px;
+  padding-inline-start: 12px;
+  border-inline-start: 2px solid var(--line);
+  color: inherit;
+  font: var(--text-body) / var(--leading-prose) var(--font-prose);
 }
 
 .agent-thread-tool-group {

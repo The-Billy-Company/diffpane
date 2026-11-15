@@ -275,6 +275,7 @@ function isAgentThreadEvent(value) {
   return (
     value.kind === 'user' ||
     value.kind === 'assistant' ||
+    value.kind === 'thinking' ||
     value.kind === 'tool' ||
     value.kind === 'edit' ||
     value.kind === 'notice' ||

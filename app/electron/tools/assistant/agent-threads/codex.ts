@@ -48,6 +48,25 @@ function message(kind: 'user' | 'assistant', content: unknown): AgentThreadEvent
   return [{ kind, text }]
 }
 
+function reasoningSummary(item: Record<string, unknown>, seen: Set<string>): AgentThreadEvent[] {
+  const id = string(item.id)
+  if (id && seen.has(id)) return []
+  const completed = item.type === 'Reasoning'
+  const parts = completed ? item.summary_text : item.summary
+  if (!Array.isArray(parts)) return []
+  const text = parts
+    .map(part => {
+      if (completed) return string(part).trim()
+      const segment = object(part)
+      return segment?.type === 'summary_text' ? string(segment.text).trim() : ''
+    })
+    .filter(Boolean)
+    .join('\n\n')
+  if (!text) return []
+  if (id) seen.add(id)
+  return [{ kind: 'thinking', text }]
+}
+
 function fileChanges(changes: unknown, cwd: string): AgentThreadFile[] {
   return Object.entries(object(changes) ?? {}).flatMap(([filename, value]) => {
     if (!filename) return []
@@ -121,14 +140,22 @@ function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean)
   }
 }
 
-function parseRollout(record: unknown, cwd: string, summary = false): AgentThreadEvent[] {
+function parseRollout(
+  record: unknown,
+  cwd: string,
+  { summary = false, seenReasoning }: { summary?: boolean; seenReasoning?: Set<string> },
+): AgentThreadEvent[] {
   const entry = object(record)
   const payload = object(entry?.payload)
-  // Rollouts also store model context and raw tool payloads. Only the public transcript events are rendered.
-  if (entry?.type !== 'event_msg' || !payload) return []
+  if (!payload) return []
+  // Older rollouts may store user-visible reasoning summaries only in response items.
+  if (entry?.type === 'response_item' && payload.type === 'reasoning' && seenReasoning)
+    return reasoningSummary(payload, seenReasoning)
+  if (entry?.type !== 'event_msg') return []
   switch (payload.type) {
     case 'item_completed': {
       const item = object(payload.item)
+      if (item?.type === 'Reasoning' && seenReasoning) return reasoningSummary(item, seenReasoning)
       return item ? parseItem(item, cwd, summary) : []
     }
     case 'item_started': {
@@ -363,10 +390,13 @@ export const codexSource: AgentThreadSource = {
     return threads.filter(thread => thread !== undefined)
   },
   open(thread) {
-    return readJsonLines(thread.locator, () => record => parseRollout(record, thread.cwd))
+    return readJsonLines(thread.locator, () => {
+      const seenReasoning = new Set<string>()
+      return record => parseRollout(record, thread.cwd, { seenReasoning })
+    })
   },
   async summarize(thread) {
     const records = await recentJsonRecords(thread.locator)
-    return latestActivity(records.flatMap(record => parseRollout(record, thread.cwd, true)))
+    return latestActivity(records.flatMap(record => parseRollout(record, thread.cwd, { summary: true })))
   },
 }

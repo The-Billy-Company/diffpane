@@ -62,6 +62,21 @@ function turn(role: 'user' | 'assistant', author: string, providerMark?: HTMLEle
   return { article, body }
 }
 
+function assistantMarkdown(text: string) {
+  const markdown = node('div', 'claude-turn-content agent-thread-markdown')
+  renderAssistantMarkdown(markdown, text)
+  return markdown
+}
+
+function thinkingDisclosure(text: string) {
+  const details = node('details', 'agent-thread-thinking')
+  details.append(node('summary', '', 'Thinking'))
+  details.addEventListener('toggle', () => {
+    if (details.open && details.childElementCount === 1) details.append(assistantMarkdown(text))
+  })
+  return details
+}
+
 function describeTool(event: AgentThreadEvent) {
   const name = event.toolName ?? (event.kind === 'edit' ? 'File change' : 'Tool call')
   const description = event.toolDescription?.trim() ?? ''
@@ -171,6 +186,10 @@ function renderTurns(events: readonly AgentThreadEvent[], { provider, providerMa
     const files = event.files ?? []
     if (!hasText && !files.length) continue
     flushTools()
+    if (event.kind === 'thinking') {
+      if (hasText) replyBody().append(thinkingDisclosure(event.text))
+      continue
+    }
     let body: HTMLElement
     if (event.kind === 'user') {
       const message = turn('user', 'You')
@@ -180,18 +199,16 @@ function renderTurns(events: readonly AgentThreadEvent[], { provider, providerMa
       reply = undefined
     } else {
       body = replyBody()
-      if (hasText) {
-        const markdown = node('div', 'claude-turn-content agent-thread-markdown')
-        renderAssistantMarkdown(markdown, event.text)
-        body.append(markdown)
-      }
+      if (hasText) body.append(assistantMarkdown(event.text))
     }
     if (files.length) body.append(fileReferences(files, onOpenFile))
   }
   flushTools()
   if (
     events.some(event => event.kind === 'tool' || event.kind === 'edit') &&
-    !events.some(event => (event.kind === 'assistant' || event.kind === 'user') && event.text.trim())
+    !events.some(
+      event => (event.kind === 'assistant' || event.kind === 'user' || event.kind === 'thinking') && event.text.trim(),
+    )
   ) {
     list.prepend(
       node('p', 'agent-thread-conversation-notice', 'This session saved tool activity without chat messages.'),

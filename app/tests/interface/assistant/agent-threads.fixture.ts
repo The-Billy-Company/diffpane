@@ -2,7 +2,7 @@ import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import { createAgentThreadPanel } from '../../../renderer/panels/assistant/agent-threads.ts'
 import { requireElement } from '../../../renderer/shell/workspace/dom.js'
 import '../../../renderer/panels/assistant/assistant.css'
-import type { AgentThread, AgentThreadEvent } from '../../../shared/agent-threads.ts'
+import type { AgentThread } from '../../../shared/agent-threads.ts'
 import '../../../renderer/shell/workspace/style.css'
 import '../../../renderer/shell/workspace/theme-tokens.css'
 import '../../../renderer/shell/workspace/theme.css'
@@ -54,21 +54,8 @@ export async function run() {
     { id: 'codex:1', provider: 'codex', title: 'Inspect the parser', cwd: '/projects/juniper', updatedAt },
     { id: 'cursor:2', provider: 'cursor', title: 'Compare release notes', cwd: '/projects/marigold', updatedAt },
   ]
-  const snapshot: AgentThreadEvent[] = [
-    { kind: 'user', text: 'How does the parser handle a greeting?' },
-    {
-      kind: 'tool',
-      toolName: 'exec_command',
-      toolDescription: 'Check the parser fixture',
-      text: 'cat fixtures/greeting.txt',
-    },
-    { kind: 'tool', toolName: 'apply_patch', toolDescription: 'Add a parser example', text: 'Update docs/parser.md' },
-    {
-      kind: 'assistant',
-      text: '## Parsed greeting\n\nThe parser returns **a value**.\n\n```js\nreturn "hello"\n```',
-    },
-    { kind: 'status', text: 'Turn finished' },
-  ]
+  const bridge = window.diffpane?.agentThreads
+  assert(bridge, 'The Agent Threads preload bridge did not load.')
   let lists = 0
   let reads = 0
   const api: DiffpaneApi['agentThreads'] = {
@@ -76,10 +63,10 @@ export async function run() {
       lists++
       return { threads: threads.map(thread => ({ ...thread })), unavailable: [] }
     },
-    read: async id => {
+    read: (id, selection) => {
       assert(id === 'codex:1', 'The selected thread ID was sent to the source.')
       reads++
-      return [...snapshot]
+      return bridge.read(id, selection)
     },
     clear: async () => {},
     file: async () => {
@@ -166,6 +153,25 @@ export async function run() {
     )
 
     const tools = requireElement(host, '.agent-thread-tool-group', HTMLDetailsElement)
+    const thinking = [...host.querySelectorAll<HTMLDetailsElement>('.agent-thread-thinking')]
+    assert(thinking.length === 2, 'The conversation did not render both thinking blocks.')
+    const firstThought = thinking[0]
+    const nextThought = thinking[1]
+    assert(firstThought && nextThought, 'The thinking blocks are missing.')
+    const thinkingSummary = requireElement(firstThought, 'summary', HTMLElement)
+    assert(
+      !firstThought.open && !nextThought.open && thinkingSummary.textContent === 'Thinking',
+      'Thinking should appear as a collapsed disclosure.',
+    )
+    assert(
+      firstThought.nextElementSibling === tools && tools.nextElementSibling === nextThought,
+      'Thinking and tool calls were reordered in the conversation.',
+    )
+    thinkingSummary.click()
+    await eventually(
+      () => firstThought.open && firstThought.querySelector('strong')?.textContent === 'greeting fixture',
+      'Expanding thinking did not render its Markdown.',
+    )
     const summary = requireElement(tools, 'summary', HTMLElement)
     assert(
       !tools.open && summary.textContent.includes('2 tool calls'),
@@ -184,13 +190,6 @@ export async function run() {
     const raw = requireElement(tools, '.agent-thread-tool-detail', HTMLDetailsElement)
     assert(!raw.open, 'Opening the tool group exposed raw command details.')
 
-    snapshot.push({ kind: 'assistant', text: 'This arrived after the snapshot.' })
-    for (let turn = 1; turn <= 12; turn++) {
-      snapshot.push(
-        { kind: 'user', text: `Can you check parser example ${turn}?` },
-        { kind: 'assistant', text: `Example ${turn} returns the expected value.` },
-      )
-    }
     await delay(3_200)
     assert(lists === 1 && reads === 1, 'Agent Threads polled for updates.')
     assert(

@@ -311,6 +311,7 @@ function composerReader(databasePath: string, id: string) {
       const select = database.prepare('SELECT value FROM cursorDiskKV WHERE key = ?')
       const selectBubble = database.prepare(`
         SELECT json_extract(value, '$.text') AS text,
+               json_extract(value, '$.thinking.text') AS thinking,
                json_extract(value, '$.toolFormerData.name') AS name,
                json_extract(value, '$.toolFormerData.status') AS status,
                json_extract(value, '$.toolFormerData.params') AS params,
@@ -343,6 +344,10 @@ function composerReader(databasePath: string, id: string) {
           const status = toolStatus || string(bubble?.status)
           const role = heading?.type === 1 ? 'user' : 'assistant'
           const text = role === 'user' ? cursorUserText(bubble?.text) : string(bubble?.text)
+          if (heading?.type === 2 && group?.isRenderable !== false) {
+            const thinking = string(bubble?.thinking)
+            if (thinking) events.push({ kind: 'thinking', text: thinking })
+          }
           if (bubble && (bubble.name || name)) {
             if (name && name !== 'Read' && !stableTools.has(status)) continue
             events.push(...composerToolEvent(group, bubble))

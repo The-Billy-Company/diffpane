@@ -58,7 +58,11 @@ export function activityText(text: string): string | undefined {
 
 export function latestActivity(events: AgentThreadEvent[]): string | undefined {
   const latest = events.findLast(
-    event => event.kind !== 'status' && event.kind !== 'notice' && (event.toolName ?? event.text.trim()),
+    event =>
+      event.kind !== 'status' &&
+      event.kind !== 'notice' &&
+      event.kind !== 'thinking' &&
+      (event.toolName ?? event.text.trim()),
   )
   if (!latest) return undefined
   if (latest.toolDescription) return activityText(latest.toolDescription)

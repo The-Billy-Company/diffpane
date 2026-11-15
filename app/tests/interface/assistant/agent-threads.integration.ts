@@ -2,8 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, ipcMain } from 'electron'
 import { createServer } from 'vite-plus'
+import type { AgentThreadEvent } from '../../../shared/agent-threads.ts'
 
 // Run from the repository root with:
 // node_modules/.bin/electron app/tests/interface/assistant/agent-threads.integration.ts
@@ -12,6 +13,31 @@ app.setPath('userData', profile)
 app.setAppLogsPath(path.join(profile, 'logs'))
 
 const route = '/__agent-threads-integration__'
+const snapshot: AgentThreadEvent[] = [
+  { kind: 'user', text: 'How does the parser handle a greeting?' },
+  { kind: 'thinking', text: 'I’ll inspect the **greeting fixture**.' },
+  {
+    kind: 'tool',
+    toolName: 'exec_command',
+    toolDescription: 'Check the parser fixture',
+    text: 'cat fixtures/greeting.txt',
+  },
+  { kind: 'tool', toolName: 'apply_patch', toolDescription: 'Add a parser example', text: 'Update docs/parser.md' },
+  { kind: 'thinking', text: 'The fixture confirms the expected value.' },
+  {
+    kind: 'assistant',
+    text: '## Parsed greeting\n\nThe parser returns **a value**.\n\n```js\nreturn "hello"\n```',
+  },
+  { kind: 'status', text: 'Turn finished' },
+]
+const newEvents: AgentThreadEvent[] = [{ kind: 'assistant', text: 'This arrived after the snapshot.' }]
+for (let turn = 1; turn <= 12; turn++) {
+  newEvents.push(
+    { kind: 'user', text: `Can you check parser example ${turn}?` },
+    { kind: 'assistant', text: `Example ${turn} returns the expected value.` },
+  )
+}
+
 async function run(): Promise<void> {
   const server = await createServer({
     configFile: fileURLToPath(new URL('../../../../vite.config.ts', import.meta.url)),
@@ -36,11 +62,22 @@ async function run(): Promise<void> {
     app.dock?.hide()
     const url = server.resolvedUrls?.local[0]
     if (!url) throw new Error('The Agent Threads test page did not start.')
+    let reads = 0
+    ipcMain.handle('agent-threads-read', () => ({
+      ok: true,
+      value: reads++ === 0 ? snapshot : [...snapshot, ...newEvents],
+    }))
     browser = new BrowserWindow({
       width: 1100,
       height: 820,
       show: false,
-      webPreferences: { backgroundThrottling: false },
+      webPreferences: {
+        preload: fileURLToPath(new URL('../../../electron/runtime/window/preload.cjs', import.meta.url)),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+        backgroundThrottling: false,
+      },
     })
     await browser.loadURL(new URL(route, url).href)
     await browser.webContents.executeJavaScript(
@@ -48,6 +85,7 @@ async function run(): Promise<void> {
     )
     console.info('Agent Threads integration passed.')
   } finally {
+    ipcMain.removeHandler('agent-threads-read')
     browser?.destroy()
     await server.close()
   }

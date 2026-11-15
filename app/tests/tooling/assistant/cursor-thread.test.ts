@@ -31,6 +31,7 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
   const first = path.join(cwd, 'first.txt')
   const second = path.join(cwd, 'second.txt')
   const prompt = { bubbleId: 'prompt', type: 1 }
+  const thought = { bubbleId: 'turn/0:thinking', type: 2, grouping: { hasThinking: true, isRenderable: true } }
   const firstEdit = { bubbleId: 'edit-1', type: 2, grouping: { toolCallCase: 'editToolCall', toolDisplayPath: first } }
   const secondEdit = {
     bubbleId: 'edit-2',
@@ -42,9 +43,10 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
     `bubbleId:${id}:prompt`,
     JSON.stringify({
       text: '<timestamp>2026-11-14</timestamp>\n<system_notification>Internal context</system_notification>\n<user_query>Make two edits.</user_query>',
+      thinking: { text: '<user metadata>' },
     }),
   )
-  put.run(headingKey, JSON.stringify([prompt]))
+  put.run(headingKey, JSON.stringify([prompt, thought]))
   for (const chunk of ['000001', '000002', '000003']) {
     put.run(`composerConvHeaders:${id}:${chunk}`, '[]')
   }
@@ -56,15 +58,23 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
   )
   await expect(reader.read()).resolves.toEqual([firstPrompt])
 
+  put.run(
+    `bubbleId:${id}:${thought.bubbleId}`,
+    JSON.stringify({
+      thinking: { text: 'I’ll update both files.', signature: '<signature>' },
+      allThinkingBlocks: [{ text: '<internal context>' }],
+    }),
+  )
   put.run(`bubbleId:${id}:edit-1`, JSON.stringify(completed))
   put.run(lastChunk, JSON.stringify([firstEdit]))
+  const thinking = { kind: 'thinking', text: 'I’ll update both files.' }
   const firstResult = edit('first.txt', first)
   const secondResult = edit('second.txt', second)
-  await expect(reader.read()).resolves.toEqual([firstPrompt, firstResult])
+  await expect(reader.read()).resolves.toEqual([firstPrompt, thinking, firstResult])
 
   put.run(`bubbleId:${id}:edit-2`, JSON.stringify(completed))
   put.run(lastChunk, JSON.stringify([firstEdit, secondEdit]))
-  await expect(reader.read()).resolves.toEqual([firstPrompt, firstResult, secondResult])
+  await expect(reader.read()).resolves.toEqual([firstPrompt, thinking, firstResult, secondResult])
 
   const final = { bubbleId: 'reply', type: 2, grouping: { turnDurationMs: 30_000 } }
   const shell = { bubbleId: 'run-shell', type: 2, grouping: { toolCallCase: 'shellToolCall' } }
@@ -86,6 +96,7 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
   put.run(lastChunk, JSON.stringify([firstEdit, secondEdit, shell, final]))
   await expect(reader.read()).resolves.toEqual([
     firstPrompt,
+    thinking,
     firstResult,
     secondResult,
     { kind: 'tool', text: 'cat first.txt', toolName: 'Shell', toolDescription: 'Verify the result' },
