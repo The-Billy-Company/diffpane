@@ -29,7 +29,10 @@
 }
 
 .agent-thread-turns {
-  --author-indent: 34px;
+  --thread-avatar-size: 24px;
+  --thread-author-gap: 8px;
+  --thread-author-label-gap: 10px;
+  --author-indent: calc(var(--thread-avatar-size) + var(--thread-author-label-gap));
   display: grid;
   gap: 30px;
   width: min(100%, 860px);
@@ -39,7 +42,7 @@
 
 .agent-thread-turn {
   display: grid;
-  gap: 8px;
+  gap: var(--thread-author-gap);
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -57,7 +60,7 @@
 .agent-thread-author {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--thread-author-label-gap);
   color: var(--text);
   font-size: var(--text-body);
   font-weight: var(--weight-semibold);
@@ -70,8 +73,8 @@
 
 .agent-thread-avatar,
 .agent-thread-author .agent-thread-provider-mark {
-  width: 24px;
-  height: 24px;
+  width: var(--thread-avatar-size);
+  height: var(--thread-avatar-size);
 }
 
 .agent-thread-avatar {
@@ -88,10 +91,89 @@
 }
 
 .agent-thread-turn-body {
+  --thread-body-gap: 12px;
   display: grid;
-  gap: 12px;
+  gap: var(--thread-body-gap);
   min-width: 0;
   max-width: 100%;
+}
+
+@media (width > 550px) {
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body {
+    --thread-trail-color: var(--mark-color, var(--accent));
+    --thread-trail-line: color-mix(in oklab, var(--thread-trail-color) 38%, var(--line));
+    --thread-trail-offset: calc(var(--thread-avatar-size) / 2 - var(--author-indent));
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > * {
+    --thread-marker-center: 12px;
+    --thread-marker-size: 7px;
+    --thread-marker-radius: 50%;
+    --thread-marker-fill: var(--thread-trail-color);
+    --thread-trail-lead: var(--thread-body-gap);
+    position: relative;
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > :first-child {
+    --thread-trail-lead: var(--thread-author-gap);
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-thinking {
+    --thread-marker-fill: var(--workbench-background);
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-tool-group {
+    --thread-marker-center: 16.5px;
+    --thread-marker-radius: 2px;
+    --thread-marker-fill: color-mix(in oklab, var(--thread-trail-color) 24%, var(--workbench-background));
+    --thread-trail-offset: calc(var(--thread-avatar-size) / 2 - var(--author-indent) - 1px);
+  }
+
+  .agent-thread-turn[data-role='assistant']
+    > .agent-thread-turn-body
+    > .agent-thread-markdown:has(> :first-child:is(h1, h2)) {
+    --thread-marker-center: 18px;
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-references {
+    --thread-marker-size: 5px;
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > *::before,
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > *::after {
+    box-sizing: border-box;
+    position: absolute;
+    pointer-events: none;
+    content: '';
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > *::before {
+    inset-block: calc(-1px - var(--thread-trail-lead)) -1px;
+    inset-inline-start: var(--thread-trail-offset);
+    border-inline-start: 1px solid var(--thread-trail-line);
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > :last-child::before {
+    inset-block-end: auto;
+    block-size: calc(1px + var(--thread-trail-lead) + var(--thread-marker-center));
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > *::after {
+    inset-block-start: calc(var(--thread-marker-center) - var(--thread-marker-size) / 2);
+    inset-inline-start: calc(var(--thread-trail-offset) + 0.5px - var(--thread-marker-size) / 2);
+    inline-size: var(--thread-marker-size);
+    block-size: var(--thread-marker-size);
+    border: 1px solid var(--thread-trail-color);
+    border-radius: var(--thread-marker-radius);
+    background: var(--thread-marker-fill);
+  }
+
+  .agent-thread-turn[data-role='assistant']
+    > .agent-thread-turn-body
+    > :is([open], :has(> summary:is(:hover, :focus-visible)))::after {
+    background: var(--thread-trail-color);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--thread-trail-color) 20%, transparent);
+  }
 }
 
 .agent-thread-turn-body > .agent-thread-markdown,
