@@ -10,6 +10,7 @@ import { appendImagePalette } from './image-palette/image-palette.ts'
 import { showMedia } from './media.ts'
 
 import type { FileContent } from '../../../electron/workspace/documents/file-content.ts'
+import type { ImageWipeState } from './image-diff/image-wipe.ts'
 
 interface PreviewMedia {
   url: string
@@ -34,6 +35,7 @@ export function showDocumentPreview(
     raw?: boolean
     onRawChange?: (raw: boolean) => void
     match?: ContentMatch
+    wipeState?: ImageWipeState
   } = {},
 ) {
   const root = document.createElement('div')
@@ -72,24 +74,30 @@ export function showDocumentPreview(
   let raw = options.raw ?? false
   let match = options.match
   const cleanups: (() => void)[] = []
+  let pendingWipe: ImageWipeState | undefined
 
   function closeWipe() {
+    pendingWipe = undefined
     if (!wipe || wipe.view.hidden) return
     wipe.hide()
     for (const { heading, palette } of Object.values(images)) heading.append(palette)
     panes.hidden = false
   }
 
-  wipe?.button.addEventListener('click', () => {
-    if (!wipe.view.hidden) {
-      closeWipe()
-    } else if (images.before && images.after) {
+  function openWipe(state?: ImageWipeState) {
+    if (wipe && images.before && images.after) {
       imageDiff?.reset()
-      wipe.show(images.before.image, images.after.image)
+      wipe.show(images.before.image, images.after.image, state)
       wipe.paletteTargets.before.append(images.before.palette)
       wipe.paletteTargets.after.append(images.after.palette)
       panes.hidden = true
+      pendingWipe = undefined
     }
+  }
+
+  wipe?.button.addEventListener('click', () => {
+    if (wipe.view.hidden) openWipe()
+    else closeWipe()
   })
 
   function clear() {
@@ -105,8 +113,9 @@ export function showDocumentPreview(
     panes.replaceChildren()
   }
 
-  function render() {
+  function render(wipeState?: ImageWipeState) {
     clear()
+    if (!raw && wipe) pendingWipe = wipeState
     toggle.setAttribute('aria-pressed', String(raw))
     hint.textContent = raw ? 'Hexadecimal · ASCII' : 'Preview'
     if (imageDiff) imageDiff.button.hidden = raw
@@ -221,6 +230,7 @@ export function showDocumentPreview(
                   if (wipe) {
                     images[side] = { image, palette, heading }
                     wipe.button.hidden = !(images.before && images.after)
+                    if (pendingWipe) openWipe(pendingWipe)
                   }
                   appendImagePalette(palette, image, signal).catch(() => {
                     // Palette extraction is optional. A canvas or decoder failure leaves the preview usable.
@@ -254,11 +264,14 @@ export function showDocumentPreview(
     render()
   }
   toggle.addEventListener('click', toggleRaw)
-  render()
-  return () => {
-    toggle.removeEventListener('click', toggleRaw)
-    clear()
-    root.remove()
+  render(options.wipeState)
+  return {
+    wipeState: () => pendingWipe ?? wipe?.state(),
+    dispose() {
+      toggle.removeEventListener('click', toggleRaw)
+      clear()
+      root.remove()
+    },
   }
 }
 

@@ -126,7 +126,7 @@ import { getWorkspacePreferences } from './preferences.ts'
  * @property {ContentMatch | null} [pendingMatch]
  * @property {{type: string, url: string} | null} [currentMedia]
  * @property {boolean} [previewRaw]
- * @property {(() => void) | null} [mediaCleanup]
+ * @property {ReturnType<typeof showDocumentPreview> | null} [mediaPreview]
  * @property {ReturnType<typeof showMarkdownPreview> | null} [markdownPreview]
  * @property {string | null} [markdownAnchor]
  * @property {string} [markdownText]
@@ -1850,12 +1850,14 @@ async function loadDocument(card, retry = false) {
     // Paint completed reads during edit storms, then reconcile any newer invalidation.
     if (media && !media.ok) reportError(media.error, { operation: 'Load media stream', silent: true })
     card.currentMedia = media?.ok ? media.value : null
+    const wipeState =
+      card.comparing && card.renderedComparison === comparison ? card.mediaPreview?.wipeState() : undefined
     if (card.renderedComparison !== comparison) {
       card.renderedComparison = comparison
       card.noteSide = card.ideaSide = 'working'
     }
     card.decorationEditVersion = editVersion
-    const rendered = renderDocument(card, document)
+    const rendered = renderDocument(card, document, wipeState)
     if (rendered) await rendered
     if (!card.active || generation !== card.generation) return
     clearDocumentFailure(card)
@@ -1904,7 +1906,7 @@ function clearDocumentFailure(card) {
 /** @param {Card} card @param {unknown} cause */
 function showDocumentFailure(card, cause) {
   card.documentFailed = true
-  const hasView = Boolean(card.editor ?? card.mediaCleanup ?? card.markdownPreview)
+  const hasView = Boolean(card.editor ?? card.mediaPreview ?? card.markdownPreview)
   const error = reportError(cause, { operation: 'Load file', silent: true })
   if (!hasView) {
     if (!card.errorBoundary?.isConnected) card.host.replaceChildren()
@@ -1971,8 +1973,13 @@ function editorOptions(card) {
   }
 }
 
-/** @param {Card} card @param {WorkspaceDocument} document @returns {void | Promise<void>} */
-function renderDocument(card, document) {
+/**
+ * @param {Card} card
+ * @param {WorkspaceDocument} document
+ * @param {import('../../editor/documents/image-diff/image-wipe.ts').ImageWipeState} [wipeState]
+ * @returns {void | Promise<void>}
+ */
+function renderDocument(card, document, wipeState) {
   card.restoreErrorFocus = Boolean(card.errorBoundary?.contains(globalThis.document.activeElement))
   card.document = document
   const baseline = comparisonLabel(card)
@@ -2000,8 +2007,8 @@ function renderDocument(card, document) {
     return undefined
   }
   const { signal } = (card.documentWork = new AbortController())
-  card.mediaCleanup?.()
-  card.mediaCleanup = null
+  card.mediaPreview?.dispose()
+  card.mediaPreview = null
   if (!reading) {
     card.markdownPreview?.dispose()
     card.markdownPreview = null
@@ -2047,7 +2054,7 @@ function renderDocument(card, document) {
     if (outline) outline.textContent = 'No outline for this file'
     card.lines.textContent = `${preview.after.size.toLocaleString()} bytes`
     card.language.textContent = preview.after.kind === 'binary' ? 'Binary' : preview.after.kind.toUpperCase()
-    card.mediaCleanup = showDocumentPreview(
+    card.mediaPreview = showDocumentPreview(
       card.host,
       preview,
       card.file.path,
@@ -2057,6 +2064,7 @@ function renderDocument(card, document) {
         baseline,
         raw: card.previewRaw,
         match,
+        wipeState,
         onRawChange: raw => {
           card.previewRaw = raw
         },
@@ -2799,8 +2807,8 @@ function deactivate(card) {
   card.documentWork?.abort()
   card.generation++
   card.dirty = true
-  card.mediaCleanup?.()
-  card.mediaCleanup = null
+  card.mediaPreview?.dispose()
+  card.mediaPreview = null
   card.markdownPreview?.dispose()
   card.markdownPreview = null
   releaseEditor(card)

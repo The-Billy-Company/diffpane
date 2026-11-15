@@ -1,5 +1,10 @@
 import './image-wipe.css'
 
+export interface ImageWipeState {
+  divider: number
+  loupe: { x: number; y: number } | null
+}
+
 function versionGroup(text: string, className: string) {
   const group = document.createElement('span')
   group.className = 'image-wipe-version'
@@ -75,11 +80,13 @@ export function createImageWipe(baseline: string) {
   range.min = '0'
   range.max = '100'
   range.setAttribute('aria-label', 'Image comparison divider')
+  let loupeX = 50
   let loupeY = 50
 
   function moveLoupe(x: number, y: number) {
+    loupeX = Math.min(100, Math.max(0, x))
     loupeY = Math.min(100, Math.max(0, y))
-    loupe.style.setProperty('--loupe-x', String(Math.min(100, Math.max(0, x))))
+    loupe.style.setProperty('--loupe-x', String(loupeX))
     loupe.style.setProperty('--loupe-y', String(loupeY))
   }
 
@@ -96,7 +103,6 @@ export function createImageWipe(baseline: string) {
       sample.append(copy)
     }
     if (enabled) {
-      moveLoupe(range.valueAsNumber, 50)
       range.setAttribute('aria-description', 'Use Shift with the Up and Down arrow keys to move the loupe vertically.')
     } else range.removeAttribute('aria-description')
   }
@@ -113,7 +119,11 @@ export function createImageWipe(baseline: string) {
     if (width && height) moveLoupe(((event.clientX - left) / width) * 100, ((event.clientY - top) / height) * 100)
   }
 
-  loupeToggle.addEventListener('click', () => setLoupe(loupe.hasAttribute('hidden')))
+  loupeToggle.addEventListener('click', () => {
+    const enabled = loupe.hasAttribute('hidden')
+    if (enabled) moveLoupe(range.valueAsNumber, 50)
+    setLoupe(enabled)
+  })
   range.addEventListener('input', updateDivider)
   range.addEventListener('pointerdown', followPointer)
   range.addEventListener('pointermove', followPointer)
@@ -134,7 +144,11 @@ export function createImageWipe(baseline: string) {
     button,
     view,
     paletteTargets,
-    show(before: HTMLImageElement, after: HTMLImageElement) {
+    state(): ImageWipeState | undefined {
+      if (view.hidden) return undefined
+      return { divider: range.valueAsNumber, loupe: loupe.hidden ? null : { x: loupeX, y: loupeY } }
+    },
+    show(before: HTMLImageElement, after: HTMLImageElement, state?: ImageWipeState) {
       const beforeParent = before.parentElement
       const afterParent = after.parentElement
       const width = Math.max(before.naturalWidth, after.naturalWidth)
@@ -159,10 +173,14 @@ export function createImageWipe(baseline: string) {
         beforeParent?.append(before)
         afterParent?.append(after)
       }
-      range.value = '50'
+      range.value = String(state?.divider ?? 50)
       updateDivider()
       button.setAttribute('aria-pressed', 'true')
       view.hidden = false
+      if (state?.loupe) {
+        moveLoupe(state.loupe.x, state.loupe.y)
+        setLoupe(true)
+      }
     },
     hide() {
       view.hidden = true
