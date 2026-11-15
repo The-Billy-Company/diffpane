@@ -146,6 +146,10 @@ export async function run() {
       'The code fence was not rendered.',
     )
     assert(!host.textContent.includes('Turn finished'), 'Internal status was included in the conversation.')
+    assert(
+      !host.querySelector('.agent-thread-minimap')?.checkVisibility(),
+      'The thread map appeared alongside a short conversation.',
+    )
 
     const tools = requireElement(host, '.agent-thread-tool-group', HTMLDetailsElement)
     const summary = requireElement(tools, 'summary', HTMLElement)
@@ -167,6 +171,12 @@ export async function run() {
     assert(!raw.open, 'Opening the tool group exposed raw command details.')
 
     snapshot.push({ kind: 'assistant', text: 'This arrived after the snapshot.' })
+    for (let turn = 1; turn <= 12; turn++) {
+      snapshot.push(
+        { kind: 'user', text: `Can you check parser example ${turn}?` },
+        { kind: 'assistant', text: `Example ${turn} returns the expected value.` },
+      )
+    }
     await delay(3_200)
     assert(lists === 1 && reads === 1, 'Agent Threads polled for updates.')
     assert(
@@ -179,8 +189,47 @@ export async function run() {
       'Manual refresh did not reload the conversation.',
     )
 
+    const map = requireElement(host, '.agent-thread-minimap', HTMLElement)
+    await eventually(() => map.checkVisibility(), 'The thread map did not appear for the long conversation.')
+    const position = requireElement(map, 'input[type="range"].agent-thread-minimap-position', HTMLInputElement)
+    assert(
+      [...(position.labels ?? [])].some(label => label.textContent.trim() === 'Thread map'),
+      'The thread map range was missing its label.',
+    )
+    const marks = requireElement(map, '.agent-thread-minimap-marks', HTMLElement)
+    assert(
+      ['user', 'tool', 'assistant'].every(role => marks.querySelector(`[data-role="${role}"]`)),
+      'The thread map did not show each kind of activity in the conversation.',
+    )
+
+    const conversation = requireElement(host, '.agent-thread-conversation', HTMLElement)
+    const maxScroll = conversation.scrollHeight - conversation.clientHeight
+    const minPosition = Number(position.min || 0)
+    const maxPosition = Number(position.max || 100)
+    const middlePosition = (minPosition + maxPosition) / 2
+    conversation.scrollTop = 0
+    await eventually(
+      () => position.valueAsNumber === minPosition,
+      'The thread map did not return to the start when the conversation did.',
+    )
+    conversation.scrollTop = maxScroll / 2
+    await eventually(
+      () => Math.abs(position.valueAsNumber - middlePosition) <= Math.max(1, (maxPosition - minPosition) * 0.01),
+      'Scrolling the conversation did not move the thread map position.',
+    )
+    position.valueAsNumber = maxPosition
+    position.dispatchEvent(new Event('input', { bubbles: true }))
+    await eventually(
+      () => Math.abs(conversation.scrollTop - maxScroll) <= 1,
+      'Moving the thread map position did not seek to the end of the conversation.',
+    )
+
     button(host, 'Back to threads').click()
     assert(search.checkVisibility() && search.value === 'parser', 'Back did not restore the thread list and filters.')
+    assert(
+      !map.checkVisibility() && !host.querySelector('.agent-thread-minimap-marks [data-role]'),
+      'Back did not hide and clear the thread map.',
+    )
     const first = threads[0]
     assert(first, 'Missing fixture thread.')
     first.title = 'Recheck the parser'

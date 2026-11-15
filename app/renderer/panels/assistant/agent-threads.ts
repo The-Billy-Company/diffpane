@@ -5,6 +5,7 @@ import { reportError } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { drawThreadTrail } from '../art/assistant.ts'
 import { renderAgentThreadConversation } from './agent-thread-conversation.ts'
+import { createAgentThreadMinimap } from './agent-thread-minimap.ts'
 import antigravityLogo from './provider-logos/antigravity.png'
 import claudeCodeLogo from './provider-logos/claude-code.png'
 import codexLogo from './provider-logos/codex.png'
@@ -181,7 +182,9 @@ export function createAgentThreadPanel(
         </div>
         <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')} Latest</button>
       </header>
-      <div class="agent-thread-transcript" data-conversation></div>
+      <div class="agent-thread-reading">
+        <div class="agent-thread-transcript" data-conversation></div>
+      </div>
       <section class="agent-thread-preview" aria-label="File preview" data-preview hidden>
         <header>
           <strong></strong>
@@ -221,6 +224,8 @@ export function createAgentThreadPanel(
   const detailCwd = requireElement(detail, '[data-detail-cwd]', HTMLElement)
   const detailTime = requireElement(detail, '[data-detail-time]', HTMLTimeElement)
   const conversation = requireElement(detail, '[data-conversation]', HTMLDivElement)
+  const minimap = createAgentThreadMinimap(conversation)
+  requireElement(detail, '.agent-thread-reading', HTMLDivElement).append(minimap.element)
   const latest = requireElement(detail, '[data-latest]', HTMLButtonElement)
   const preview = requireElement(detail, '[data-preview]', HTMLElement)
   const previewTitle = requireElement(preview, 'strong', HTMLElement)
@@ -436,6 +441,7 @@ export function createAgentThreadPanel(
     reading = false
     fileRequest++
     if (previous) void api.clear(previous).catch((error: unknown) => reportError(error, { silent: true }))
+    minimap.setTranscript()
     preview.hidden = true
     previewContents.textContent = ''
     fileButton = undefined
@@ -493,13 +499,14 @@ export function createAgentThreadPanel(
     try {
       const events = await api.read(thread.id, current)
       if (selection !== current) return
-      renderAgentThreadConversation(conversation, {
+      const transcript = renderAgentThreadConversation(conversation, {
         provider: thread.provider,
         providerMark: providerMark(thread.provider),
         events,
         onOpenFile: (file, button) => void readFile(file, button),
       })
       conversation.scrollTop = preserveScroll ? (atEnd ? conversation.scrollHeight : previousTop) : 0
+      minimap.setTranscript(transcript)
     } catch (error) {
       if (selection !== current) return
       reportError(error, { silent: true })
@@ -527,6 +534,7 @@ export function createAgentThreadPanel(
     selected = thread
     browser.hidden = true
     detail.hidden = false
+    detail.dataset.provider = thread.provider
     detailTitle.textContent = thread.title
     detailProvider.replaceChildren(
       providerMark(thread.provider),
@@ -686,6 +694,7 @@ export function createAgentThreadPanel(
       close()
       disposed = true
       transcriptSize.disconnect()
+      minimap.dispose()
     },
   }
 }

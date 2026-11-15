@@ -209,8 +209,9 @@ export function renderAgentThreadConversation(host: HTMLElement, options: Conver
   host.setAttribute('aria-busy', String(Boolean(loading)))
   host.tabIndex = 0
   const list = !loading && error === undefined ? renderTurns(events, options) : undefined
-  if (list?.childElementCount) {
-    host.replaceChildren(list)
+  const transcript = list?.childElementCount ? list : undefined
+  if (transcript) {
+    host.replaceChildren(transcript)
   } else {
     const state = node('div', 'agent-thread-conversation-state')
     state.setAttribute('role', 'status')
@@ -225,4 +226,5 @@ export function renderAgentThreadConversation(host: HTMLElement, options: Conver
     host.replaceChildren(state)
   }
   host.scrollTop = 0
+  return transcript
 }
