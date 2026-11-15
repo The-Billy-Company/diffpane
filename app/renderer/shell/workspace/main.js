@@ -83,7 +83,7 @@ import { getWorkspacePreferences } from './preferences.ts'
 /** @typedef {'head' | 'working'} EditorSide */
 /** @typedef {WorkspaceFile & {anchor?: string}} OpenFile */
 /** @typedef {Omit<ReviewAnchor, 'side' | 'truncated'> & {side?: EditorSide, truncated?: boolean, direct?: boolean}} FileAnchor */
-/** @typedef {{compare?: boolean, comparison?: WorkspaceComparison, review?: boolean, source?: boolean, match?: ContentMatch | null, anchor?: FileAnchor | null, ideaLink?: boolean, historyIndex?: number, focusEditor?: boolean}} OpenOptions */
+/** @typedef {{compare?: boolean, comparison?: WorkspaceComparison, review?: boolean, source?: boolean, match?: ContentMatch | null, anchor?: FileAnchor | null, ideaLink?: boolean, historyIndex?: number, focusEditor?: boolean, firstChange?: boolean}} OpenOptions */
 /**
  * @typedef {object} Card
  * @property {OpenFile} file
@@ -824,6 +824,7 @@ async function mutateFile(action, pathname, name) {
   }
 }
 const navigator = createNavigator(ui.navigator, api, openFile, {
+  onOpenChange: file => openFile(file, { compare: true, firstChange: true }),
   onInitialScan: ready => {
     if (ready) {
       initialInventoryReady = true
@@ -1193,6 +1194,7 @@ async function openFile(
     ideaLink = false,
     historyIndex,
     focusEditor = false,
+    firstChange = false,
   } = {},
 ) {
   if (closingRequested || closed) return false
@@ -1258,8 +1260,10 @@ async function openFile(
         renderCurrentDocument(current)
       } else if (!reloading && !current.loading) revealReviewAnchor(current)
       syncReviewState()
-    } else if (compare) openComparison(current, comparison, file)
-    else if (match) {
+    } else if (compare) {
+      openComparison(current, comparison, file)
+      if (firstChange) current.reviewFocus.revealFirst()
+    } else if (match) {
       current.pendingMatch = match
       current.modeVersion = (current.modeVersion ?? 0) + 1
       const modeChanged = current.comparing || (isMarkdown(file.path) && !current.markdownSource)

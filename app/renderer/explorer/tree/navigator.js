@@ -42,6 +42,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
 /**
  * @typedef {{
  *   iconFor?: (node: NavigationNode, expanded: boolean) => string | undefined,
+ *   onOpenChange?: (file: NavigationFile) => unknown,
  *   onPick?: () => unknown,
  *   onFolder?: () => unknown,
  *   onOutline?: (element: HTMLElement) => unknown,
@@ -152,6 +153,18 @@ export function navigationStatus(file) {
   return !status || [' ', '.'].includes(status) ? '' : status === '?' ? 'U' : status
 }
 
+/** Find the first changed file at this level before descending into the first changed subfolder.
+ * @param {NavigationNode} folder
+ */
+export function firstChangedFile(folder) {
+  for (let children = folder.children; children;) {
+    const file = children.find(child => child.kind === 'file' && child.changedCount > 0)
+    if (file) return file
+    children = children.find(child => child.changedCount > 0)?.children ?? null
+  }
+  return undefined
+}
+
 /** @param {string | null | undefined} path */
 function lastPathSegment(path) {
   return path?.split(/[\\/]/).findLast(segment => segment.length > 0) ?? ''
@@ -189,6 +202,7 @@ export function createNavigator(
   onOpen,
   {
     iconFor,
+    onOpenChange = onOpen,
     onPick,
     onFolder,
     onOutline,
@@ -309,6 +323,13 @@ export function createNavigator(
       if (action === 'open') {
         const node = tree.files.get(pathname) ?? tree.nodes.get(`dir:${pathname}`)
         if (node) choose(node)
+      } else if (action === 'first-change') {
+        const folder = tree.nodes.get(`dir:${pathname}`)
+        const node = folder && firstChangedFile(folder)
+        const file = node && changes.get(node.path)
+        if (!file) return
+        reveal({ path: file.path, kind: 'file', requested: new Set() })
+        await onOpenChange(file)
       } else await onMutate?.(action, pathname, name)
     },
     message => {

@@ -326,6 +326,10 @@ export function createReviewFocus({ onScope }) {
   return {
     bar,
     changeMap: changeMap.element,
+    revealFirst() {
+      if (hunks.length) jump(0)
+      else if (editor) revealOnFirstDiff = true
+    },
     /** @param {'HEAD' | 'Checkpoint'} value */
     setBaseline(value) {
       baseline = value === 'HEAD' ? 'Git HEAD' : value
