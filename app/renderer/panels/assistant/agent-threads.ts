@@ -332,13 +332,13 @@ export function createAgentThreadPanel(
       projects.set(path, group)
       group.total++
       if (projectFilter && projectFilter !== path) continue
-      byProvider.set(thread.provider, (byProvider.get(thread.provider) ?? 0) + 1)
-      if (providerFilter && providerFilter !== thread.provider) continue
       if (runningOnly && stateOf(thread) !== 'running') continue
       const searchable = [thread.title, thread.activity, thread.cwd, path, agentProviderNames[thread.provider]]
         .join(' ')
         .toLowerCase()
       if (!terms.every(term => searchable.includes(term))) continue
+      byProvider.set(thread.provider, (byProvider.get(thread.provider) ?? 0) + 1)
+      if (providerFilter && providerFilter !== thread.provider) continue
       group.matches.push(thread)
     }
 
@@ -642,6 +642,7 @@ export function createAgentThreadPanel(
     runningOnly = !runningOnly
     running.setAttribute('aria-pressed', String(runningOnly))
     applyFilters()
+    if (runningOnly) requestRefresh()
   })
   host.addEventListener('keydown', event => {
     if (event.key !== 'Escape' || event.defaultPrevented) return

@@ -191,12 +191,15 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
   const result = new Map<string, Header>()
   try {
     using database = new DatabaseSync(databasePath, { readOnly: true })
+    database.exec('BEGIN')
+    const cutoff = Date.now() - activityWindow
     const columns = 'composerId, workspaceId, lastUpdatedAt, isArchived, value'
     const unarchived = database.prepare(`SELECT ${columns} FROM composerHeaders WHERE isArchived = 0`)
     const select = database.prepare(`SELECT ${columns} FROM composerHeaders WHERE composerId = ?`)
     const matches = [...unarchived.all(), ...ids.map(id => select.get(id))]
     const conversation = database.prepare(`
       SELECT json_extract(value, '$.status') AS status,
+             json_extract(value, '$.unfinishedRunAt') AS unfinishedAt,
              json_extract(value, '$.isContinuationInProgress') AS continuing,
              json_array_length(value, '$.generatingBubbleIds') AS generating
       FROM cursorDiskKV WHERE key = ? AND json_valid(value)`)
@@ -220,8 +223,7 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
       const prefix = `composerConvHeaders:${id}`
       const latest = headerChunk.get(`${prefix}:`, `${prefix};`)?.value ?? legacyHeader.get(stateKey)?.value
       const last = object(decode(latest))
-      const local = !data?.isDraft && Boolean(last)
-      const state = local ? conversation.get(stateKey) : undefined
+      const state = !data?.isDraft ? conversation.get(stateKey) : undefined
       const activityAt = Date.parse(string(last?.createdAt))
       const updatedAt = Math.max(typeof row.lastUpdatedAt === 'number' ? row.lastUpdatedAt : 0, activityAt || 0)
       const grouping = object(last?.grouping)
@@ -229,11 +231,18 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
         state?.status === 'generating' ||
         state?.continuing === 1 ||
         (typeof state?.generating === 'number' && state.generating > 0)
-      // Cursor's live Agent Window worker can persist an aborted composer status during a running turn.
-      const freshTurn =
-        Date.now() - activityAt < activityWindow &&
-        (last?.type === 1 || typeof grouping?.turnDurationMs !== 'number') &&
-        (state?.status === 'aborted' || grouping?.toolFormerStatus === 'loading')
+      const pending = data?.hasBlockingPendingActions === true || data?.hasPendingPlan === true
+      const unfinishedAt = typeof state?.unfinishedAt === 'number' ? state.unfinishedAt : 0
+      const finished = last?.type !== 1 && typeof grouping?.turnDurationMs === 'number'
+      // Cursor saves generating local turns as aborted and records unfinishedRunAt for recovery.
+      // The marker may survive a crash, so look for recent writes and a still-open turn.
+      const savedRun =
+        state?.status === 'aborted' &&
+        unfinishedAt > 0 &&
+        !finished &&
+        Math.max(unfinishedAt, activityAt || 0) >= cutoff
+      const freshTurn = activityAt >= cutoff && !finished && state?.status !== 'completed'
+      const running = !pending && (generating || savedRun || (freshTurn && grouping?.toolFormerStatus === 'loading'))
       const toolCase = string(grouping?.toolCallCase)
       const fileAction = fileToolCases.get(toolCase)
       const filename = filePath(grouping?.toolDisplayPath)
@@ -251,9 +260,9 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
         cwd,
         archived: row.isArchived === 1,
         updatedAt,
-        local,
-        active: generating || freshTurn || undefined,
-        running: generating || (freshTurn && grouping?.toolFormerStatus === 'loading'),
+        local: !data?.isDraft && (Boolean(last) || running),
+        active: running || (!pending && freshTurn && state?.status === 'aborted') || undefined,
+        running,
         activity,
       })
     }
@@ -395,12 +404,12 @@ async function transcriptSummary({ locator, updatedAt }: Transcript, title: stri
   }
 }
 
-export const cursorSource: AgentThreadSource = {
-  async list() {
-    const home = homedir()
-    const userDirectory = cursorUserDirectory(home)
+export const cursorSource = {
+  async list(
+    userDirectory = cursorUserDirectory(homedir()),
+    projectsRoot = path.join(homedir(), '.cursor', 'projects'),
+  ) {
     const databasePath = path.join(userDirectory, 'globalStorage', 'state.vscdb')
-    const projectsRoot = path.join(home, '.cursor', 'projects')
     const [transcripts, roots, storage] = await Promise.all([
       transcriptEntries(projectsRoot),
       workspaces(userDirectory),
@@ -468,4 +477,4 @@ export const cursorSource: AgentThreadSource = {
     const records = await recentJsonRecords(thread.locator)
     return latestActivity(records.flatMap(record => transcriptEvents(record, true)))
   },
-}
+} satisfies AgentThreadSource

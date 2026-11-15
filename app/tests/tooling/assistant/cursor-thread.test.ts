@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -103,4 +103,64 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
     { kind: 'assistant', text: 'Done.' },
     { kind: 'status', text: 'Turn finished' },
   ])
+})
+
+test('keeps Cursor turns running between tool calls while the saved run is unfinished', async () => {
+  const userDirectory = await mkdtemp(path.join(tmpdir(), 'diffpane-cursor-list-'))
+  const storage = path.join(userDirectory, 'globalStorage')
+  const projects = path.join(userDirectory, 'projects')
+  const id = 'af6ffc7e-850f-4cf0-b309-ab27f2a72ec1'
+  const secondId = '46e67027-93e9-4879-a977-9ced7f6f14b6'
+  const now = Date.now()
+
+  try {
+    await mkdir(storage)
+    using writer = new DatabaseSync(path.join(storage, 'state.vscdb'))
+    writer.exec(`
+      CREATE TABLE composerHeaders (composerId TEXT PRIMARY KEY, workspaceId TEXT, lastUpdatedAt INTEGER, isArchived INTEGER, value TEXT);
+      CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT);
+    `)
+    const header = writer.prepare('INSERT OR REPLACE INTO composerHeaders VALUES (?, ?, ?, 0, ?)')
+    const put = writer.prepare('INSERT OR REPLACE INTO cursorDiskKV VALUES (?, ?)')
+    const updateHeading = (createdAt: number, grouping = {}) => {
+      const bubble = { bubbleId: 'tail', createdAt: new Date(createdAt).toISOString(), type: 2, grouping }
+      put.run(`composerConvHeaders:${id}:000000`, JSON.stringify([bubble]))
+    }
+    const stateKey = `composerData:${id}`
+    const assertStatus = async (status: 'running' | 'recent') => {
+      const items = new Map((await cursorSource.list(userDirectory, projects)).map(item => [item.id, item]))
+      expect(items.get(id)?.status).toBe(status)
+      expect(items.get(secondId)).toMatchObject({ status: 'running', active: true })
+    }
+    header.run(id, '', now, JSON.stringify({ name: 'Cursor desktop turn' }))
+    header.run(secondId, '', now, JSON.stringify({ name: 'Another running turn' }))
+    put.run(`composerData:${secondId}`, JSON.stringify({ status: 'generating' }))
+    put.run(stateKey, JSON.stringify({ status: 'aborted', unfinishedRunAt: now - 2_000 }))
+    updateHeading(now - 3_000, { turnDurationMs: 500 })
+    await assertStatus('recent')
+
+    updateHeading(now - 1_500, { toolFormerStatus: 'loading' })
+    await assertStatus('running')
+    updateHeading(now - 1_000, { toolFormerStatus: 'completed' })
+    await assertStatus('running')
+    updateHeading(now - 500)
+    await assertStatus('running')
+
+    header.run(id, '', now, JSON.stringify({ hasBlockingPendingActions: true }))
+    await assertStatus('recent')
+    header.run(id, '', now, '{}')
+    updateHeading(now, { turnDurationMs: 2_000 })
+    await assertStatus('recent')
+
+    put.run(stateKey, JSON.stringify({ status: 'aborted' }))
+    updateHeading(now)
+    await assertStatus('recent')
+
+    const stale = now - 10 * 60 * 1000
+    put.run(stateKey, JSON.stringify({ status: 'aborted', unfinishedRunAt: stale }))
+    updateHeading(stale, { toolFormerStatus: 'loading' })
+    await assertStatus('recent')
+  } finally {
+    await rm(userDirectory, { recursive: true, force: true })
+  }
 })

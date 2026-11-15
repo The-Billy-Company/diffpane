@@ -51,8 +51,24 @@ export async function run() {
 
   const updatedAt = Date.now()
   const threads: AgentThread[] = [
-    { id: 'codex:1', provider: 'codex', title: 'Inspect the parser', cwd: '/projects/juniper', updatedAt },
-    { id: 'cursor:2', provider: 'cursor', title: 'Compare release notes', cwd: '/projects/marigold', updatedAt },
+    {
+      id: 'codex:1',
+      provider: 'codex',
+      title: 'Inspect the parser',
+      cwd: '/projects/juniper',
+      status: 'running',
+      updatedAt,
+    },
+    { id: 'codex:2', provider: 'codex', title: 'Review tests', cwd: '/projects/juniper', status: 'idle', updatedAt },
+    {
+      id: 'cursor:1',
+      provider: 'cursor',
+      title: 'Compare release notes',
+      cwd: '/projects/marigold',
+      status: 'running',
+      updatedAt,
+    },
+    { id: 'cursor:2', provider: 'cursor', title: 'Update release notes', cwd: '/projects/marigold', updatedAt },
   ]
   const bridge = window.diffpane?.agentThreads
   assert(bridge, 'The Agent Threads preload bridge did not load.')
@@ -251,6 +267,23 @@ export async function run() {
       () => host.textContent.includes('Recheck the parser'),
       'Manual refresh did not reload the thread list.',
     )
+
+    button(projects, 'All projects').click()
+    search.value = ''
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+    const sourceCount = (provider: string) => host.querySelector(`[data-source="${provider}"] [data-source-count]`)
+    assert(sourceCount('codex')?.textContent === '2', 'The Codex count did not include all threads.')
+    const updatedThread = threads.find(thread => thread.id === 'cursor:2')
+    assert(updatedThread, 'Missing Cursor fixture thread.')
+    updatedThread.status = 'running'
+    button(host, 'Running').click()
+    await eventually(() => lists === 3 && sourceCount('cursor')?.textContent === '2', 'Running did not refresh Cursor.')
+    assert(sourceCount('codex')?.textContent === '1', 'The Codex count included an idle thread.')
+    assert(host.querySelectorAll('.agent-thread-row').length === 3, 'Running did not show three active threads.')
+    button(host, 'Cursor').click()
+    assert(host.querySelectorAll('.agent-thread-row').length === 2, 'The Cursor filter hid a running Cursor thread.')
+    assert(sourceCount('codex')?.textContent === '1', 'Selecting Cursor hid the Codex count.')
+
     button(host, 'Back to workspace').click()
     assert(host.hidden && !workspace.hidden, 'Back did not restore the workspace.')
   } finally {

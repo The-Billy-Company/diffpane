@@ -249,8 +249,10 @@ function projectedTurnStatus(filename: string | undefined, ids: Set<string>): Ma
   return statuses
 }
 
-function indexedThreads(filename: string | undefined, ids: Set<string>, sessions: string): AgentThreadRecord[] {
-  if (!filename) return []
+function indexedThreads(filename: string | undefined, ids: Set<string>, sessions: string) {
+  const records = new Map<string, AgentThreadRecord>()
+  const subagentIds = new Set<string>()
+  if (!filename) return { records, subagentIds }
   try {
     using database = new DatabaseSync(filename, { readOnly: true, timeout: 0 })
     const columns = new Set(
@@ -262,31 +264,45 @@ function indexedThreads(filename: string | undefined, ids: Set<string>, sessions
     const titles = ['name', 'title', 'agent_nickname'].filter(column => columns.has(column))
     const title = titles.map(column => `NULLIF(${column}, '')`).join(', ')
     const fields = `id, cwd, rollout_path, updated_at, COALESCE(${title}, '') AS title`
-    const latest = database.prepare(`SELECT ${fields} FROM threads WHERE archived = 0 ORDER BY updated_at DESC LIMIT ?`)
-    const byId = database.prepare(`SELECT ${fields} FROM threads WHERE archived = 0 AND id = ?`)
+    // Codex app chats include delegated work in the parent chat. Its separate rollouts are implementation details.
+    const threadSource = columns.has('thread_source') ? "thread_source IS 'subagent'" : '0'
+    const sessionSource = columns.has('source')
+      ? "json_type(CASE WHEN json_valid(source) THEN source END, '$.subagent') IS NOT NULL"
+      : '0'
+    const subagent = `(${threadSource} OR ${sessionSource})`
+    const latest = database.prepare(`
+      SELECT ${fields} FROM threads WHERE archived = 0 AND NOT ${subagent} ORDER BY updated_at DESC LIMIT ?
+    `)
+    const byId = database.prepare(
+      `SELECT ${fields}, ${subagent} AS subagent FROM threads WHERE archived = 0 AND id = ?`,
+    )
     const rows = [...latest.all(recentLimit), ...[...ids].flatMap(id => byId.all(id))]
-    return rows.flatMap(row => {
+    for (const row of rows) {
       const id = string(row.id)
+      if (!id) continue
+      if (row.subagent === 1) {
+        subagentIds.add(id)
+        continue
+      }
       const cwd = string(row.cwd)
       const locator = string(row.rollout_path)
-      if (!id || !path.isAbsolute(cwd) || !locator.startsWith(`${sessions}${path.sep}`)) return []
-      return [
-        {
-          id,
-          provider: 'codex',
-          title: string(row.title).replaceAll(/\s+/g, ' ').trim().slice(0, 160) || path.basename(cwd),
-          cwd,
-          locator,
-          updatedAt: Number(row.updated_at) * 1_000,
-        },
-      ]
-    })
+      if (!path.isAbsolute(cwd) || !locator.startsWith(`${sessions}${path.sep}`)) continue
+      records.set(locator, {
+        id,
+        provider: 'codex',
+        title: string(row.title).replaceAll(/\s+/g, ' ').trim().slice(0, 160) || path.basename(cwd),
+        cwd,
+        locator,
+        updatedAt: Number(row.updated_at) * 1_000,
+      })
+    }
   } catch {
-    return []
+    // Older installations may only have rollouts.
   }
+  return { records, subagentIds }
 }
 
-async function recentRollouts(sessions: string): Promise<string[]> {
+async function recentThreads(sessions: string): Promise<AgentThreadRecord[]> {
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date()
     date.setDate(date.getDate() - index)
@@ -304,7 +320,14 @@ async function recentRollouts(sessions: string): Promise<string[]> {
         .map(name => path.join(day, name))
     }),
   )
-  return entries.flat().slice(0, recentLimit)
+  const rollouts = entries.flat()
+  const records: AgentThreadRecord[] = []
+  for (let offset = 0; offset < rollouts.length && records.length < recentLimit; offset += recentLimit) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- Stop scanning once there are enough visible chats.
+    const batch = await Promise.all(rollouts.slice(offset, offset + recentLimit).map(readMetadata))
+    records.push(...batch.filter(record => record !== undefined))
+  }
+  return records.slice(0, recentLimit)
 }
 
 async function readMetadata(locator: string): Promise<AgentThreadRecord | undefined> {
@@ -318,6 +341,8 @@ async function readMetadata(locator: string): Promise<AgentThreadRecord | undefi
     const id = string(payload?.id)
     const cwd = string(payload?.cwd)
     if (entry?.type !== 'session_meta' || !id || !path.isAbsolute(cwd)) return undefined
+    if (payload?.thread_source === 'subagent' || Object.hasOwn(object(payload?.source) ?? {}, 'subagent'))
+      return undefined
     const fileInfo = await file.stat()
     return {
       id,
@@ -367,14 +392,19 @@ export const codexSource: AgentThreadSource = {
       const id = rolloutPattern.exec(path.basename(filename))?.[1]
       if (id) ids.add(id)
     }
-    const indexed = indexedThreads(state, ids, sessions)
-    const records = new Map(indexed.map(record => [record.locator, record]))
-    const fallback = indexed.length ? [] : await recentRollouts(sessions)
-    const missing = [...new Set([...opened.rollouts, ...fallback])].filter(locator => !records.has(locator))
+    const { records, subagentIds } = indexedThreads(state, ids, sessions)
+    if (!records.size) {
+      for (const record of await recentThreads(sessions)) records.set(record.locator, record)
+    }
+    const missing = [...opened.rollouts].filter(locator => {
+      const id = rolloutPattern.exec(path.basename(locator))?.[1]
+      return !records.has(locator) && (!id || !subagentIds.has(id))
+    })
     for (const record of await Promise.all(missing.map(readMetadata))) {
       if (record) records.set(record.locator, record)
     }
-    const statuses = projectedTurnStatus(history, ids)
+    const visibleOpenIds = new Set([...records.values()].map(record => record.id).filter(id => ids.has(id)))
+    const statuses = projectedTurnStatus(history, visibleOpenIds)
     const threads = await Promise.all(
       [...records.values()].map(async record => {
         const file = await stat(record.locator).catch(() => undefined)

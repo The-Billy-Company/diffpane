@@ -1,12 +1,91 @@
-import { appendFile, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test } from 'vite-plus/test'
+import { DatabaseSync } from 'node:sqlite'
+import { expect, test, vi } from 'vite-plus/test'
 import { codexSource } from '../../../electron/tools/assistant/agent-threads/codex.ts'
+
+const { run } = vi.hoisted(() => ({ run: vi.fn<() => Promise<{ stdout: string }>>() }))
+vi.mock('node:child_process', async importOriginal => ({
+  ...(await importOriginal<typeof import('node:child_process')>()),
+  execFile: Object.assign(() => {}, { [Symbol.for('nodejs.util.promisify.custom')]: run }),
+}))
 
 function event(type: string, data: object = {}) {
   return `${JSON.stringify({ type: 'event_msg', payload: { type, ...data } })}\n`
 }
+
+test.skipIf(process.platform === 'win32')('lists visible Codex chats when delegated turns are running', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-threads-'))
+  vi.stubEnv('CODEX_HOME', root)
+  t.onTestFinished(async () => {
+    vi.unstubAllEnvs()
+    await rm(root, { recursive: true, force: true })
+  })
+
+  const date = new Date()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const sessions = path.join(root, 'sessions', String(date.getFullYear()), month, day)
+  await mkdir(sessions, { recursive: true })
+  const rollout = (number: number) => {
+    const suffix = String(number).padStart(12, '0')
+    const id = `00000000-0000-0000-0000-${suffix}`
+    return { id, locator: path.join(sessions, `rollout-${suffix}-${id}.jsonl`) }
+  }
+  const running = rollout(1)
+  const recent = rollout(2)
+  const indexedChild = rollout(3)
+  const unindexedChild = rollout(4)
+  const otherChildren = Array.from({ length: 41 }, (_, index) => rollout(index + 5))
+  const delegation = { subagent: { thread_spawn: { parent_thread_id: running.id } } }
+  const writeRollout = (thread: ReturnType<typeof rollout>, metadata: object) =>
+    writeFile(
+      thread.locator,
+      `${JSON.stringify({ type: 'session_meta', payload: { id: thread.id, cwd: root, ...metadata } })}\n${event('task_started')}`,
+    )
+  await Promise.all([
+    writeRollout(running, { source: 'vscode', thread_source: 'user' }),
+    writeRollout(recent, { source: 'cli', forked_from_id: running.id }),
+    writeRollout(indexedChild, { thread_source: 'subagent' }),
+    writeRollout(unindexedChild, { source: delegation }),
+    ...otherChildren.map(thread => writeRollout(thread, { source: delegation })),
+  ])
+  const open = [running, indexedChild, unindexedChild]
+  run.mockResolvedValue({ stdout: open.map(thread => `n${thread.locator}`).join('\n') })
+
+  using history = new DatabaseSync(path.join(root, 'thread_history_1.sqlite'))
+  history.exec('CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT)')
+  const addTurn = history.prepare("INSERT INTO thread_turns VALUES (?, 1, 'inProgress')")
+  for (const thread of open) addTurn.run(thread.id)
+
+  const expected = [
+    { id: recent.id, status: 'recent' },
+    { id: running.id, status: 'running' },
+  ]
+  const stateFile = path.join(root, 'state_5.sqlite')
+  {
+    using state = new DatabaseSync(stateFile)
+    state.exec(`CREATE TABLE threads (
+      id TEXT, cwd TEXT, rollout_path TEXT, title TEXT, updated_at INTEGER, archived INTEGER, source TEXT, thread_source TEXT
+    )`)
+    const addThread = state.prepare("INSERT INTO threads VALUES (?, ?, ?, 'Chat', ?, 0, ?, ?)")
+    addThread.run(running.id, root, running.locator, 1, 'vscode', 'user')
+    addThread.run(recent.id, root, recent.locator, 2, 'cli', null)
+    addThread.run(indexedChild.id, root, indexedChild.locator, 3, 'vscode', 'subagent')
+    for (const [index, thread] of otherChildren.entries()) {
+      addThread.run(thread.id, root, thread.locator, index + 4, JSON.stringify(delegation), null)
+    }
+
+    await expect(codexSource.list()).resolves.toMatchObject(expected)
+
+    state.prepare('UPDATE threads SET source = ? WHERE id = ?').run(JSON.stringify(delegation), indexedChild.id)
+    state.exec('ALTER TABLE threads DROP COLUMN thread_source')
+    await expect(codexSource.list()).resolves.toMatchObject(expected)
+  }
+  await rm(stateFile)
+  await expect(codexSource.list()).resolves.toMatchObject(expected)
+})
 
 test('reads a Codex conversation from its first message without exposing raw model context', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-thread-'))
