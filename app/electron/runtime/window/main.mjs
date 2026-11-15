@@ -221,8 +221,12 @@ function workspaceMedia(value) {
   return { root: value.root, path: value.path, type: value.type }
 }
 
-/** @param {string} channel @param {(session: WindowSession, event: IpcMainInvokeEvent, ...args: unknown[]) => unknown} listener */
-function handle(channel, listener) {
+/**
+ * @param {string} channel
+ * @param {(session: WindowSession, event: IpcMainInvokeEvent, ...args: unknown[]) => unknown} listener
+ * @param {{minimumSuccessMs?: number}} [options]
+ */
+function handle(channel, listener, { minimumSuccessMs = 0 } = {}) {
   invokeChannels.add(channel)
   ipcMain.handle(channel, async (event, ...args) => {
     const startedAt = performance.now()
@@ -238,7 +242,8 @@ function handle(channel, listener) {
         operation: channel,
       },
     )
-    windowDiagnostics(windowId).measure(`ipc.${channel}`, startedAt, result)
+    if (!result.ok || performance.now() - startedAt >= minimumSuccessMs)
+      windowDiagnostics(windowId).measure(`ipc.${channel}`, startedAt, result)
     if (result.ok) return result
     return { ok: false, error: serializeAppError(result.error) }
   })
@@ -1132,6 +1137,17 @@ handle('agent-threads-read', (session, _event, id, selection) => {
     throw new Error('Choose an available agent thread.')
   return threads.read(id, selection)
 })
+
+handle(
+  'agent-threads-update',
+  (session, _event, id, selection) => {
+    const threads = agentThreads.get(session)
+    if (!threads || typeof id !== 'string' || typeof selection !== 'string' || selection.length !== 36)
+      throw new Error('Choose an available agent thread.')
+    return threads.update(id, selection)
+  },
+  { minimumSuccessMs: 25 },
+)
 
 handle('agent-threads-clear', (session, _event, selection) => {
   if (typeof selection === 'string') agentThreads.get(session)?.clear(selection)

@@ -52,4 +52,10 @@ export interface AgentThreadEvent {
   toolDescription?: string
 }
 
+export interface AgentThreadUpdate {
+  // Replace the events from this index through the end of the transcript.
+  change?: { from: number; events: AgentThreadEvent[] }
+  thread?: AgentThread
+}
+
 export type AgentFileView = { kind: 'workspace'; path: string } | { kind: 'preview'; text: string; limited: boolean }

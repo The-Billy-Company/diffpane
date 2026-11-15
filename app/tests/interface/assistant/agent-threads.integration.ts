@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, ipcMain } from 'electron'
 import { createServer } from 'vite-plus'
+import { AgentThreads } from '../../../electron/tools/assistant/agent-threads/threads.ts'
 import type { AgentThreadEvent } from '../../../shared/agent-threads.ts'
 
 // Run from the repository root with:
@@ -13,6 +14,7 @@ app.setPath('userData', profile)
 app.setAppLogsPath(path.join(profile, 'logs'))
 
 const route = '/__agent-threads-integration__'
+const transcriptRoute = `${route}/transcript`
 const longCommand = `cat fixtures/${'greeting'.repeat(200)}.txt && printf 'Parser fixture read\\n'`
 const snapshot: AgentThreadEvent[] = [
   { kind: 'user', text: 'How does the parser handle a greeting?' },
@@ -53,8 +55,40 @@ for (let turn = 1; turn <= 12; turn++) {
     { kind: 'assistant', text: `Example ${turn} returns the expected value.` },
   )
 }
+const partialThought: AgentThreadEvent = { kind: 'thinking', text: 'Checking the final example.' }
+const grownThought: AgentThreadEvent = {
+  kind: 'thinking',
+  text: `${partialThought.text}\n\n${'The result matches the fixture.\n\n'.repeat(18)}The final check passed.`,
+}
+const finalReply: AgentThreadEvent = { kind: 'assistant', text: 'All examples pass.' }
+const transcriptUpdates: ReadonlyMap<string, AgentThreadEvent[]> = new Map([
+  ['/append', [partialThought]],
+  ['/grow', [grownThought]],
+  ['/reply', [grownThought, finalReply]],
+  ['/late', [grownThought, finalReply, { kind: 'assistant', text: 'This update arrived after leaving.' }]],
+])
 
 async function run(): Promise<void> {
+  let events = snapshot
+  const tracker = new AgentThreads([
+    [
+      'codex',
+      {
+        list: async () => [
+          {
+            id: '1',
+            provider: 'codex',
+            title: 'Inspect the parser',
+            cwd: '/projects/juniper',
+            status: 'running',
+            updatedAt: 1,
+            locator: path.join(profile, 'transcript'),
+          },
+        ],
+        open: () => ({ read: async () => structuredClone(events) }),
+      },
+    ],
+  ])
   const server = await createServer({
     configFile: fileURLToPath(new URL('../../../../vite.config.ts', import.meta.url)),
     cacheDir: path.join(profile, 'vite'),
@@ -64,6 +98,15 @@ async function run(): Promise<void> {
       {
         name: 'agent-threads-integration',
         configureServer({ middlewares }) {
+          middlewares.use(transcriptRoute, (request, response) => {
+            const update = transcriptUpdates.get(request.url ?? '')
+            if (request.method !== 'POST' || !update) {
+              response.writeHead(404).end()
+              return
+            }
+            events = [...snapshot, ...newEvents, ...update]
+            response.writeHead(204).end()
+          })
           middlewares.use(route, (_request, response) => {
             response.setHeader('Content-Type', 'text/html')
             response.end('<!doctype html><title>Agent Threads integration</title><div id="app"></div>')
@@ -78,11 +121,19 @@ async function run(): Promise<void> {
     app.dock?.hide()
     const url = server.resolvedUrls?.local[0]
     if (!url) throw new Error('The Agent Threads test page did not start.')
-    let reads = 0
-    ipcMain.handle('agent-threads-read', () => ({
+    await tracker.list()
+    ipcMain.handle('agent-threads-read', async (_event, id: string, selection: string) => ({
       ok: true,
-      value: reads++ === 0 ? snapshot : [...snapshot, ...newEvents],
+      value: await tracker.read(id, selection),
     }))
+    ipcMain.handle('agent-threads-update', async (_event, id: string, selection: string) => ({
+      ok: true,
+      value: await tracker.update(id, selection),
+    }))
+    ipcMain.handle('agent-threads-clear', (_event, selection: string) => {
+      tracker.clear(selection)
+      return { ok: true, value: undefined }
+    })
     browser = new BrowserWindow({
       width: 1100,
       height: 820,
@@ -97,11 +148,14 @@ async function run(): Promise<void> {
     })
     await browser.loadURL(new URL(route, url).href)
     await browser.webContents.executeJavaScript(
-      `import("/tests/interface/assistant/agent-threads.fixture.ts").then(module => module.run(${JSON.stringify(longCommand)}))`,
+      `import("/tests/interface/assistant/agent-threads.fixture.ts").then(module => module.run(${JSON.stringify(longCommand)}, ${JSON.stringify(transcriptRoute)}))`,
     )
     console.info('Agent Threads integration passed.')
   } finally {
     ipcMain.removeHandler('agent-threads-read')
+    ipcMain.removeHandler('agent-threads-update')
+    ipcMain.removeHandler('agent-threads-clear')
+    tracker.clear()
     browser?.destroy()
     await server.close()
   }

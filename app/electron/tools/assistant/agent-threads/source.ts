@@ -1,5 +1,5 @@
 import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
+import { open, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { AgentThread, AgentThreadEvent } from '../../../../shared/agent-threads.ts'
 
@@ -9,6 +9,8 @@ export interface AgentThreadRecord extends AgentThread {
 
 export interface AgentThreadReader {
   read(): Promise<AgentThreadEvent[]>
+  /** Returns a fresh snapshot when storage may have changed. */
+  readUpdate?(): Promise<AgentThreadEvent[] | undefined>
   close?(): void
 }
 
@@ -21,6 +23,35 @@ export interface AgentThreadSource {
 const READ_BYTES = 512 * 1024
 const MAX_TRANSCRIPT_BYTES = 128 * 1024 * 1024
 const MAX_RECORD_BYTES = 4 * 1024 * 1024
+
+export function trackTranscriptFile(locator: string, reader: AgentThreadReader): AgentThreadReader {
+  if (reader.readUpdate) return reader
+  let lastVersion: string | undefined
+
+  async function version() {
+    const file = await stat(locator, { bigint: true }).catch(() => undefined)
+    if (!file?.isFile()) return undefined
+    return `${file.dev}:${file.ino}:${file.size}:${file.mtimeNs}:${file.ctimeNs}`
+  }
+
+  async function read(current: string | undefined) {
+    const events = await reader.read()
+    lastVersion = current
+    return events
+  }
+
+  return {
+    async read() {
+      return read(await version())
+    },
+    async readUpdate() {
+      const current = await version()
+      if (current !== undefined && current === lastVersion) return undefined
+      return read(current)
+    },
+    close: () => reader.close?.(),
+  }
+}
 
 export async function sampleJsonRecords(locator: string, edge: 'start' | 'end'): Promise<unknown[]> {
   try {

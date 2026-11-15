@@ -286,6 +286,13 @@ function isAgentThreadEvent(value) {
     value.kind === 'status'
   )
 }
+function isAgentThreadUpdate(value) {
+  if (!isRecord(value) || !optional(isAgentThread)(value.thread)) return false
+  const { change } = value
+  return (
+    change === undefined || (isRecord(change) && isCount(change.from) && arrayOf(isAgentThreadEvent)(change.events))
+  )
+}
 function isAgentFileView(value) {
   return (
     isRecord(value) &&
@@ -822,6 +829,7 @@ const API = {
   agentThreads: {
     list: () => invoke('agent-threads-list', isAgentThreadList),
     read: (id, selection) => invoke('agent-threads-read', arrayOf(isAgentThreadEvent), id, selection),
+    update: (id, selection) => invoke('agent-threads-update', isAgentThreadUpdate, id, selection),
     clear: selection => invoke('agent-threads-clear', isVoid, selection),
     file: (selection, path) => invoke('agent-threads-file', isAgentFileView, selection, path),
   },

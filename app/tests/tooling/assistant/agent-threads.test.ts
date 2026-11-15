@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { expect, test, vi } from 'vite-plus/test'
 import type { AgentThreadRecord, AgentThreadSource } from '../../../electron/tools/assistant/agent-threads/source.ts'
 import { AgentThreads } from '../../../electron/tools/assistant/agent-threads/threads.ts'
+import type { AgentThreadEvent } from '../../../shared/agent-threads.ts'
 
 const run = promisify(execFile)
 const open = () => ({ read: async () => [] })
@@ -80,4 +81,66 @@ test('keeps stable cross-provider thread identities and groups worktrees by proj
   expect(partial.unavailable).toEqual(['codex'])
   expect(partial.threads.map(thread => thread.id)).toEqual(['claude:thread'])
   await expect(tracker.read('codex:thread', 'previous')).resolves.toEqual([])
+})
+
+test('keeps file links authorized while refreshing a selected transcript', async t => {
+  const cwd = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-live-thread-')))
+  const locator = path.join(cwd, 'thread.jsonl')
+  const filename = path.join(cwd, 'app.ts')
+  await Promise.all([writeFile(locator, 'initial'), writeFile(filename, 'preview')])
+  const record: AgentThreadRecord = {
+    id: 'thread',
+    provider: 'codex',
+    title: 'Updating a file',
+    cwd,
+    locator,
+    updatedAt: 1,
+  }
+  const file: AgentThreadEvent = { kind: 'edit', text: '', files: [{ path: 'app.ts' }] }
+  const reply: AgentThreadEvent = { kind: 'assistant', text: 'Writing' }
+  const completed: AgentThreadEvent = { ...reply, text: 'Writing is complete.' }
+  const read = vi.fn<() => Promise<AgentThreadEvent[]>>().mockResolvedValue([file, reply])
+  const finished = Promise.withResolvers<AgentThreadEvent[]>()
+  const started = Promise.withResolvers<void>()
+  const close = vi.fn<() => void>()
+  const list = vi.fn<AgentThreadSource['list']>().mockResolvedValueOnce([record]).mockResolvedValue([])
+  const tracker = new AgentThreads([['codex', { list, open: () => ({ read, close }) }]])
+  t.onTestFinished(async () => {
+    finished.resolve([])
+    tracker.clear()
+    await rm(cwd, { recursive: true, force: true })
+  })
+  await tracker.list()
+
+  const id = 'codex:thread'
+  const selection = 'opened'
+  await tracker.read(id, selection)
+  await expect(tracker.update(id, selection)).resolves.toMatchObject({ thread: { id, title: record.title } })
+  await expect(tracker.update(id, selection)).resolves.toEqual({})
+  expect(read).toHaveBeenCalledTimes(1)
+
+  await writeFile(locator, 'updated transcript')
+  read.mockImplementationOnce(() => {
+    started.resolve()
+    return finished.promise
+  })
+  const update = tracker.update(id, selection)
+  await started.promise
+  await expect(tracker.file(selection, filename)).resolves.toMatchObject({ text: 'preview' })
+  await expect(tracker.update(id, selection)).resolves.toEqual({})
+  finished.resolve([file, completed])
+  await expect(update).resolves.toMatchObject({ change: { from: 1, events: [completed] } })
+
+  await tracker.list()
+  await expect(tracker.read(id, 'other')).rejects.toThrow('unavailable')
+  read.mockResolvedValue([file, completed])
+  await expect(tracker.read(id, selection)).resolves.toMatchObject([
+    { ...file, files: [{ path: filename }] },
+    completed,
+  ])
+  await expect(tracker.file(selection, filename)).resolves.toMatchObject({ text: 'preview' })
+  tracker.clear(selection)
+  await expect(tracker.update(id, selection)).resolves.toEqual({})
+  await expect(tracker.file(selection, filename)).rejects.toThrow('no longer available')
+  expect(close).toHaveBeenCalledTimes(2)
 })

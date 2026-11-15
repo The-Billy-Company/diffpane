@@ -10,6 +10,7 @@ import type {
   AgentThreadImage,
   AgentThreadList,
   AgentThreadStatus,
+  AgentThreadUpdate,
 } from '../../../shared/agent-threads.ts'
 import type { BillyClaim, BillyClaimsResult } from '../../../shared/billy/claims.ts'
 import type {
@@ -393,6 +394,14 @@ function isAgentThreadEvent(value: unknown): value is AgentThreadEvent {
     value.kind === 'edit' ||
     value.kind === 'notice' ||
     value.kind === 'status'
+  )
+}
+
+function isAgentThreadUpdate(value: unknown): value is AgentThreadUpdate {
+  if (!isRecord(value) || !optional(isAgentThread)(value.thread)) return false
+  const { change } = value
+  return (
+    change === undefined || (isRecord(change) && isCount(change.from) && arrayOf(isAgentThreadEvent)(change.events))
   )
 }
 
@@ -984,6 +993,7 @@ const API = {
   agentThreads: {
     list: () => invoke('agent-threads-list', isAgentThreadList),
     read: (id: string, selection: string) => invoke('agent-threads-read', arrayOf(isAgentThreadEvent), id, selection),
+    update: (id: string, selection: string) => invoke('agent-threads-update', isAgentThreadUpdate, id, selection),
     clear: (selection: string) => invoke('agent-threads-clear', isVoid, selection),
     file: (selection: string, path: string) => invoke('agent-threads-file', isAgentFileView, selection, path),
   },

@@ -6,7 +6,7 @@ import { setImmediate } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
 import { activityText, latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
-import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
+import type { AgentThreadReader, AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sessionId = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i
 const editTools = new Set(['Write', 'StrReplace', 'Edit', 'MultiEdit', 'Delete'])
@@ -311,12 +311,25 @@ function composerToolEvent(group: Record<string, unknown> | undefined, tool: Rec
   })
 }
 
-function composerReader(databasePath: string, id: string) {
+function composerReader(databasePath: string, id: string): AgentThreadReader {
   const stableTools = new Set(['completed', 'error', 'failed', 'cancelled', 'rejected'])
-  return {
-    async read() {
-      using database = new DatabaseSync(databasePath, { readOnly: true })
-      database.exec('BEGIN')
+  let database: DatabaseSync | undefined
+  let identity: string | undefined
+  let lastVersion: number | bigint | string | Uint8Array | null | undefined
+
+  async function read(eventsIfUnchanged: true): Promise<AgentThreadEvent[]>
+  async function read(eventsIfUnchanged: false): Promise<AgentThreadEvent[] | undefined>
+  async function read(eventsIfUnchanged: boolean) {
+    const file = await stat(databasePath, { bigint: true })
+    const currentIdentity = `${file.dev}:${file.ino}`
+    if (identity !== currentIdentity) close()
+    database ??= new DatabaseSync(databasePath, { readOnly: true })
+    identity = currentIdentity
+    // Compare versions on the same connection so committed WAL changes count even if the database file is unchanged.
+    const { data_version: version } = database.prepare('PRAGMA data_version').get() ?? {}
+    if (!eventsIfUnchanged && version !== undefined && version === lastVersion) return undefined
+    database.exec('BEGIN')
+    try {
       const select = database.prepare('SELECT value FROM cursorDiskKV WHERE key = ?')
       const selectBubble = database.prepare(`
         SELECT json_extract(value, '$.text') AS text,
@@ -367,8 +380,24 @@ function composerReader(databasePath: string, id: string) {
           }
         }
       }
+      lastVersion = version
       return events
-    },
+    } finally {
+      database.exec('ROLLBACK')
+    }
+  }
+
+  function close() {
+    database?.close()
+    database = undefined
+    identity = undefined
+    lastVersion = undefined
+  }
+
+  return {
+    read: () => read(true),
+    readUpdate: () => read(false),
+    close,
   }
 }
 
@@ -468,7 +497,7 @@ export const cursorSource = {
       )
       .filter((thread, position) => position < recentLimit || thread.active)
   },
-  open(thread) {
+  open(thread): AgentThreadReader {
     if (thread.locator.endsWith('state.vscdb')) return composerReader(thread.locator, thread.id)
     return readJsonLines(thread.locator, () => transcriptEvents)
   },

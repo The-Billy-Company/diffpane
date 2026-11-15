@@ -11,10 +11,6 @@ import './agent-thread-conversation.css'
 interface ConversationOptions {
   provider: AgentProvider
   providerMark?: HTMLElement
-  events?: readonly AgentThreadEvent[]
-  loading?: boolean
-  error?: string
-  onRetry?: () => void
   onOpenFile?: (file: AgentThreadFile, trigger: HTMLButtonElement) => void
 }
 
@@ -93,15 +89,29 @@ function assistantMarkdown(text: string) {
 
 function thinkingDisclosure(text: string) {
   const details = node('details', 'agent-thread-thinking')
+  let markdown: HTMLElement | undefined
   details.append(node('summary', '', 'Thinking'))
   details.addEventListener('toggle', () => {
-    if (details.open && details.childElementCount === 1) details.append(assistantMarkdown(text))
+    if (details.open && !markdown) {
+      markdown = assistantMarkdown(text)
+      details.append(markdown)
+    }
   })
-  return details
+  return {
+    details,
+    updateText: (next: string) => {
+      text = next
+      if (markdown) renderAssistantMarkdown(markdown, text)
+    },
+  }
+}
+
+function toolName(event: AgentThreadEvent) {
+  return event.toolName ?? (event.kind === 'edit' ? 'File change' : 'Tool call')
 }
 
 function describeTool(event: AgentThreadEvent) {
-  const name = event.toolName ?? (event.kind === 'edit' ? 'File change' : 'Tool call')
+  const name = toolName(event)
   const text = event.text.trimEnd()
   const raw = text && text !== name ? event.text : ''
   const description = event.toolDescription?.trim()
@@ -112,13 +122,15 @@ function describeTool(event: AgentThreadEvent) {
 
 type ToolCall = ReturnType<typeof describeTool>
 
+function toolIcon() {
+  const icon = node('span', 'agent-thread-tool-icon', '›_')
+  icon.setAttribute('aria-hidden', 'true')
+  return icon
+}
+
 function toolHeading(tag: 'summary' | 'div', className: string, name: string, preview: string, showIcon = false) {
   const heading = node(tag, className)
-  if (showIcon) {
-    const icon = node('span', 'agent-thread-tool-icon', '›_')
-    icon.setAttribute('aria-hidden', 'true')
-    heading.append(icon)
-  }
+  if (showIcon) heading.append(toolIcon())
   const copy = node('span', 'agent-thread-tool-copy')
   copy.append(node('span', 'agent-thread-tool-name', name))
   if (preview) {
@@ -150,146 +162,335 @@ function appendToolEntry(
   if (tool.files.length) item.append(fileReferences(tool.files, onOpenFile))
 }
 
-function toolGroup(
-  firstEvent: AgentThreadEvent,
-  followingEvents: readonly AgentThreadEvent[],
-  onOpenFile: ConversationOptions['onOpenFile'],
-) {
-  if (!followingEvents.length) {
-    const group = node('div', 'agent-thread-tool-group')
-    const item = node('div', 'agent-thread-tool-entry')
-    appendToolEntry(item, describeTool(firstEvent), onOpenFile, true)
-    group.append(item)
-    return group
-  }
-
-  const tools = [firstEvent, ...followingEvents].map(describeTool)
-  const names = [...new Set(tools.map(tool => tool.name))]
-  const summary = toolHeading(
-    'summary',
-    'agent-thread-tool-summary',
-    `${tools.length} tool calls`,
-    names.slice(0, 3).join(', ') + (names.length > 3 ? ', …' : ''),
-    true,
-  )
-  const group = node('details', 'agent-thread-tool-group')
-  group.append(summary)
+function createToolGroup(onOpenFile: ConversationOptions['onOpenFile']) {
+  let group: HTMLDetailsElement | HTMLDivElement | undefined
+  let list: HTMLUListElement | HTMLDivElement | undefined
+  let events: readonly AgentThreadEvent[] = []
+  let entries: { event: AgentThreadEvent; item: HTMLElement }[] = []
 
   function renderEntries() {
-    if (group.childElementCount > 1) return
-    const list = node('ul', 'agent-thread-tool-list')
-    for (const tool of tools) {
-      const item = node('li', 'agent-thread-tool-entry')
-      appendToolEntry(item, tool, onOpenFile)
-      list.append(item)
-    }
-    group.append(list)
+    if (!group) return
+    const grouped = group instanceof HTMLDetailsElement
+    const parent = (list ??= group instanceof HTMLDetailsElement ? node('ul', 'agent-thread-tool-list') : group)
+    const oldNodes = entries.map(entry => entry.item).filter(item => item.parentElement === parent)
+    const tag = grouped ? 'li' : 'div'
+    const next = events.map((event, index) => {
+      const old = entries[index]
+      if (old?.event === event && old.item.localName === tag) return old
+      const item = node(tag, 'agent-thread-tool-entry')
+      if (old?.event === event) {
+        item.append(...old.item.childNodes)
+        if (grouped) item.querySelector('.agent-thread-tool-icon')?.remove()
+        else item.querySelector('.agent-thread-tool-row')?.prepend(toolIcon())
+      } else {
+        appendToolEntry(item, describeTool(event), onOpenFile, !grouped)
+        const details = item.querySelector('details')
+        if (details && old?.event.toolName === event.toolName && old?.item.querySelector('details[open]'))
+          details.open = true
+      }
+      return { event, item }
+    })
+    syncChildren(
+      parent,
+      oldNodes,
+      next.map(entry => entry.item),
+    )
+    if (grouped && parent.parentElement !== group) group.append(parent)
+    entries = next
   }
 
-  summary.addEventListener('click', renderEntries, { once: true })
-  group.addEventListener('toggle', () => {
-    if (group.open) renderEntries()
-  })
-  return group
-}
-
-function renderTurns(events: readonly AgentThreadEvent[], { provider, providerMark, onOpenFile }: ConversationOptions) {
-  const list = node('div', 'agent-thread-turns')
-  let reply: HTMLElement | undefined
-  let tools: AgentThreadEvent[] = []
-
-  function replyBody() {
-    if (!reply) {
-      const assistant = turn('assistant', agentProviderNames[provider], providerMark)
-      list.append(assistant.article)
-      reply = assistant.body
-    }
-    return reply
-  }
-
-  function flushTools() {
-    const [first, ...rest] = tools
-    if (!first) return
-    replyBody().append(toolGroup(first, rest, onOpenFile))
-    tools = []
-  }
-
-  for (const event of events) {
-    if (event.kind === 'status') continue
-    if (event.kind === 'notice') {
-      flushTools()
-      list.append(node('p', 'agent-thread-conversation-notice', event.text))
-      reply = undefined
-      continue
-    }
-    if (event.kind === 'tool' || event.kind === 'edit') {
-      tools.push(event)
-      continue
-    }
-    const hasText = Boolean(event.text.trim())
-    const files = event.files ?? []
-    const images = event.images ?? []
-    if (!hasText && !files.length && !images.length) continue
-    flushTools()
-    if (event.kind === 'thinking') {
-      if (hasText) replyBody().append(thinkingDisclosure(event.text))
-      continue
-    }
-    let body: HTMLElement
-    if (event.kind === 'user') {
-      const message = turn('user', 'You')
-      if (hasText) message.body.append(node('div', 'agent-thread-prompt', event.text))
-      list.append(message.article)
-      body = message.body
-      reply = undefined
+  return (next: readonly AgentThreadEvent[]) => {
+    events = next
+    if (events.length === 1) {
+      if (!group || group instanceof HTMLDetailsElement) {
+        group = node('div', 'agent-thread-tool-group')
+        list = undefined
+      }
     } else {
-      body = replyBody()
-      if (hasText) body.append(assistantMarkdown(event.text))
+      const names = [...new Set(events.map(toolName))]
+      const heading = toolHeading(
+        'summary',
+        'agent-thread-tool-summary',
+        `${events.length} tool calls`,
+        names.slice(0, 3).join(', ') + (names.length > 3 ? ', …' : ''),
+        true,
+      )
+      if (group instanceof HTMLDetailsElement) {
+        group.querySelector('summary')?.replaceChildren(...heading.childNodes)
+      } else {
+        const details = node('details', 'agent-thread-tool-group')
+        details.open = !!group?.querySelector('details[open]') || !!group?.contains(document.activeElement)
+        details.append(heading)
+        heading.addEventListener('click', renderEntries, { once: true })
+        details.addEventListener('toggle', () => {
+          if (details === group && details.open && !list) renderEntries()
+        })
+        group = details
+        list = undefined
+      }
     }
-    if (images.length) body.append(imageAttachments(images))
-    if (files.length) body.append(fileReferences(files, onOpenFile))
+    if (!(group instanceof HTMLDetailsElement) || group.open || list) renderEntries()
+    return group
   }
-  flushTools()
-  if (
-    events.some(event => event.kind === 'tool' || event.kind === 'edit') &&
-    !events.some(
-      event =>
-        (event.kind === 'assistant' || event.kind === 'user' || event.kind === 'thinking') &&
-        (event.text.trim() || event.images?.length),
-    )
-  ) {
-    list.prepend(
-      node('p', 'agent-thread-conversation-notice', 'This session saved tool activity without chat messages.'),
-    )
-  }
-  return list
 }
 
-export function renderAgentThreadConversation(host: HTMLElement, options: ConversationOptions) {
-  const { provider, events = [], loading, error, onRetry } = options
+interface Block {
+  start: number
+  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'notice'
+  events: [AgentThreadEvent, ...AgentThreadEvent[]]
+}
+
+interface Turn {
+  start: number
+  kind: 'user' | 'assistant' | 'notice'
+  blocks: [Block, ...Block[]]
+}
+
+interface RenderedBlock extends Block {
+  nodes: HTMLElement[]
+  updateText?: (text: string) => void
+  updateTools?: ReturnType<typeof createToolGroup>
+}
+
+interface RenderedTurn extends Omit<Turn, 'blocks'> {
+  element: HTMLElement
+  body: HTMLElement
+  blocks: RenderedBlock[]
+}
+
+function groupTurns(events: readonly AgentThreadEvent[], start: number) {
+  const turns: Turn[] = []
+  let reply: Turn | undefined
+  for (let index = start; index < events.length; index++) {
+    const event = events[index]
+    if (!event || event.kind === 'status') continue
+    const kind = event.kind === 'edit' ? 'tool' : event.kind
+    if (kind === 'thinking' && !event.text.trim()) continue
+    if (
+      (kind === 'user' || kind === 'assistant') &&
+      !event.text.trim() &&
+      !event.files?.length &&
+      !event.images?.length
+    )
+      continue
+
+    if (kind === 'notice' || kind === 'user') {
+      turns.push({ start: index, kind, blocks: [{ start: index, kind, events: [event] }] })
+      reply = undefined
+      continue
+    }
+    if (!reply) {
+      reply = { start: index, kind: 'assistant', blocks: [{ start: index, kind, events: [event] }] }
+      turns.push(reply)
+      continue
+    }
+    const tail = reply.blocks.at(-1)
+    if (kind === 'tool' && tail?.kind === 'tool') tail.events.push(event)
+    else reply.blocks.push({ start: index, kind, events: [event] })
+  }
+  return turns
+}
+
+function sameEvent(first: AgentThreadEvent, second?: AgentThreadEvent) {
+  return (
+    first.kind === second?.kind &&
+    first.text === second.text &&
+    first.toolName === second.toolName &&
+    first.toolDescription === second.toolDescription &&
+    sameAttachments(first, second)
+  )
+}
+
+function sameAttachments(first: AgentThreadEvent, second: AgentThreadEvent) {
+  return (
+    first.files?.length === second.files?.length &&
+    first.images?.length === second.images?.length &&
+    (first.files?.every(
+      (file, index) => file.path === second.files?.[index]?.path && file.line === second.files?.[index]?.line,
+    ) ??
+      true) &&
+    (first.images?.every(
+      (image, index) =>
+        image.name === second.images?.[index]?.name && image.dataUrl === second.images?.[index]?.dataUrl,
+    ) ??
+      true)
+  )
+}
+
+function syncChildren(parent: HTMLElement, oldNodes: readonly HTMLElement[], nodes: readonly HTMLElement[]) {
+  if (oldNodes.length === nodes.length && oldNodes.every((element, index) => element === nodes[index])) return
+  const retained = new Set(nodes)
+  const start = oldNodes[0]?.previousSibling
+  const end = oldNodes.at(-1)?.nextSibling ?? null
+  for (const element of oldNodes) if (!retained.has(element)) element.remove()
+  let cursor = start ? start.nextSibling : oldNodes.length ? parent.firstChild : end
+  for (const element of nodes) {
+    if (element === cursor) cursor = cursor.nextSibling
+    else parent.insertBefore(element, cursor)
+  }
+}
+
+function renderBlock(
+  block: Block,
+  onOpenFile: ConversationOptions['onOpenFile'],
+  previous?: RenderedBlock,
+): RenderedBlock {
+  const [first] = block.events
+  if (block.kind === previous?.kind) {
+    if (
+      block.events.length === previous.events.length &&
+      block.events.every((event, index) => event === previous.events[index])
+    )
+      return previous
+    if (previous.updateText && first.text.trim() && sameAttachments(first, previous.events[0])) {
+      previous.updateText(first.text)
+      return { ...previous, ...block }
+    }
+  }
+
+  if (block.kind === 'thinking') {
+    const { details, updateText } = thinkingDisclosure(first.text)
+    return { ...block, nodes: [details], updateText }
+  }
+  if (block.kind === 'tool') {
+    const updateTools = previous?.updateTools ?? createToolGroup(onOpenFile)
+    return { ...block, nodes: [updateTools(block.events)], updateTools }
+  }
+  const nodes: HTMLElement[] = []
+  let updateText: RenderedBlock['updateText']
+  if (first.text.trim()) {
+    if (block.kind === 'user') {
+      const prompt = node('div', 'agent-thread-prompt', first.text)
+      nodes.push(prompt)
+    } else {
+      const markdown = assistantMarkdown(first.text)
+      nodes.push(markdown)
+      updateText = text => renderAssistantMarkdown(markdown, text)
+    }
+  }
+  if (first.images?.length) nodes.push(imageAttachments(first.images))
+  if (first.files?.length) nodes.push(fileReferences(first.files, onOpenFile))
+  return { ...block, nodes, updateText }
+}
+
+export function showAgentThreadConversationState(
+  host: HTMLElement,
+  provider: AgentProvider,
+  error?: string,
+  onRetry?: () => void,
+) {
+  const loading = error === undefined
   host.classList.add('agent-thread-conversation')
   host.dataset.provider = provider
   host.setAttribute('role', 'region')
   host.setAttribute('aria-label', 'Conversation')
-  host.setAttribute('aria-busy', String(Boolean(loading)))
+  host.setAttribute('aria-busy', String(loading))
   host.tabIndex = 0
-  const list = !loading && error === undefined ? renderTurns(events, options) : undefined
-  const transcript = list?.childElementCount ? list : undefined
-  if (transcript) {
-    host.replaceChildren(transcript)
+  const state = node('div', 'agent-thread-conversation-state')
+  state.setAttribute('role', 'status')
+  if (loading) {
+    state.append(node('p', '', 'Loading conversation…'))
   } else {
-    const state = node('div', 'agent-thread-conversation-state')
-    state.setAttribute('role', 'status')
-    if (loading) {
-      state.append(node('p', '', 'Loading conversation…'))
-    } else if (error !== undefined) {
-      state.append(node('strong', '', error))
-      if (onRetry) state.append(button('agent-thread-conversation-retry', 'Try again', onRetry))
-    } else {
-      state.append(node('strong', '', 'No messages yet'), node('p', '', 'This session has no saved conversation.'))
-    }
-    host.replaceChildren(state)
+    state.append(node('strong', '', error))
+    if (onRetry) state.append(button('agent-thread-conversation-retry', 'Try again', onRetry))
   }
-  host.scrollTop = 0
-  return transcript
+  host.replaceChildren(state)
+}
+
+export function createAgentThreadTranscript(
+  host: HTMLElement,
+  { provider, providerMark, onOpenFile }: ConversationOptions,
+) {
+  const list = node('div', 'agent-thread-turns')
+  const empty = node('div', 'agent-thread-conversation-state')
+  empty.setAttribute('role', 'status')
+  empty.append(node('strong', '', 'No messages yet'), node('p', '', 'This session has no saved conversation.'))
+  const toolOnly = node(
+    'p',
+    'agent-thread-conversation-notice',
+    'This session saved tool activity without chat messages.',
+  )
+  const events: AgentThreadEvent[] = []
+  const turns: RenderedTurn[] = []
+
+  function renderTurn(current: Turn, previous: RenderedTurn | undefined): RenderedTurn {
+    if (current.kind === 'notice') {
+      const text = current.blocks[0].events[0].text
+      const element = previous?.element ?? node('p', 'agent-thread-conversation-notice')
+      if (element.textContent !== text) element.textContent = text
+      return { ...current, element, body: element, blocks: [] }
+    }
+    const rendered =
+      previous ??
+      (() => {
+        const { article, body } = turn(
+          current.kind,
+          current.kind === 'user' ? 'You' : agentProviderNames[provider],
+          providerMark,
+        )
+        return { ...current, element: article, body, blocks: [] }
+      })()
+    const byStart = new Map(rendered.blocks.map(block => [block.start, block]))
+    const blocks = current.blocks.map(block => renderBlock(block, onOpenFile, byStart.get(block.start)))
+    syncChildren(
+      rendered.body,
+      rendered.blocks.flatMap(block => block.nodes),
+      blocks.flatMap(block => block.nodes),
+    )
+    return { ...current, element: rendered.element, body: rendered.body, blocks }
+  }
+
+  return {
+    get eventCount() {
+      return events.length
+    },
+    update(from: number, patch: readonly AgentThreadEvent[]) {
+      const focused = document.activeElement
+      for (const [index, next] of patch.entries()) {
+        const offset = from + index
+        if (!sameEvent(next, events[offset])) events[offset] = next
+      }
+      events.length = from + patch.length
+      // The last preexisting turn can acquire more text or tools at the patch boundary.
+      const boundary = Math.max(
+        0,
+        turns.findLastIndex(item => item.start < from),
+      )
+      const previous = turns.slice(boundary)
+      const byStart = new Map(previous.map(item => [item.start, item]))
+      const next = groupTurns(events, Math.min(from, previous[0]?.start ?? 0)).map(item => {
+        const old = byStart.get(item.start)
+        return renderTurn(item, item.kind === old?.kind ? old : undefined)
+      })
+      syncChildren(
+        list,
+        previous.map(item => item.element),
+        next.map(item => item.element),
+      )
+      turns.length = boundary
+      for (const item of next) turns.push(item)
+      if (
+        !events.some(
+          event =>
+            ['user', 'assistant', 'thinking'].includes(event.kind) && (event.text.trim() || event.images?.length),
+        ) &&
+        events.some(event => event.kind === 'tool' || event.kind === 'edit')
+      ) {
+        if (toolOnly.parentElement !== list) list.prepend(toolOnly)
+      } else {
+        toolOnly.remove()
+      }
+      host.setAttribute('aria-busy', 'false')
+      const content = turns.length ? list : empty
+      if (host.firstElementChild !== content) host.replaceChildren(content)
+      if (
+        focused instanceof HTMLElement &&
+        focused.isConnected &&
+        host.contains(focused) &&
+        document.activeElement !== focused
+      )
+        focused.focus({ preventScroll: true })
+      return content === list ? list : undefined
+    },
+  }
 }

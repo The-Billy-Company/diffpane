@@ -1,18 +1,22 @@
 import { constants } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
 import path from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type {
   AgentFileView,
   AgentProvider,
+  AgentThread,
   AgentThreadEvent,
   AgentThreadList,
+  AgentThreadUpdate,
 } from '../../../../shared/agent-threads.ts'
 import { Repository } from '../../../workspace/repository/repository.mjs'
 import { antigravitySource } from './antigravity.ts'
 import { claudeSource } from './claude.ts'
 import { codexSource } from './codex.ts'
 import { cursorSource } from './cursor.ts'
-import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
+import { trackTranscriptFile } from './source.ts'
+import type { AgentThreadReader, AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sources: [AgentProvider, AgentThreadSource][] = [
   ['claude', claudeSource],
@@ -39,12 +43,20 @@ async function projectDirectory(cwd: string): Promise<string> {
 
 interface Selection {
   id: string
+  threadId: string
+  record: AgentThreadRecord
+  source: AgentThreadSource
+  reader: AgentThreadReader
+  metadata?: AgentThread
+  reading: boolean
+  events: AgentThreadEvent[]
   files: Set<string>
 }
 
 export class AgentThreads {
   readonly #sources: [AgentProvider, AgentThreadSource][]
   #threads = new Map<string, [AgentThreadRecord, AgentThreadSource]>()
+  #listedThreads = new Map<string, AgentThread>()
   #projects = new Map<string, { expiresAt: number; root: Promise<string> }>()
   #summaries = new Map<string, { locator: string; updatedAt: number; activity?: string }>()
   #listing?: Promise<AgentThreadList>
@@ -109,6 +121,7 @@ export class AgentThreads {
       if (!discovered.has(id) && unavailable.includes(entry[0].provider)) discovered.set(id, entry)
     }
     this.#threads = discovered
+    this.#listedThreads = new Map(threads.map(thread => [thread.id, thread]))
     for (const id of this.#summaries.keys()) {
       if (!discovered.has(id)) this.#summaries.delete(id)
     }
@@ -139,42 +152,111 @@ export class AgentThreads {
   }
 
   async read(id: string, selectionId: string): Promise<AgentThreadEvent[]> {
-    const selected = this.#threads.get(id)
+    const current = this.#selection
+    const previous = current?.id === selectionId && current.threadId === id ? current : undefined
+    const selected = this.#threads.get(id) ?? (previous && ([previous.record, previous.source] as const))
     if (!selected) throw new Error('This agent thread is unavailable. Refresh the thread list and try again.')
-    const [thread, source] = selected
-    const selection = { id: selectionId, files: new Set<string>() }
-    this.#selection = selection
-    const reader = source.open(thread)
-    let events: AgentThreadEvent[]
-    try {
-      events = await reader.read()
-    } finally {
-      reader.close?.()
+    const [record, source] = selected
+    const selection: Selection = {
+      id: selectionId,
+      threadId: id,
+      record,
+      source,
+      reader: trackTranscriptFile(record.locator, source.open(record)),
+      reading: true,
+      events: previous?.events ?? [],
+      files: previous?.files ?? new Set(),
     }
-    if (this.#selection !== selection) return []
+    this.clear()
+    this.#selection = selection
+    try {
+      selection.events = (await this.#readEvents(selection, false)) ?? []
+      return selection.events
+    } finally {
+      this.#finishRead(selection)
+    }
+  }
 
+  async update(id: string, selectionId: string): Promise<AgentThreadUpdate> {
+    const selection = this.#selection
+    if (selection?.id !== selectionId || selection.threadId !== id || selection.reading) return {}
+
+    const selected = this.#threads.get(id)
+    let reuseReader = true
+    if (selected) {
+      const [record, source] = selected
+      if (record.locator !== selection.record.locator || record.cwd !== selection.record.cwd) {
+        const replacement = trackTranscriptFile(record.locator, source.open(record))
+        selection.reader.close?.()
+        selection.reader = replacement
+        selection.record = record
+        selection.source = source
+        reuseReader = false
+      }
+    }
+    selection.reading = true
+    try {
+      const events = await this.#readEvents(selection, reuseReader)
+      if (this.#selection !== selection) return {}
+      const result: AgentThreadUpdate = {}
+      if (events) {
+        const previous = selection.events
+        let from = 0
+        while (from < previous.length && from < events.length && isDeepStrictEqual(previous[from], events[from])) {
+          from++
+        }
+        if (from < previous.length || from < events.length) result.change = { from, events: events.slice(from) }
+        selection.events = events
+      }
+      const thread = this.#listedThreads.get(id)
+      if (thread && !isDeepStrictEqual(selection.metadata, thread)) {
+        result.thread = thread
+        selection.metadata = thread
+      }
+      return result
+    } finally {
+      this.#finishRead(selection)
+    }
+  }
+
+  async #readEvents(selection: Selection, incremental: boolean): Promise<AgentThreadEvent[] | undefined> {
+    const { record, reader } = selection
+    const events = incremental && reader.readUpdate ? await reader.readUpdate() : await reader.read()
+    if (this.#selection !== selection || !events) return undefined
+
+    const files = new Set<string>()
+    const normalized: AgentThreadEvent[] = []
     for (const event of events) {
-      event.text = event.text.slice(0, 48 * 1024)
-      event.files = event.files?.slice(0, 100).flatMap(file => {
+      const eventFiles = event.files?.slice(0, 100).flatMap(file => {
         if (
           !file.path ||
           file.path.includes('\0') ||
           file.path.length > 4096 ||
-          (!path.isAbsolute(file.path) && !thread.cwd)
+          (!path.isAbsolute(file.path) && !record.cwd)
         )
           return []
-        const absolute = path.resolve(thread.cwd, file.path)
-        if (!selection.files.has(absolute) && selection.files.size >= MAX_LINKS) return []
-        selection.files.add(absolute)
+        const absolute = path.resolve(record.cwd, file.path)
+        if (!files.has(absolute) && files.size >= MAX_LINKS) return []
+        files.add(absolute)
         const line = file.line !== undefined && Number.isSafeInteger(file.line) && file.line > 0 ? file.line : undefined
         return [{ path: absolute, line }]
       })
+      normalized.push({ ...event, text: event.text.slice(0, 48 * 1024), files: eventFiles })
     }
-    return events
+    selection.files = files
+    return normalized
+  }
+
+  #finishRead(selection: Selection) {
+    selection.reading = false
+    if (this.#selection !== selection) selection.reader.close?.()
   }
 
   clear(selectionId?: string) {
-    if (selectionId === undefined || this.#selection?.id === selectionId) this.#selection = undefined
+    const selection = this.#selection
+    if (!selection || (selectionId !== undefined && selection.id !== selectionId)) return
+    this.#selection = undefined
+    if (!selection.reading) selection.reader.close?.()
   }
 
   async file(

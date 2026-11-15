@@ -22,6 +22,7 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
   const writer = new DatabaseSync(locator)
   const reader = cursorSource.open({ id, cwd, locator, provider: 'cursor', title: 'Proof', updatedAt: 0 })
   t.onTestFinished(async () => {
+    reader.close?.()
     writer.close()
     await rm(cwd, { recursive: true, force: true })
   })
@@ -57,6 +58,7 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
     JSON.stringify([{ ...firstEdit, grouping: { ...firstEdit.grouping, toolFormerStatus: 'loading' } }]),
   )
   await expect(reader.read()).resolves.toEqual([firstPrompt])
+  await expect(reader.readUpdate?.()).resolves.toBeUndefined()
 
   put.run(
     `bubbleId:${id}:${thought.bubbleId}`,
@@ -70,11 +72,20 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
   const thinking = { kind: 'thinking', text: 'I’ll update both files.' }
   const firstResult = edit('first.txt', first)
   const secondResult = edit('second.txt', second)
-  await expect(reader.read()).resolves.toEqual([firstPrompt, thinking, firstResult])
+  await expect(reader.readUpdate?.()).resolves.toEqual([firstPrompt, thinking, firstResult])
+  await expect(reader.readUpdate?.()).resolves.toBeUndefined()
+
+  // A streaming bubble can grow without changing any conversation headers.
+  const revisedThinking = { kind: 'thinking', text: 'I’ll update both files. The first edit is ready.' }
+  writer.exec('BEGIN')
+  put.run(`bubbleId:${id}:${thought.bubbleId}`, JSON.stringify({ thinking: { text: revisedThinking.text } }))
+  await expect(reader.readUpdate?.()).resolves.toBeUndefined()
+  writer.exec('COMMIT')
+  await expect(reader.readUpdate?.()).resolves.toEqual([firstPrompt, revisedThinking, firstResult])
 
   put.run(`bubbleId:${id}:edit-2`, JSON.stringify(completed))
   put.run(lastChunk, JSON.stringify([firstEdit, secondEdit]))
-  await expect(reader.read()).resolves.toEqual([firstPrompt, thinking, firstResult, secondResult])
+  await expect(reader.readUpdate?.()).resolves.toEqual([firstPrompt, revisedThinking, firstResult, secondResult])
 
   const final = { bubbleId: 'reply', type: 2, grouping: { turnDurationMs: 30_000 } }
   const shell = { bubbleId: 'run-shell', type: 2, grouping: { toolCallCase: 'shellToolCall' } }
@@ -96,7 +107,7 @@ test('reads all Cursor conversation chunks and unwraps user prompts before trans
   put.run(lastChunk, JSON.stringify([firstEdit, secondEdit, shell, final]))
   await expect(reader.read()).resolves.toEqual([
     firstPrompt,
-    thinking,
+    revisedThinking,
     firstResult,
     secondResult,
     { kind: 'tool', text: 'cat first.txt', toolName: 'Shell', toolDescription: 'Verify the result' },

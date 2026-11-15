@@ -1,10 +1,10 @@
 import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import { agentProviderNames } from '../../../shared/agent-threads.ts'
-import type { AgentProvider, AgentThread, AgentThreadFile } from '../../../shared/agent-threads.ts'
+import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { drawThreadTrail } from '../art/assistant.ts'
-import { renderAgentThreadConversation } from './agent-thread-conversation.ts'
+import { createAgentThreadTranscript, showAgentThreadConversationState } from './agent-thread-conversation.ts'
 import { createAgentThreadMinimap } from './agent-thread-minimap.ts'
 import antigravityLogo from './provider-logos/antigravity.png'
 import claudeCodeLogo from './provider-logos/claude-code.png'
@@ -39,6 +39,8 @@ const providers = ['codex', 'claude', 'antigravity', 'cursor'] satisfies AgentPr
 const stateLabels = { running: 'Running', idle: 'Idle', recent: 'Recent', unknown: 'Unknown', stale: 'Stale' }
 const NO_PROJECT = 'unassigned'
 const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const RUNNING_THREAD_INTERVAL_MS = 350
+const IDLE_THREAD_INTERVAL_MS = 1_200
 
 type ThreadState = keyof typeof stateLabels
 
@@ -249,6 +251,11 @@ export function createAgentThreadPanel(
   let previousListTop = 0
   let selected: AgentThread | undefined
   let selection = ''
+  let threadTimer: number | undefined
+  let transcript: ReturnType<typeof createAgentThreadTranscript> | undefined
+  let transcriptElement: HTMLElement | undefined
+  let needsSnapshot = true
+  let following = false
   let fileButton: HTMLButtonElement | undefined
   let fileRequest = 0
 
@@ -264,7 +271,7 @@ export function createAgentThreadPanel(
     const label = selected ? 'Refresh conversation' : 'Refresh threads'
     refresh.setAttribute('aria-label', label)
     refresh.title = label
-    refresh.disabled = selected ? reading : listing
+    refresh.disabled = selected ? reading && !transcript : listing
   }
 
   function setProjectsOpen(open: boolean) {
@@ -437,9 +444,13 @@ export function createAgentThreadPanel(
     const previous = selection
     selection = ''
     reading = false
+    window.clearTimeout(threadTimer)
+    needsSnapshot = true
+    following = false
+    transcript = undefined
+    setTranscriptElement()
     fileRequest++
     if (previous) void api.clear(previous).catch((error: unknown) => reportError(error, { silent: true }))
-    minimap.setTranscript()
     preview.hidden = true
     previewContents.textContent = ''
     fileButton = undefined
@@ -480,72 +491,130 @@ export function createAgentThreadPanel(
     }
   }
 
-  function updateLatestButton() {
-    latest.hidden = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 72
+  function isAtLatest() {
+    return conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 72
   }
 
-  async function readThread(thread: AgentThread, preserveScroll = false) {
-    const previousTop = conversation.scrollTop
-    const atEnd = conversation.scrollHeight - previousTop - conversation.clientHeight < 72
-    clearSelection()
-    const current = crypto.randomUUID()
-    selection = current
-    reading = true
-    updateTopbar()
-    renderAgentThreadConversation(conversation, { provider: thread.provider, loading: true })
-    updateLatestButton()
-    try {
-      const events = await api.read(thread.id, current)
-      if (selection !== current) return
-      const transcript = renderAgentThreadConversation(conversation, {
-        provider: thread.provider,
-        providerMark: providerMark(thread.provider),
-        events,
-        onOpenFile: (file, button) => void readFile(file, button),
-      })
-      conversation.scrollTop = preserveScroll ? (atEnd ? conversation.scrollHeight : previousTop) : 0
-      minimap.setTranscript(transcript)
-    } catch (error) {
-      if (selection !== current) return
-      reportError(error, { silent: true })
-      renderAgentThreadConversation(conversation, {
-        provider: thread.provider,
-        error: 'Couldn’t read this conversation.',
-        onRetry: requestRefresh,
-      })
-    } finally {
-      if (selection === current) {
-        reading = false
-        updateTopbar()
-        updateLatestButton()
-      }
-    }
+  function syncConversationScroll() {
+    following = isAtLatest()
+    latest.hidden = following
   }
 
-  function requestRefresh() {
-    const operation = selected ? readThread(selected, true) : refreshList()
-    void operation.catch((error: unknown) => reportError(error))
+  function setTranscriptElement(next?: HTMLElement) {
+    minimap.setTranscript(next)
+    if (transcriptElement === next) return
+    if (transcriptElement) transcriptSize.unobserve(transcriptElement)
+    transcriptElement = next
+    if (next) transcriptSize.observe(next)
   }
 
-  function openThread(thread: AgentThread) {
-    previousListTop = list.scrollTop
+  function applyTranscript(from: number, events: readonly AgentThreadEvent[], thread: AgentThread) {
+    const follow = transcript ? isAtLatest() : thread.status === 'running'
+    transcript ??= createAgentThreadTranscript(conversation, {
+      provider: thread.provider,
+      providerMark: providerMark(thread.provider),
+      onOpenFile: (file, button) => void readFile(file, button),
+    })
+    setTranscriptElement(transcript.update(from, events))
+    if (follow) conversation.scrollTop = conversation.scrollHeight
+    syncConversationScroll()
+  }
+
+  function updateSelectedThread(thread: AgentThread) {
     selected = thread
-    browser.hidden = true
-    detail.hidden = false
-    detail.dataset.provider = thread.provider
+    threads.set(thread.id, thread)
     detailTitle.textContent = thread.title
-    detailProvider.replaceChildren(
-      providerMark(thread.provider),
-      document.createTextNode(agentProviderNames[thread.provider]),
-    )
     detailProject.textContent = projectName(projectOf(thread))
     detailProject.hidden = projectOf(thread) === NO_PROJECT
     detailCwd.textContent = thread.cwd
     detailCwd.title = thread.cwd
     detailCwd.hidden = !thread.cwd
     renderState(detailState, stateOf(thread))
-    renderTime(detailTime, thread.updatedAt, lastChecked, true)
-    void readThread(thread).catch((error: unknown) => reportError(error))
+    renderTime(detailTime, thread.updatedAt, Date.now(), true)
+  }
+
+  function canUpdateConversation() {
+    return Boolean(selected) && !disposed && !host.hidden && !document.hidden
+  }
+
+  async function readThread() {
+    const thread = selected
+    if (!thread || reading) return
+    window.clearTimeout(threadTimer)
+    const current = selection
+    reading = true
+    const initial = !transcript
+    if (initial) updateTopbar()
+    let retryDelay: number | undefined
+    try {
+      if (needsSnapshot) {
+        const events = await api.read(thread.id, current)
+        if (selection !== current) return
+        applyTranscript(0, events, thread)
+        needsSnapshot = false
+      } else {
+        const { change, thread: updated } = await api.update(thread.id, current)
+        if (selection !== current) return
+        if (updated?.id === thread.id) updateSelectedThread(updated)
+        if (change) {
+          if (!transcript || change.from > transcript.eventCount) {
+            needsSnapshot = true
+          } else {
+            applyTranscript(change.from, change.events, selected ?? thread)
+          }
+        }
+      }
+    } catch (error) {
+      if (selection !== current) return
+      const loading = conversation.getAttribute('aria-busy') === 'true'
+      if (!needsSnapshot || loading) reportError(error, { silent: true })
+      needsSnapshot = true
+      retryDelay = IDLE_THREAD_INTERVAL_MS
+      if (!transcript && loading) {
+        showAgentThreadConversationState(
+          conversation,
+          thread.provider,
+          'Couldn’t read this conversation.',
+          requestRefresh,
+        )
+      }
+    } finally {
+      if (selection === current) {
+        reading = false
+        if (initial) updateTopbar()
+        if (canUpdateConversation()) {
+          const interval = selected?.status === 'running' ? RUNNING_THREAD_INTERVAL_MS : IDLE_THREAD_INTERVAL_MS
+          threadTimer = window.setTimeout(updateConversationVisibility, retryDelay ?? (needsSnapshot ? 0 : interval))
+        }
+      }
+    }
+  }
+
+  function updateConversationVisibility() {
+    window.clearTimeout(threadTimer)
+    if (canUpdateConversation()) requestRefresh()
+  }
+
+  function requestRefresh() {
+    const operation = selected ? readThread() : refreshList()
+    void operation.catch((error: unknown) => reportError(error))
+  }
+
+  function openThread(thread: AgentThread) {
+    previousListTop = list.scrollTop
+    clearSelection()
+    selection = crypto.randomUUID()
+    browser.hidden = true
+    detail.hidden = false
+    detail.dataset.provider = thread.provider
+    detailProvider.replaceChildren(
+      providerMark(thread.provider),
+      document.createTextNode(agentProviderNames[thread.provider]),
+    )
+    updateSelectedThread(thread)
+    showAgentThreadConversationState(conversation, thread.provider)
+    latest.hidden = true
+    requestRefresh()
     detailTitle.focus({ preventScroll: true })
   }
 
@@ -557,6 +626,7 @@ export function createAgentThreadPanel(
     conversation.replaceChildren()
     detail.hidden = true
     browser.hidden = false
+    renderRoster()
     list.scrollTop = previousListTop
     updateTopbar()
     ;(rowButtons.get(id) ?? roster).focus({ preventScroll: true })
@@ -626,7 +696,10 @@ export function createAgentThreadPanel(
     if (projectsOpen) projectNav.querySelector<HTMLElement>('[aria-current="true"]')?.focus({ preventScroll: true })
   })
   back.addEventListener('click', backToThreads)
-  refresh.addEventListener('click', requestRefresh)
+  refresh.addEventListener('click', () => {
+    if (selected) needsSnapshot = true
+    requestRefresh()
+  })
   query.addEventListener('input', applyFilters)
   allAgents.addEventListener('click', () => {
     providerFilter = undefined
@@ -657,13 +730,18 @@ export function createAgentThreadPanel(
     else if (selected) backToThreads()
     else close()
   })
-  conversation.addEventListener('scroll', updateLatestButton, { passive: true })
-  conversation.addEventListener('toggle', () => requestAnimationFrame(updateLatestButton), { capture: true })
+  conversation.addEventListener('scroll', syncConversationScroll, { passive: true })
+  conversation.addEventListener('toggle', () => requestAnimationFrame(syncConversationScroll), { capture: true })
   latest.addEventListener('click', () => {
     conversation.scrollTop = conversation.scrollHeight
+    syncConversationScroll()
     conversation.focus({ preventScroll: true })
   })
-  const transcriptSize = new ResizeObserver(updateLatestButton)
+  const transcriptSize = new ResizeObserver(() => {
+    if (!transcriptElement || !canUpdateConversation()) return
+    if (following) conversation.scrollTop = conversation.scrollHeight
+    syncConversationScroll()
+  })
   transcriptSize.observe(conversation)
 
   function closePreview() {
@@ -677,6 +755,7 @@ export function createAgentThreadPanel(
   requireElement(preview, '[data-close-preview]', HTMLButtonElement).addEventListener('click', closePreview)
 
   setProjectsOpen(true)
+  document.addEventListener('visibilitychange', updateConversationVisibility)
 
   return {
     open() {
@@ -692,6 +771,7 @@ export function createAgentThreadPanel(
     dispose() {
       close()
       disposed = true
+      document.removeEventListener('visibilitychange', updateConversationVisibility)
       transcriptSize.disconnect()
       minimap.dispose()
     },

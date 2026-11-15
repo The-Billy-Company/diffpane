@@ -61,6 +61,10 @@ export function createAgentThreadMinimap(conversation: HTMLElement) {
   return {
     element,
     setTranscript(next?: HTMLElement) {
+      if (transcript === next) {
+        if (next) scheduleDraw()
+        return
+      }
       if (transcript) size.unobserve(transcript)
       transcript = next
       if (transcript) {

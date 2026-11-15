@@ -42,7 +42,7 @@ async function eventually(condition: () => unknown, message: string): Promise<vo
   }
 }
 
-export async function run(longCommand: string) {
+export async function run(longCommand: string, transcriptRoute: string) {
   const app = requireElement(document, '#app', HTMLDivElement)
   const workspace = document.createElement('section')
   const host = document.createElement('main')
@@ -73,19 +73,54 @@ export async function run(longCommand: string) {
   ]
   const bridge = window.diffpane?.agentThreads
   assert(bridge, 'The Agent Threads preload bridge did not load.')
+  async function publish(stage: 'append' | 'grow' | 'reply' | 'late') {
+    const response = await window.fetch(`${transcriptRoute}/${stage}`, { method: 'POST' })
+    assert(response.ok, `The fixture failed to publish the ${stage} update.`)
+  }
+
   let lists = 0
   let reads = 0
+  let readInFlight = false
+  let selectionId = ''
+  let updates = 0
+  let updateInFlight = false
+  let lateUpdateReceived = false
+  const lateUpdate = Promise.withResolvers<void>()
   const api: DiffpaneApi['agentThreads'] = {
     list: async () => {
       lists++
       return { threads: threads.map(thread => ({ ...thread })), unavailable: [] }
     },
-    read: (id, selection) => {
+    read: async (id, selection) => {
       assert(id === 'codex:1', 'The selected thread ID was sent to the source.')
+      assert(!selectionId || selection === selectionId, 'Refreshing the conversation changed its selection.')
+      assert(!readInFlight && !updateInFlight, 'The conversation requested a simultaneous snapshot.')
+      selectionId = selection
       reads++
-      return bridge.read(id, selection)
+      readInFlight = true
+      try {
+        return await bridge.read(id, selection)
+      } finally {
+        readInFlight = false
+      }
     },
-    clear: async () => {},
+    update: async (id, selection) => {
+      assert(id === 'codex:1' && selection === selectionId, 'The live update lost its thread or selection.')
+      assert(!readInFlight && !updateInFlight, 'The open conversation requested simultaneous updates.')
+      updates++
+      updateInFlight = true
+      try {
+        const update = await bridge.update(id, selection)
+        if (update.change?.events.some(event => event.text === 'This update arrived after leaving.')) {
+          lateUpdateReceived = true
+          await lateUpdate.promise
+        }
+        return update
+      } finally {
+        updateInFlight = false
+      }
+    },
+    clear: selection => bridge.clear(selection),
     file: async (_selection, path) => {
       assert(path === '/projects/juniper/fixtures/greeting.txt', 'The tool file reference sent the wrong path.')
       return { kind: 'preview', text: 'Hello from the parser fixture.', limited: false }
@@ -169,6 +204,7 @@ export async function run(longCommand: string) {
       !host.querySelector('.agent-thread-minimap')?.checkVisibility(),
       'The thread map appeared alongside a short conversation.',
     )
+    const firstPrompt = requireElement(host, '.agent-thread-prompt', HTMLElement)
 
     const tools = requireElement(host, '.agent-thread-tool-group', HTMLDetailsElement)
     const thinking = [...host.querySelectorAll<HTMLDetailsElement>('.agent-thread-thinking')]
@@ -254,17 +290,61 @@ export async function run(longCommand: string) {
       'Closing the preview did not restore focus to the tool file reference.',
     )
 
-    await delay(3_200)
-    assert(lists === 1 && reads === 1, 'Agent Threads polled for updates.')
+    await eventually(() => updates >= 1 && !updateInFlight, 'The open conversation did not check for live changes.')
     assert(
-      !host.textContent.includes('This arrived after the snapshot.'),
-      'The conversation changed without a refresh.',
+      lists === 1 && reads === 1 && firstPrompt.isConnected,
+      'Live checks should leave the roster and unchanged transcript in place.',
     )
-    button(host, 'Refresh conversation').click()
+
+    reference.click()
+    const preview = requireElement(host, '.agent-thread-preview pre', HTMLElement)
+    await eventually(() => document.activeElement === preview, 'The file preview did not regain focus.')
+    conversation.scrollTop = conversation.scrollHeight
+    const atEnd = () => Math.abs(conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop) <= 1
+    await publish('append')
     await eventually(
-      () => host.textContent.includes('This arrived after the snapshot.'),
-      'Manual refresh did not reload the conversation.',
+      () => conversation.textContent.includes('This arrived after the snapshot.'),
+      'Output written after opening the conversation did not arrive automatically.',
     )
+    await eventually(atEnd, 'The conversation did not follow new output from the end.')
+    assert(
+      firstPrompt.isConnected && firstThought.isConnected && firstThought.open && tools.isConnected && tools.open,
+      'The live update replaced earlier messages or closed their disclosures.',
+    )
+    assert(
+      document.activeElement === preview && preview.textContent === 'Hello from the parser fixture.',
+      'The live update interrupted the focused file preview.',
+    )
+    button(host, 'Close file preview').click()
+    assert(document.activeElement === reference, 'The preview lost its original link after a live update.')
+
+    const liveThought = [...conversation.querySelectorAll<HTMLDetailsElement>('.agent-thread-thinking')].at(-1)
+    assert(liveThought && liveThought !== nextThought, 'The live thinking block did not arrive.')
+    const liveSummary = requireElement(liveThought, 'summary', HTMLElement)
+    liveSummary.focus({ preventScroll: true })
+    liveSummary.click()
+    await eventually(() => liveThought.textContent.includes('Checking the final example.'), 'Thinking did not open.')
+    conversation.scrollTop = conversation.scrollHeight
+    await publish('grow')
+    await eventually(
+      () => liveThought.textContent.includes('The final check passed.'),
+      'A partial thinking block did not continue updating in place.',
+    )
+    assert(
+      liveThought.open && document.activeElement === liveSummary,
+      'The growing block lost its open state or focus.',
+    )
+    await eventually(atEnd, 'The conversation did not follow growth within the current block.')
+
+    conversation.scrollTop = 120
+    const readingTop = conversation.scrollTop
+    await publish('reply')
+    await eventually(() => conversation.textContent.includes('All examples pass.'), 'The live reply did not arrive.')
+    assert(Math.abs(conversation.scrollTop - readingTop) <= 1, 'New output jumped away from earlier messages.')
+    await eventually(() => !updateInFlight, 'The live update did not finish.')
+    button(host, 'Refresh conversation').click()
+    await eventually(() => reads === 2 && !readInFlight, 'Manual refresh did not reread the conversation.')
+    assert(firstPrompt.isConnected, 'Manual refresh replaced the existing conversation.')
 
     const screenshot = requireElement(host, 'img[alt="Parser screenshot.png"]', HTMLImageElement)
     await eventually(
@@ -312,11 +392,21 @@ export async function run(longCommand: string) {
       'Moving the thread map position did not seek to the end of the conversation.',
     )
 
+    await publish('late')
+    await eventually(() => lateUpdateReceived, 'The pending live update did not reach the renderer.')
+    const updatesBeforeLeaving = updates
     button(host, 'Back to threads').click()
+    lateUpdate.resolve()
+    await eventually(() => !updateInFlight, 'The pending live update did not settle after leaving.')
     assert(search.checkVisibility() && search.value === 'parser', 'Back did not restore the thread list and filters.')
     assert(
       !map.checkVisibility() && !host.querySelector('.agent-thread-minimap-marks [data-role]'),
       'Back did not hide and clear the thread map.',
+    )
+    await delay(1_150)
+    assert(
+      updates === updatesBeforeLeaving && !conversation.textContent.trim(),
+      'The conversation updated after returning to the thread list.',
     )
     const first = threads[0]
     assert(first, 'Missing fixture thread.')
@@ -346,6 +436,7 @@ export async function run(longCommand: string) {
     button(host, 'Back to workspace').click()
     assert(host.hidden && !workspace.hidden, 'Back did not restore the workspace.')
   } finally {
+    lateUpdate.resolve()
     panel.dispose()
   }
 }
