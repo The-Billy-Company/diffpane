@@ -397,14 +397,6 @@ summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
   color: var(--text);
 }
 
-.agent-thread-edit-toggle {
-  display: inline-flex;
-  align-items: center;
-  width: auto;
-  gap: 5px;
-  padding-inline: 5px;
-}
-
 .agent-thread-tool-row:not(:hover, :focus-within) > .agent-thread-tool-toggle[aria-expanded='false']::after {
   opacity: 0;
 }

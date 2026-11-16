@@ -301,7 +301,7 @@ export async function run(longCommand: string, transcriptRoute: string) {
         edits.previousElementSibling?.classList.contains('agent-thread-markdown'),
       'Edits across a steering message were not summarized together after the final reply.',
     )
-    const editToggle = button(edits, 'Diff for docs/parser.md')
+    const editToggle = button(edits, 'docs/parser.md')
     assert(editToggle.getAttribute('aria-expanded') === 'false', 'The per-file diff was initially open.')
     editToggle.focus({ preventScroll: true })
     editToggle.click()
@@ -319,7 +319,7 @@ export async function run(longCommand: string, transcriptRoute: string) {
     assert(document.activeElement === editToggle, 'Opening the diff moved focus away from its control.')
     editToggle.click()
     assert(editDiff.hidden, 'The expanded diff could not be closed.')
-    const deletedPath = button(edits, 'Diff for fixtures/legacy.txt')
+    const deletedPath = button(edits, 'fixtures/legacy.txt')
     deletedPath.click()
     assert(
       edits.querySelector('.agent-thread-edit-diff:not([hidden])')?.textContent.includes('-Old fixture'),
@@ -358,7 +358,7 @@ export async function run(longCommand: string, transcriptRoute: string) {
         entries[3]?.textContent.includes('−1'),
       'The expanded activity did not show each action in transcript order.',
     )
-    const timelinePath = button(tools, 'Diff for parser.md')
+    const timelinePath = button(tools, 'parser.md')
     assert(timelinePath.getAttribute('aria-expanded') === 'false', 'The timeline diff was initially open.')
     timelinePath.click()
     const timelineDiff = requireElement(tools, '.agent-thread-edit-diff', HTMLElement)
@@ -564,7 +564,7 @@ export async function run(longCommand: string, transcriptRoute: string) {
       () => childTools.querySelector('.agent-thread-edit-path'),
       'The delegate’s native file change was missing.',
     )
-    button(childTools, 'Diff for delegate-edit.txt').click()
+    button(childTools, 'delegate-edit.txt').click()
     assert(
       childTools.querySelector('.agent-thread-edit-diff')?.textContent.includes('+Delegate edit contents.'),
       'The delegate’s edit did not open its diff.',

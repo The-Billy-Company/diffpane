@@ -456,7 +456,7 @@ function editDiff(path: string, changes: readonly AgentThreadChange[]) {
 function expandedEditPaths(element?: HTMLElement) {
   return new Set(
     Array.from(
-      element?.querySelectorAll<HTMLButtonElement>('.agent-thread-edit-toggle[aria-expanded="true"]') ?? [],
+      element?.querySelectorAll<HTMLButtonElement>('.agent-thread-edit-path[aria-expanded="true"]') ?? [],
       trigger => trigger.title,
     ),
   )
@@ -483,10 +483,14 @@ function editFileRow(
   element.append(row)
   if (inTimeline) row.append(toolIcon('edit'), node('span', 'agent-thread-tool-name', editLabels[operation]))
 
-  const file =
-    onOpenFile && operation !== 'delete'
-      ? button('agent-thread-edit-path', name, trigger => onOpenFile({ path, line: last?.line }, trigger))
-      : node('span', 'agent-thread-edit-path', name)
+  let file: HTMLElement
+  if (changes.some(change => change.diff)) {
+    file = inlineDisclosure(element, 'agent-thread-edit-path', name, () => editDiff(label, changes), open.has(title))
+  } else if (onOpenFile && operation !== 'delete') {
+    file = button('agent-thread-edit-path', name, trigger => onOpenFile({ path, line: last?.line }, trigger))
+  } else {
+    file = node('span', 'agent-thread-edit-path', name)
+  }
   file.title = title
   row.append(file)
 
@@ -494,18 +498,6 @@ function editFileRow(
   if (!inTimeline && (operation !== 'update' || !stats))
     row.append(node('span', 'agent-thread-edit-operation', editLabels[operation]))
   if (stats) row.append(stats)
-  if (changes.some(change => change.diff)) {
-    const toggle = inlineDisclosure(
-      element,
-      'agent-thread-tool-toggle agent-thread-edit-toggle',
-      'Diff',
-      () => editDiff(label, changes),
-      open.has(title),
-    )
-    toggle.setAttribute('aria-label', `Diff for ${label}`)
-    toggle.title = title
-    row.append(toggle)
-  }
   return element
 }
 
