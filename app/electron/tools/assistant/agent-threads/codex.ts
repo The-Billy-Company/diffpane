@@ -1,20 +1,21 @@
 import { execFile } from 'node:child_process'
-import { constants } from 'node:fs'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { createPatch, OMIT_HEADERS, parsePatch } from 'diff'
 import { isAgentThreadImageDataUrl } from '../../../../shared/agent-threads.ts'
-import type { AgentThreadEvent, AgentThreadFile, AgentThreadImage } from '../../../../shared/agent-threads.ts'
-import { mediaType } from '../../../../shared/documents/media-types.ts'
+import type { AgentThreadChange, AgentThreadEvent, AgentThreadImage } from '../../../../shared/agent-threads.ts'
+import { codexDelegation, codexSpawnMetadata } from './codex-delegation.ts'
 import { parseCodexPrompt } from './codex-prompt.ts'
-import { latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
-import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
+import { readJsonLines, recentJsonRecords, summarizeActivity, toolCall } from './source.ts'
+import type { AgentThreadProcess, AgentThreadRecord, AgentThreadSource } from './source.ts'
+import { localImageUrl, rasterImageType } from './thread-media.ts'
 
 const run = promisify(execFile)
 const recentLimit = 40
-const MAX_LOCAL_IMAGE_BYTES = 8 * 1024 * 1024
 // The selected transcript, including its encoded previews, is sent over Electron IPC in one response.
 const MAX_TRANSCRIPT_IMAGE_BYTES = 64 * 1024 * 1024
 const uuid = '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
@@ -49,10 +50,15 @@ function transcriptText(value: unknown): string {
     .join('\n')
 }
 
-function assistantMessage(content: unknown): AgentThreadEvent[] {
+function assistantMessage(content: unknown, images?: TranscriptImages, final = false): AgentThreadEvent[] {
   const text = transcriptText(content).trim()
   if (!text) return []
-  return [{ kind: 'assistant', text }]
+  const event: AgentThreadEvent = { kind: 'assistant', text }
+  if (images?.generated.length) {
+    images.replyAfterGeneration = event
+    if (final) finishGeneratedImages(images)
+  }
+  return [event]
 }
 
 interface ImageInput {
@@ -68,6 +74,8 @@ interface EmbeddedImages {
 
 interface TranscriptImages {
   pending?: EmbeddedImages
+  generated: AgentThreadImage[]
+  replyAfterGeneration?: AgentThreadEvent
   local: Map<AgentThreadImage, string>
   remaining: number
 }
@@ -145,23 +153,29 @@ function userMessage(
   return [{ kind: 'user', text, ...(files?.length ? { files } : {}), ...(images.length ? { images } : {}) }]
 }
 
-async function localImageUrl(filename: string, remaining: number): Promise<string | undefined> {
-  const type = mediaType(filename)
-  if (!type?.startsWith('image/') || type === 'image/svg+xml') return undefined
-  const prefix = `data:${type};base64,`
-  if (remaining <= prefix.length) return undefined
-  try {
-    await using file = await open(filename, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW)
-    const info = await file.stat()
-    const encodedSize = Math.ceil(info.size / 3) * 4 + prefix.length
-    if (!info.isFile() || !info.size || info.size > MAX_LOCAL_IMAGE_BYTES || encodedSize > remaining) return undefined
-    const buffer = Buffer.allocUnsafe(info.size)
-    const { bytesRead } = await file.read(buffer)
-    return bytesRead === info.size ? prefix + buffer.toString('base64') : undefined
-  } catch {
-    // Desktop screenshot paths may have expired since the prompt was recorded.
-    return undefined
+function rememberGeneratedImage(item: Record<string, unknown>, images: TranscriptImages) {
+  const filename = string(item.savedPath)
+  const image: AgentThreadImage = { name: 'Generated image' }
+  const result = item.result
+  const type = rasterImageType(filename) ?? 'image/png'
+  if (isAgentThreadImageDataUrl(result)) attachImageData(image, result, images)
+  else if (typeof result === 'string' && result.length < images.remaining && /^[a-z0-9+/]+={0,2}$/i.test(result)) {
+    attachImageData(image, `data:${type};base64,${result}`, images)
   }
+  if (!image.dataUrl && path.isAbsolute(filename)) images.local.set(image, filename)
+  images.generated.push(image)
+  images.replyAfterGeneration = undefined
+}
+
+function finishGeneratedImages(images?: TranscriptImages): AgentThreadEvent[] {
+  if (!images?.generated.length) return []
+  const attachments = images.generated
+  const reply = images.replyAfterGeneration
+  images.generated = []
+  images.replyAfterGeneration = undefined
+  if (!reply) return [{ kind: 'assistant', text: '', images: attachments }]
+  reply.images = attachments
+  return []
 }
 
 function reasoningSummary(item: Record<string, unknown>, seen: Set<string>): AgentThreadEvent[] {
@@ -183,23 +197,95 @@ function reasoningSummary(item: Record<string, unknown>, seen: Set<string>): Age
   return [{ kind: 'thinking', text }]
 }
 
-function fileChanges(changes: unknown, cwd: string): AgentThreadFile[] {
-  return Object.entries(object(changes) ?? {}).flatMap(([filename, value]) => {
-    if (!filename) return []
-    const change = object(value)
-    const destination = string(change?.move_path) || filename
-    const diff = string(change?.unified_diff)
-    const line = Number(/^@@ .*? \+(\d+)/m.exec(diff)?.[1])
-    return [{ path: path.resolve(cwd, destination), ...(line > 0 ? { line } : {}) }]
+function resolveRecordedPath(cwd: string, filename: string): string | undefined {
+  if (!filename || filename.includes('\0')) return undefined
+  try {
+    return filename.startsWith('file://') ? fileURLToPath(filename) : path.resolve(cwd, filename)
+  } catch {
+    return undefined
+  }
+}
+
+function patchDetails(diff: string): Pick<AgentThreadChange, 'line' | 'additions' | 'deletions'> {
+  const start = Number(/^@@ .*? \+(\d+)/m.exec(diff)?.[1])
+  const line = Number.isSafeInteger(start) && start > 0 ? { line: start } : {}
+  try {
+    let additions = 0
+    let deletions = 0
+    let hasHunks = false
+    for (const patch of parsePatch(diff)) {
+      for (const hunk of patch.hunks) {
+        hasHunks = true
+        for (const row of hunk.lines) {
+          if (row.startsWith('+')) additions++
+          else if (row.startsWith('-')) deletions++
+        }
+      }
+    }
+    if (hasHunks) return { ...line, additions, deletions }
+  } catch {
+    // Keep the recorded patch and location even when a saved patch is incomplete.
+  }
+  return line
+}
+
+function fileChanges(changes: unknown, cwd: string, summary: boolean): AgentThreadChange[] {
+  const entries = Array.isArray(changes)
+    ? changes.map(value => {
+        const change = object(value)
+        const kind = object(change?.kind)
+        return {
+          filename: string(change?.path),
+          type: kind?.type,
+          destination: kind?.move_path ?? kind?.movePath,
+          input: change?.diff,
+        }
+      })
+    : Object.entries(object(changes) ?? {}).map(([filename, value]) => {
+        const change = object(value)
+        return {
+          filename,
+          type: change?.type,
+          destination: change?.move_path,
+          input: change?.unified_diff ?? change?.content,
+        }
+      })
+  return entries.flatMap<AgentThreadChange>(({ filename, type, destination, input }) => {
+    const file = resolveRecordedPath(cwd, filename)
+    if (!file || (type !== 'update' && type !== 'add' && type !== 'delete')) return []
+    const destinationPath = resolveRecordedPath(cwd, string(destination))
+    const operation = destinationPath ? 'move' : type
+    const change: AgentThreadChange = { path: file, operation, ...(destinationPath ? { destinationPath } : {}) }
+    if (summary || typeof input !== 'string') return [change]
+    if (type === 'update') return [input ? { ...change, diff: input, ...patchDetails(input) } : change]
+    if (!input) return [{ ...change, additions: 0, deletions: 0 }]
+    const diff = createPatch(file, type === 'delete' ? input : '', type === 'add' ? input : '', undefined, undefined, {
+      headerOptions: OMIT_HEADERS,
+    })
+    return [{ ...change, diff, ...patchDetails(diff) }]
   })
 }
 
-function edit(changes: unknown, cwd: string): AgentThreadEvent[] {
-  const files = fileChanges(changes, cwd)
-  if (!files.length) return []
+function edit(record: Record<string, unknown>, cwd: string, summary: boolean): AgentThreadEvent[] {
+  if (record.success === false || record.status === 'failed' || record.status === 'declined') {
+    return [
+      toolCall('apply_patch', {
+        description: record.status === 'declined' ? 'Patch declined' : 'Patch failed',
+        text: summary ? '' : string(record.stderr) || string(record.stdout),
+      }),
+    ]
+  }
+  if (record.status && record.status !== 'completed') return []
+  const changes = fileChanges(record.changes, resolveRecordedPath(cwd, string(record.cwd)) ?? cwd, summary)
+  if (!changes.length) return []
+  const files = changes.map(({ path: filename, line, destinationPath }) => ({
+    path: destinationPath ?? filename,
+    ...(line ? { line } : {}),
+  }))
   const filename = files[0]?.path
   const description = files.length === 1 && filename ? `Edit ${path.basename(filename)}` : `Edit ${files.length} files`
-  return [toolCall('apply_patch', { kind: 'edit', description, files })]
+  const event = toolCall('apply_patch', { kind: 'edit', description, files })
+  return [summary ? event : { ...event, changes }]
 }
 
 function commandDescription(part: Record<string, unknown> | undefined): string {
@@ -220,9 +306,10 @@ function commandDescription(part: Record<string, unknown> | undefined): string {
 
 function commandEvent(item: Record<string, unknown>, cwd: string, summary = false): AgentThreadEvent[] {
   const parts = Array.isArray(item.parsed_cmd) ? item.parsed_cmd.map(object) : []
+  const commandCwd = resolveRecordedPath(cwd, string(item.cwd)) ?? cwd
   const files = parts.flatMap(part => {
-    const filename = string(part?.path)
-    return part?.type === 'read' && filename ? [{ path: path.resolve(string(item.cwd) || cwd, filename) }] : []
+    const filename = resolveRecordedPath(commandCwd, string(part?.path))
+    return part?.type === 'read' && filename ? [{ path: filename }] : []
   })
   const command = Array.isArray(item.command) ? item.command.map(string).join(' ') : string(item.command)
   const text = summary ? '' : command.replace(/^.*?\s-(?:lc|c)\s+(?=.)/, '').trim()
@@ -232,11 +319,9 @@ function commandEvent(item: Record<string, unknown>, cwd: string, summary = fals
 
 function parseItem(item: Record<string, unknown>, cwd: string, summary: boolean): AgentThreadEvent[] {
   switch (item.type) {
-    case 'AgentMessage':
-      return assistantMessage(item.content)
     case 'FileChange':
-      if (item.status === 'failed' || item.status === 'declined') return []
-      return edit(item.changes, cwd)
+    case 'fileChange':
+      return edit(item, cwd, summary)
     case 'CommandExecution':
       return commandEvent(item, cwd, summary)
     case 'McpToolCall': {
@@ -280,6 +365,10 @@ function parseRollout(
       if (item?.type === 'Reasoning' && seenReasoning) return reasoningSummary(item, seenReasoning)
       if (item?.type === 'UserMessage')
         return userMessage(item.content, images ? imageInputs(item.content) : [], string(payload.turn_id), images)
+      if (item?.type === 'AgentMessage') return assistantMessage(item.content, images, item.phase === 'final_answer')
+      if (images && item?.type === 'Extension' && item.kind === 'image_gen.generation' && item.status === 'completed') {
+        rememberGeneratedImage(item, images)
+      }
       return item ? parseItem(item, cwd, summary) : []
     }
     case 'item_started': {
@@ -290,22 +379,22 @@ function parseRollout(
     case 'user_message':
       return userMessage(payload.message, images ? legacyImageInputs(payload) : [], string(payload.turn_id), images)
     case 'agent_message':
-      return assistantMessage(payload.message)
+      return assistantMessage(payload.message, images, payload.phase === 'final_answer')
     case 'patch_apply_end':
-      return payload.success === true ? edit(payload.changes, cwd) : []
+      return typeof payload.success === 'boolean' ? edit(payload, cwd, summary) : []
     case 'exec_command_end':
       return commandEvent(payload, cwd, summary)
     case 'task_started':
     case 'turn_started':
       if (images) images.pending = undefined
-      return [{ kind: 'status', text: 'Turn started' }]
+      return [...finishGeneratedImages(images), { kind: 'status', text: 'Turn started' }]
     case 'task_complete':
     case 'turn_completed':
       if (images) images.pending = undefined
-      return [{ kind: 'status', text: 'Turn finished' }]
+      return [...finishGeneratedImages(images), { kind: 'status', text: 'Turn finished' }]
     case 'turn_aborted':
       if (images) images.pending = undefined
-      return [{ kind: 'status', text: 'Turn interrupted' }]
+      return [...finishGeneratedImages(images), { kind: 'status', text: 'Turn interrupted' }]
     case 'error': {
       const text = string(payload.message)
       return text ? [{ kind: 'status', text }] : []
@@ -328,34 +417,64 @@ async function databasePath(root: string, prefix: string): Promise<string | unde
 interface OpenThreads {
   ids: Set<string>
   rollouts: Set<string>
+  processes: Map<string, AgentThreadProcess[]>
 }
 
 async function openThreads(sessions: string, locks: string): Promise<OpenThreads> {
   const ids = new Set<string>()
   const rollouts = new Set<string>()
-  if (process.platform === 'win32') return { ids, rollouts }
+  const processes = new Map<string, AgentThreadProcess[]>()
+  if (process.platform === 'win32') return { ids, rollouts, processes }
+  const observedAt = Date.now()
   try {
     // Codex keeps a writer lock while a thread is loaded, including when waiting for its next prompt.
     const executable = process.platform === 'darwin' ? '/usr/sbin/lsof' : 'lsof'
-    const { stdout } = await run(executable, ['-n', '-P', '-a', '-c', 'codex', '-u', userInfo().username, '-Fn'], {
+    const { stdout } = await run(executable, ['-n', '-P', '-a', '-c', 'codex', '-u', userInfo().username, '-Fpcfan'], {
       // Checking every open Codex window can exceed a short timeout on a busy machine.
       timeout: 5_000,
       maxBuffer: 2 * 1024 * 1024,
     })
+    const owned = new Map<number, Set<string>>()
+    let ownerPid = 0
+    let codex = false
+    let writable = false
     for (const entry of stdout.split('\n')) {
+      if (entry.startsWith('p')) {
+        ownerPid = Number(entry.slice(1))
+        codex = false
+        writable = false
+      } else if (entry.startsWith('c')) {
+        codex = entry === 'ccodex'
+      } else if (entry.startsWith('f')) {
+        writable = false
+      } else if (entry.startsWith('a')) {
+        writable = entry === 'aw' || entry === 'au'
+      }
       if (!entry.startsWith('n/')) continue
       const filename = entry.slice(1)
       const name = path.basename(filename)
-      if (path.dirname(filename) === locks) {
-        const id = lockPattern.exec(name)?.[1]
-        if (id) ids.add(id)
+      const lockId = path.dirname(filename) === locks ? lockPattern.exec(name)?.[1] : undefined
+      const rolloutId = filename.startsWith(`${sessions}${path.sep}`) ? rolloutPattern.exec(name)?.[1] : undefined
+      if (lockId) ids.add(lockId)
+      if (rolloutId) rollouts.add(filename)
+      const id = lockId ?? rolloutId
+      if (id && codex && writable && Number.isSafeInteger(ownerPid) && ownerPid > 0) {
+        const threads = owned.get(ownerPid) ?? new Set<string>()
+        threads.add(id)
+        owned.set(ownerPid, threads)
       }
-      if (filename.startsWith(`${sessions}${path.sep}`) && rolloutPattern.test(name)) rollouts.add(filename)
+    }
+    for (const [pid, threads] of owned) {
+      for (const id of threads) {
+        const owners = processes.get(id) ?? []
+        owners.push({ pid, observedAt, shared: threads.size > 1 })
+        processes.set(id, owners)
+      }
     }
   } catch {
     // Older systems can still discover the recent local rollouts without inspecting open files.
   }
-  return { ids, rollouts }
+  return { ids, rollouts, processes }
 }
 
 function projectedTurnStatus(filename: string | undefined, ids: Set<string>): Map<string, boolean> {
@@ -391,7 +510,7 @@ function indexedThreads(filename: string | undefined, ids: Set<string>, sessions
     const titles = ['name', 'title', 'agent_nickname'].filter(column => columns.has(column))
     const title = titles.map(column => `NULLIF(${column}, '')`).join(', ')
     const fields = `id, cwd, rollout_path, updated_at, COALESCE(${title}, '') AS title`
-    // Codex app chats include delegated work in the parent chat. Its separate rollouts are implementation details.
+    // The parent conversation lists its subagents separately from the main thread list.
     const threadSource = columns.has('thread_source') ? "thread_source IS 'subagent'" : '0'
     const sessionSource = columns.has('source')
       ? "json_type(CASE WHEN json_valid(source) THEN source END, '$.subagent') IS NOT NULL"
@@ -429,6 +548,62 @@ function indexedThreads(filename: string | undefined, ids: Set<string>, sessions
   return { records, subagentIds }
 }
 
+function indexedChildren(
+  filename: string | undefined,
+  parentId: string,
+  root: string,
+): AgentThreadRecord[] | undefined {
+  if (!filename) return undefined
+  try {
+    using database = new DatabaseSync(filename, { readOnly: true, timeout: 0 })
+    const columns = new Set(
+      database
+        .prepare('PRAGMA table_info(threads)')
+        .all()
+        .map(column => column.name),
+    )
+    const edges = database.prepare("SELECT name FROM sqlite_master WHERE name = 'thread_spawn_edges'").get()
+    if (!edges && !columns.has('source')) return undefined
+    const validSource = columns.has('source') ? 'CASE WHEN json_valid(t.source) THEN t.source END' : 'NULL'
+    const nickname = columns.has('agent_nickname') ? 't.agent_nickname' : 'NULL'
+    const created = columns.has('created_at') ? 't.created_at' : 't.updated_at'
+    const parent = `json_extract(${validSource}, '$.subagent.thread_spawn.parent_thread_id')`
+    const from = edges
+      ? 'thread_spawn_edges AS e JOIN threads AS t ON t.id = e.child_thread_id WHERE e.parent_thread_id = ?'
+      : `threads AS t WHERE ${parent} = ?`
+    const rows = database
+      .prepare(`
+      SELECT t.id, t.cwd, t.rollout_path, t.updated_at,
+        COALESCE(NULLIF(${nickname}, ''), json_extract(${validSource}, '$.subagent.thread_spawn.agent_nickname')) AS nickname,
+        json_extract(${validSource}, '$.subagent.thread_spawn.agent_path') AS agent_path
+      FROM ${from}
+      ORDER BY ${created}, t.id
+    `)
+      .all(parentId)
+    return rows.flatMap(row => {
+      const id = string(row.id)
+      const cwd = string(row.cwd)
+      const locator = path.resolve(string(row.rollout_path))
+      const tree = path.relative(root, locator).split(path.sep)[0]
+      const rolloutId = rolloutPattern.exec(path.basename(locator))?.[1]
+      if (
+        !id ||
+        id === parentId ||
+        !path.isAbsolute(cwd) ||
+        (tree !== 'sessions' && tree !== 'archived_sessions') ||
+        (rolloutId && rolloutId !== id)
+      )
+        return []
+      const agentName = string(row.nickname) || path.posix.basename(string(row.agent_path)) || 'Subagent'
+      return [
+        { id, provider: 'codex', title: agentName, agentName, cwd, locator, updatedAt: Number(row.updated_at) * 1_000 },
+      ]
+    })
+  } catch {
+    return undefined
+  }
+}
+
 async function recentThreads(sessions: string): Promise<AgentThreadRecord[]> {
   const days = Array.from({ length: 7 }, (_, index) => {
     const date = new Date()
@@ -451,13 +626,13 @@ async function recentThreads(sessions: string): Promise<AgentThreadRecord[]> {
   const records: AgentThreadRecord[] = []
   for (let offset = 0; offset < rollouts.length && records.length < recentLimit; offset += recentLimit) {
     // oxlint-disable-next-line eslint/no-await-in-loop -- Stop scanning once there are enough visible chats.
-    const batch = await Promise.all(rollouts.slice(offset, offset + recentLimit).map(readMetadata))
+    const batch = await Promise.all(rollouts.slice(offset, offset + recentLimit).map(locator => readMetadata(locator)))
     records.push(...batch.filter(record => record !== undefined))
   }
   return records.slice(0, recentLimit)
 }
 
-async function readMetadata(locator: string): Promise<AgentThreadRecord | undefined> {
+async function readMetadata(locator: string, parentId?: string): Promise<AgentThreadRecord | undefined> {
   try {
     await using file = await open(locator, 'r')
     const buffer = Buffer.allocUnsafe(128 * 1024)
@@ -468,13 +643,23 @@ async function readMetadata(locator: string): Promise<AgentThreadRecord | undefi
     const id = string(payload?.id)
     const cwd = string(payload?.cwd)
     if (entry?.type !== 'session_meta' || !id || !path.isAbsolute(cwd)) return undefined
-    if (payload?.thread_source === 'subagent' || Object.hasOwn(object(payload?.source) ?? {}, 'subagent'))
-      return undefined
+    const spawn = codexSpawnMetadata(payload?.source)
+    const parent = string(payload?.parent_thread_id) || string(spawn?.parent_thread_id)
+    const subagent =
+      Boolean(parent) ||
+      payload?.thread_source === 'subagent' ||
+      Object.hasOwn(object(payload?.source) ?? {}, 'subagent')
+    if (parentId ? parent !== parentId || id === parentId : subagent) return undefined
     const fileInfo = await file.stat()
+    const nickname = string(payload?.agent_nickname) || string(spawn?.agent_nickname)
+    const agentName = parentId
+      ? nickname || path.posix.basename(string(payload?.agent_path) || string(spawn?.agent_path)) || 'Subagent'
+      : undefined
     return {
       id,
       provider: 'codex',
-      title: string(payload?.agent_nickname) || path.basename(cwd),
+      title: agentName ?? (nickname || path.basename(cwd)),
+      ...(agentName ? { agentName } : {}),
       cwd,
       locator,
       updatedAt: fileInfo.mtimeMs,
@@ -482,6 +667,21 @@ async function readMetadata(locator: string): Promise<AgentThreadRecord | undefi
   } catch {
     return undefined
   }
+}
+
+async function rolloutChildren(thread: AgentThreadRecord) {
+  const directory = path.dirname(thread.locator)
+  const names = await readdir(directory).catch(() => [])
+  const children: AgentThreadRecord[] = []
+  const candidates = names.filter(name => rolloutPattern.test(name))
+  for (let offset = 0; offset < candidates.length; offset += recentLimit) {
+    // oxlint-disable-next-line eslint/no-await-in-loop -- Bound concurrent metadata reads on older installations.
+    const records = await Promise.all(
+      candidates.slice(offset, offset + recentLimit).map(name => readMetadata(path.join(directory, name), thread.id)),
+    )
+    children.push(...records.filter(record => record !== undefined))
+  }
+  return children
 }
 
 async function legacyTurnStatus(locator: string): Promise<boolean | undefined> {
@@ -527,7 +727,7 @@ export const codexSource: AgentThreadSource = {
       const id = rolloutPattern.exec(path.basename(locator))?.[1]
       return !records.has(locator) && (!id || !subagentIds.has(id))
     })
-    for (const record of await Promise.all(missing.map(readMetadata))) {
+    for (const record of await Promise.all(missing.map(locator => readMetadata(locator)))) {
       if (record) records.set(record.locator, record)
     }
     const visibleOpenIds = new Set([...records.values()].map(record => record.id).filter(id => ids.has(id)))
@@ -540,19 +740,65 @@ export const codexSource: AgentThreadSource = {
         record.active = isOpen ? (statuses.get(record.id) ?? (await legacyTurnStatus(record.locator))) : undefined
         record.status =
           record.active === true ? 'running' : record.active === false ? 'idle' : isOpen ? 'unknown' : 'recent'
+        record.processes = opened.processes.get(record.id)
         record.updatedAt = Math.max(file.mtimeMs, record.updatedAt)
         return record
       }),
     )
     return threads.filter(thread => thread !== undefined)
   },
+  async children(thread) {
+    const root = path.resolve(process.env.CODEX_HOME ?? path.join(homedir(), '.codex'))
+    const [state, history] = await Promise.all([databasePath(root, 'state'), databasePath(root, 'thread_history')])
+    const records = indexedChildren(state, thread.id, root) ?? (await rolloutChildren(thread))
+    const statuses = projectedTurnStatus(history, new Set(records.map(record => record.id)))
+    const children = await Promise.all(
+      records.map(async record => {
+        const file = await stat(record.locator).catch(() => undefined)
+        if (!file?.isFile()) return undefined
+        record.active = statuses.get(record.id) ?? (await legacyTurnStatus(record.locator))
+        record.status = record.active === true ? 'running' : record.active === false ? 'idle' : 'unknown'
+        record.updatedAt = Math.max(file.mtimeMs, record.updatedAt)
+        return record
+      }),
+    )
+    return children.filter(record => record !== undefined)
+  },
   open(thread) {
     return {
       async read() {
-        const images: TranscriptImages = { local: new Map(), remaining: MAX_TRANSCRIPT_IMAGE_BYTES }
+        const images: TranscriptImages = { generated: [], local: new Map(), remaining: MAX_TRANSCRIPT_IMAGE_BYTES }
         const reader = readJsonLines(thread.locator, () => {
           const seenReasoning = new Set<string>()
-          return record => parseRollout(record, thread.cwd, { seenReasoning, images })
+          const delegation = codexDelegation(thread.id)
+          let activeTurnId = ''
+          return (record, ordinal) => {
+            const entry = object(record)
+            if (delegation.ignore(entry, ordinal)) return []
+            const payload = object(entry?.payload)
+            const delegateEvents = payload ? delegation.parse(entry, payload) : []
+            const events = delegateEvents.length
+              ? delegateEvents
+              : parseRollout(record, thread.cwd, { seenReasoning, images })
+            if (!events.length) return events
+            const recordedId = string(
+              payload?.turn_id ?? object(payload?.internal_chat_message_metadata_passthrough)?.turn_id,
+            )
+            if (events.some(event => event.kind === 'status' && event.text === 'Turn started')) activeTurnId = ''
+            const turnId = recordedId || activeTurnId
+            if (turnId) {
+              for (const event of events) event.turnId = turnId
+              activeTurnId = turnId
+            }
+            if (
+              events.some(
+                event =>
+                  event.kind === 'status' && (event.text === 'Turn finished' || event.text === 'Turn interrupted'),
+              )
+            )
+              activeTurnId = ''
+            return events
+          }
         })
         const events = await reader.read()
         for (const [image, filename] of images.local) {
@@ -565,6 +811,6 @@ export const codexSource: AgentThreadSource = {
   },
   async summarize(thread) {
     const records = await recentJsonRecords(thread.locator)
-    return latestActivity(records.flatMap(record => parseRollout(record, thread.cwd, { summary: true })))
+    return summarizeActivity(records.flatMap(record => parseRollout(record, thread.cwd, { summary: true })))
   },
 }

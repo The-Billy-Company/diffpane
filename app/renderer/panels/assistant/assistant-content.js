@@ -10,6 +10,7 @@ import { reportError, runTask } from '../../shell/recovery/errors.ts'
 /** @typedef {'running' | 'done' | 'error' | 'stopped'} ToolStatus */
 /** @typedef {{id: string, name: string, label: string, detail?: string, status: ToolStatus, path?: string, startLine?: number, endLine?: number, side?: 'head' | 'working'}} ToolActivity */
 /** @typedef {NonNullable<Awaited<ReturnType<import('../../../electron/runtime/window/preload.ts').DiffpaneApi['claude']['send']>>['proposal']>} Proposal */
+/** @typedef {{openExternal?: (href: string) => unknown, openFile?: OpenFile, colorize?: (text: string, language: string) => string | PromiseLike<string>, onLayout?: () => void, streaming?: boolean, breaks?: boolean, renderLocalLink?: (href: string, link: HTMLAnchorElement) => HTMLElement | undefined, renderImage?: (href: string, alt: string) => HTMLElement | undefined}} MarkdownOptions */
 
 const MARKDOWN = new Marked({
   gfm: true,
@@ -103,10 +104,34 @@ function projectLink(href) {
 
 /** @param {HTMLElement} host
  * @param {string} text
- * @param {{openExternal?: (href: string) => unknown, openFile?: OpenFile, colorize?: (text: string, language: string) => string | PromiseLike<string>, onLayout?: () => void, streaming?: boolean}} [options]
+ * @param {MarkdownOptions} [options]
  */
-export function renderAssistantMarkdown(host, text, { openExternal, openFile, colorize, onLayout, streaming } = {}) {
-  const parsed = MARKDOWN.parse(text, { async: false })
+export function renderAssistantMarkdown(
+  host,
+  text,
+  { openExternal, openFile, colorize, onLayout, streaming, breaks = false, renderLocalLink, renderImage } = {},
+) {
+  /** @type {string[]} */
+  const links = []
+  /** @type {{href: string, alt: string}[]} */
+  const images = []
+  const markdown =
+    renderLocalLink || renderImage
+      ? new Marked({
+          gfm: true,
+          renderer: {
+            html: () => '',
+            link({ href, tokens }) {
+              if (!renderLocalLink) return false
+              return `<a data-assistant-link="${links.push(href) - 1}">${this.parser.parseInline(tokens)}</a>`
+            },
+            image({ href, text: alt }) {
+              return `<span data-assistant-image="${images.push({ href, alt }) - 1}"></span>`
+            },
+          },
+        })
+      : MARKDOWN
+  const parsed = markdown.parse(text, { async: false, breaks })
   host.replaceChildren(
     DOMPurify.sanitize(parsed, {
       RETURN_DOM_FRAGMENT: true,
@@ -138,14 +163,37 @@ export function renderAssistantMarkdown(host, text, { openExternal, openFile, co
         'tr',
         'th',
         'td',
+        'span',
       ],
-      ALLOWED_ATTR: ['href', 'title', 'class', 'start', 'type', 'checked', 'disabled', 'align'],
+      ALLOWED_ATTR: [
+        'href',
+        'title',
+        'class',
+        'start',
+        'type',
+        'checked',
+        'disabled',
+        'align',
+        'data-assistant-link',
+        'data-assistant-image',
+      ],
       ALLOW_ARIA_ATTR: false,
       ALLOW_DATA_ATTR: false,
     }),
   )
+  for (const placeholder of host.querySelectorAll('[data-assistant-image]')) {
+    const image = images[Number(placeholder.getAttribute('data-assistant-image'))]
+    if (image) placeholder.replaceWith(renderImage?.(image.href, image.alt) ?? document.createTextNode(image.alt))
+  }
   for (const link of host.querySelectorAll('a')) {
-    const href = link.getAttribute('href') ?? ''
+    const index = link.dataset.assistantLink
+    const href = (index === undefined ? link.getAttribute('href') : links[Number(index)]) ?? ''
+    delete link.dataset.assistantLink
+    const local = renderLocalLink?.(href, link)
+    if (local) {
+      link.replaceWith(local)
+      continue
+    }
     const target = projectLink(href)
     if (target && openFile) {
       link.dataset.link = 'file'
@@ -154,6 +202,7 @@ export function renderAssistantMarkdown(host, text, { openExternal, openFile, co
         runTask('Open assistant file link', () => openFile(target))
       })
     } else if (openExternal && /^(https?:|mailto:)/i.test(href)) {
+      link.href = href
       link.dataset.link = 'external'
       link.addEventListener('click', event => {
         event.preventDefault()

@@ -5,6 +5,20 @@ import type { AgentThread, AgentThreadEvent } from '../../../../shared/agent-thr
 
 export interface AgentThreadRecord extends AgentThread {
   locator: string
+  action?: string
+  processes?: AgentThreadProcess[]
+}
+
+export interface AgentThreadProcess {
+  pid: number
+  observedAt: number
+  sessionStartedAt?: number
+  shared?: boolean
+}
+
+export interface AgentThreadSummary {
+  activity?: string
+  action?: string
 }
 
 export interface AgentThreadReader {
@@ -16,8 +30,9 @@ export interface AgentThreadReader {
 
 export interface AgentThreadSource {
   list(): Promise<AgentThreadRecord[]>
+  children?(thread: AgentThreadRecord): Promise<AgentThreadRecord[]>
   open(thread: AgentThreadRecord): AgentThreadReader
-  summarize?(thread: AgentThreadRecord): Promise<string | undefined>
+  summarize?(thread: AgentThreadRecord): Promise<AgentThreadSummary | undefined>
 }
 
 const READ_BYTES = 512 * 1024
@@ -87,14 +102,7 @@ export function activityText(text: string): string | undefined {
   return text.replace(/\s+/g, ' ').trim().slice(0, 180) || undefined
 }
 
-export function latestActivity(events: AgentThreadEvent[]): string | undefined {
-  const latest = events.findLast(
-    event =>
-      event.kind !== 'status' &&
-      event.kind !== 'notice' &&
-      event.kind !== 'thinking' &&
-      (event.toolName ?? event.text.trim()),
-  )
+function describeActivity(latest: AgentThreadEvent | undefined): string | undefined {
   if (!latest) return undefined
   if (latest.toolDescription) return activityText(latest.toolDescription)
   const label = latest.toolName ?? latest.text
@@ -104,6 +112,32 @@ export function latestActivity(events: AgentThreadEvent[]): string | undefined {
     return activityText(`${label} ${path.basename(filename)}${additional ? ` +${additional}` : ''}`)
   }
   return activityText(label)
+}
+
+export function summarizeActivity(
+  events: AgentThreadEvent[],
+  { includeUser = true }: { includeUser?: boolean } = {},
+): AgentThreadSummary {
+  let latest: AgentThreadEvent | undefined
+  let action: AgentThreadEvent | undefined
+  for (const event of events) {
+    if (
+      event.kind === 'user' ||
+      (event.kind === 'status' &&
+        (event.text === 'Turn started' || event.text === 'Turn finished' || event.text === 'Turn interrupted'))
+    )
+      action = undefined
+    if (event.kind === 'tool' || event.kind === 'edit') action = event
+    if (
+      event.kind !== 'status' &&
+      event.kind !== 'notice' &&
+      event.kind !== 'thinking' &&
+      (includeUser || event.kind !== 'user') &&
+      (event.toolName ?? event.text.trim())
+    )
+      latest = event
+  }
+  return { activity: describeActivity(latest), action: describeActivity(action) }
 }
 
 export function toolCall(
@@ -130,7 +164,7 @@ export function toolCall(
   }
 }
 
-type TranscriptParser = (record: unknown) => AgentThreadEvent[]
+type TranscriptParser = (record: unknown, ordinal: number) => AgentThreadEvent[]
 
 export function readJsonLines(locator: string, createParser: () => TranscriptParser): AgentThreadReader {
   return {
@@ -147,6 +181,7 @@ export function readJsonLines(locator: string, createParser: () => TranscriptPar
         const limit = Math.min(metadata.size, MAX_TRANSCRIPT_BYTES)
         const events: AgentThreadEvent[] = []
         let offset = 0
+        let ordinal = 0
         let partial: Buffer = Buffer.alloc(0)
         let skip = false
 
@@ -158,7 +193,7 @@ export function readJsonLines(locator: string, createParser: () => TranscriptPar
           } catch {
             return
           }
-          for (const event of parse(record)) events.push(event)
+          for (const event of parse(record, ordinal)) events.push(event)
         }
 
         while (offset < limit) {
@@ -173,6 +208,7 @@ export function readJsonLines(locator: string, createParser: () => TranscriptPar
           let start = 0
           for (let end = bytes.indexOf(10); end !== -1; end = bytes.indexOf(10, start)) {
             if (!skip) append(bytes.subarray(start, end))
+            ordinal++
             skip = false
             start = end + 1
           }

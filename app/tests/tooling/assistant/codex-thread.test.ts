@@ -2,6 +2,7 @@ import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { pathToFileURL } from 'node:url'
 import { expect, test, vi } from 'vite-plus/test'
 import { codexSource } from '../../../electron/tools/assistant/agent-threads/codex.ts'
 
@@ -13,6 +14,18 @@ vi.mock('node:child_process', async importOriginal => ({
 
 function event(type: string, data: object = {}) {
   return `${JSON.stringify({ type: 'event_msg', payload: { type, ...data } })}\n`
+}
+
+function responseItem(payload: object) {
+  return `${JSON.stringify({ type: 'response_item', payload })}\n`
+}
+
+function researchSpawnSource(parentId: string) {
+  return {
+    subagent: {
+      thread_spawn: { parent_thread_id: parentId, agent_path: '/root/research', agent_nickname: 'Explorer' },
+    },
+  }
 }
 
 test.skipIf(process.platform === 'win32')('lists visible Codex chats when delegated turns are running', async t => {
@@ -52,7 +65,18 @@ test.skipIf(process.platform === 'win32')('lists visible Codex chats when delega
     ...otherChildren.map(thread => writeRollout(thread, { source: delegation })),
   ])
   const open = [running, indexedChild, unindexedChild]
-  run.mockResolvedValue({ stdout: open.map(thread => `n${thread.locator}`).join('\n') })
+  run.mockResolvedValue({
+    stdout: [
+      'p421',
+      'ccodex',
+      ...open.flatMap((thread, index) => [`f${index + 10}`, 'au', `n${thread.locator}`]),
+      'p422',
+      'ccodex',
+      'f10',
+      'ar',
+      `n${running.locator}`,
+    ].join('\n'),
+  })
 
   using history = new DatabaseSync(path.join(root, 'thread_history_1.sqlite'))
   history.exec('CREATE TABLE thread_turns (thread_id TEXT, rollout_ordinal INTEGER, status TEXT)')
@@ -61,7 +85,7 @@ test.skipIf(process.platform === 'win32')('lists visible Codex chats when delega
 
   const expected = [
     { id: recent.id, status: 'recent' },
-    { id: running.id, status: 'running' },
+    { id: running.id, status: 'running', processes: [{ pid: 421, shared: true }] },
   ]
   const stateFile = path.join(root, 'state_5.sqlite')
   {
@@ -87,6 +111,135 @@ test.skipIf(process.platform === 'win32')('lists visible Codex chats when delega
   await expect(codexSource.list()).resolves.toMatchObject(expected)
 })
 
+test('looks up only the selected parent’s Codex subagents', async t => {
+  const root = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-children-'))
+  vi.stubEnv('CODEX_HOME', root)
+  t.onTestFinished(async () => {
+    vi.unstubAllEnvs()
+    await rm(root, { recursive: true, force: true })
+  })
+  const directory = path.join(root, 'sessions', '2026', '11', '15')
+  await mkdir(directory, { recursive: true })
+  const parentId = '00000000-0000-0000-0000-000000000020'
+  const childId = '00000000-0000-0000-0000-000000000021'
+  const siblingId = '00000000-0000-0000-0000-000000000022'
+  const otherParentId = '00000000-0000-0000-0000-000000000023'
+  const locator = (id: string) => path.join(directory, `rollout-2026-11-15T12-00-00-${id}.jsonl`)
+  const write = (id: string, parent: string) =>
+    writeFile(
+      locator(id),
+      `${JSON.stringify({ type: 'session_meta', payload: { id, cwd: root, source: researchSpawnSource(parent) } })}\n${event('task_complete')}`,
+    )
+  await Promise.all([write(childId, parentId), write(siblingId, otherParentId)])
+  const parent = {
+    id: parentId,
+    provider: 'codex' as const,
+    cwd: root,
+    locator: locator(parentId),
+    title: 'Parent',
+    updatedAt: 0,
+  }
+  const expected = [{ id: childId, agentName: 'Explorer', status: 'idle' }]
+  await expect(codexSource.children?.(parent)).resolves.toMatchObject(expected)
+  using state = new DatabaseSync(path.join(root, 'state_5.sqlite'))
+  state.exec(`
+    CREATE TABLE threads (id TEXT, cwd TEXT, rollout_path TEXT, updated_at INTEGER, source TEXT);
+    CREATE TABLE thread_spawn_edges (parent_thread_id TEXT, child_thread_id TEXT, status TEXT);
+  `)
+  const addThread = state.prepare('INSERT INTO threads VALUES (?, ?, ?, 1, ?)')
+  const addEdge = state.prepare("INSERT INTO thread_spawn_edges VALUES (?, ?, 'open')")
+  addThread.run(childId, root, locator(childId), JSON.stringify(researchSpawnSource(parentId)))
+  addThread.run(siblingId, root, locator(siblingId), JSON.stringify(researchSpawnSource(otherParentId)))
+  addEdge.run(parentId, childId)
+  addEdge.run(otherParentId, siblingId)
+  await expect(codexSource.children?.(parent)).resolves.toMatchObject(expected)
+  state.exec('DROP TABLE thread_spawn_edges')
+  await expect(codexSource.children?.(parent)).resolves.toMatchObject(expected)
+})
+
+test('shows Codex delegate actions and only readable message bodies', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-communication-'))
+  t.onTestFinished(() => rm(cwd, { force: true, recursive: true }))
+  const locator = path.join(cwd, 'thread.jsonl')
+  const parent = { provider: 'codex' as const, id: 'parent', cwd, locator, title: 'Thread', updatedAt: 0 }
+  const activity = (kind: string) =>
+    event('item_completed', {
+      item: { type: 'SubAgentActivity', kind, agent_path: '/root/research', agent_thread_id: 'child' },
+    })
+  const tool = (name: string, callId: string, args: object) =>
+    responseItem({ type: 'function_call', name, call_id: callId, arguments: JSON.stringify(args) })
+  const message = (type: string, text: string, encrypted = false) =>
+    responseItem({
+      type: 'agent_message',
+      author: '/root/research',
+      recipient: '/root',
+      content: [
+        {
+          type: 'input_text',
+          text: `Message Type: ${type}\nTask name: /root\nSender: /root/research\nPayload:\n${text}`,
+        },
+        ...(encrypted ? [{ type: 'encrypted_content', encrypted_content: 'ciphertext' }] : []),
+      ],
+    })
+  await writeFile(
+    locator,
+    [
+      tool('spawn_agent', '1', { task_name: 'research', message: 'Review the test fixtures.' }),
+      activity('started'),
+      responseItem({ type: 'function_call_output', call_id: '1', output: '{"task_name":"/root/research"}' }),
+      tool('send_message', '2', { target: 'research', message: 'Please report the test results.' }),
+      activity('interacted'),
+      responseItem({ type: 'function_call_output', call_id: '2', output: '""' }),
+      tool('send_message', '3', { target: 'research', message: `gAAAAA${'a'.repeat(100)}` }),
+      activity('interacted'),
+      responseItem({ type: 'function_call_output', call_id: '3', output: '""' }),
+      message('MESSAGE', 'Unavailable, even if the placeholder has text.', true),
+      activity('completed'),
+      message('FINAL_ANSWER', 'The tests passed.'),
+      event('item_completed', {
+        item: { type: 'CollabAgentToolCall', tool: 'wait', status: 'completed', receiver_thread_ids: ['child'] },
+      }),
+    ].join(''),
+  )
+  const transcript = await codexSource.open(parent).read()
+  expect(transcript.map(item => [item.delegation?.action, item.delegation?.direction, item.text])).toEqual([
+    ['spawn', undefined, 'Review the test fixtures.'],
+    ['message', 'sent', 'Please report the test results.'],
+    ['message', 'sent', ''],
+    ['message', 'received', ''],
+    ['result', undefined, ''],
+    ['result', 'received', 'The tests passed.'],
+    ['wait', undefined, ''],
+  ])
+  expect(transcript.every(item => item.kind === 'delegate' && item.delegation?.threadId === 'codex:child')).toBe(true)
+})
+
+test('opens only the subagent’s own rollout history after the saved parent prefix', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-child-rollout-'))
+  t.onTestFinished(() => rm(cwd, { force: true, recursive: true }))
+  const locator = path.join(cwd, 'child.jsonl')
+  const child = { provider: 'codex' as const, id: 'child', cwd, locator, title: 'Subagent', updatedAt: 0 }
+  const meta = `${JSON.stringify({
+    type: 'session_meta',
+    payload: { parent_thread_id: 'parent', agent_path: '/root/research', subagent_history_start_ordinal: 4 },
+  })}\n`
+  await writeFile(
+    locator,
+    [
+      meta,
+      event('user_message', { message: 'Inherited prompt' }),
+      `${'x'.repeat(4 * 1024 * 1024 + 1)}\n`,
+      event('agent_message', { message: 'Inherited reply' }),
+      event('task_started', { turn_id: 'child-turn' }),
+      event('agent_message', { message: 'This reply belongs to the subagent.' }),
+    ].join(''),
+  )
+  await expect(codexSource.open(child).read()).resolves.toEqual([
+    { kind: 'status', text: 'Turn started', turnId: 'child-turn' },
+    { kind: 'assistant', text: 'This reply belongs to the subagent.', turnId: 'child-turn' },
+  ])
+})
+
 test('reads a Codex conversation from its first message without exposing raw model context', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-thread-'))
   const locator = path.join(cwd, 'thread.jsonl')
@@ -103,6 +256,7 @@ test('reads a Codex conversation from its first message without exposing raw mod
       locator,
       event('exec_command_end', {
         command: ['/bin/zsh', '-lc', 'cat first.ts'],
+        cwd: pathToFileURL(cwd).href,
         parsed_cmd: [{ type: 'read', path: 'first.ts' }],
         aggregated_output: '<private output>',
       }),
@@ -113,7 +267,7 @@ test('reads a Codex conversation from its first message without exposing raw mod
         item: {
           type: 'FileChange',
           status: 'completed',
-          changes: { 'second.ts': { type: 'update', unified_diff: '@@ -6,2 +7,3 @@' } },
+          changes: { 'second.ts': { type: 'update', unified_diff: '@@ -6 +7,2 @@\n-old\n+new\n+and more\n' } },
         },
       }),
     )
@@ -133,6 +287,16 @@ test('reads a Codex conversation from its first message without exposing raw mod
         toolName: 'apply_patch',
         toolDescription: 'Edit second.ts',
         files: [{ path: path.join(cwd, 'second.ts'), line: 7 }],
+        changes: [
+          {
+            path: path.join(cwd, 'second.ts'),
+            line: 7,
+            operation: 'update',
+            diff: '@@ -6 +7,2 @@\n-old\n+new\n+and more\n',
+            additions: 2,
+            deletions: 1,
+          },
+        ],
       },
     ]
     await expect(reader.read()).resolves.toEqual(snapshot)
@@ -140,6 +304,73 @@ test('reads a Codex conversation from its first message without exposing raw mod
   } finally {
     await rm(cwd, { force: true, recursive: true })
   }
+})
+
+test('keeps native Codex additions, removals and moves with the saved patch', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-patches-'))
+  t.onTestFinished(() => rm(cwd, { force: true, recursive: true }))
+  const locator = path.join(cwd, 'thread.jsonl')
+  const thread = { provider: 'codex' as const, id: 'thread', cwd, locator, title: 'Thread', updatedAt: 0 }
+  const complete = (status: string, changes: unknown) =>
+    event('item_completed', { item: { type: 'FileChange', status, changes } })
+  const original = path.join(cwd, 'old name.txt')
+  const updated = path.join(cwd, 'new name.txt')
+  const patch = '@@ -4,2 +4,2 @@\n same\n-before\n+after\n'
+  const files = {
+    'added.txt': { type: 'add', content: 'first\n\nlast\n' },
+    'removed.txt': { type: 'delete', content: 'obsolete' },
+  }
+  await writeFile(
+    locator,
+    [
+      event('patch_apply_end', { success: true, changes: files }),
+      complete('completed', [
+        { path: pathToFileURL(original).href, kind: { type: 'update', movePath: 'new name.txt' }, diff: patch },
+      ]),
+      complete('failed', files),
+      complete('declined', files),
+      complete('inProgress', files),
+    ].join(''),
+  )
+  const edits = await codexSource.open(thread).read()
+  expect(edits).toMatchObject([
+    {
+      kind: 'edit',
+      changes: [
+        {
+          path: path.join(cwd, 'added.txt'),
+          operation: 'add',
+          additions: 3,
+          deletions: 0,
+          diff: '@@ -0,0 +1,3 @@\n+first\n+\n+last\n',
+        },
+        {
+          path: path.join(cwd, 'removed.txt'),
+          operation: 'delete',
+          additions: 0,
+          deletions: 1,
+          diff: '@@ -1,1 +0,0 @@\n-obsolete\n\\ No newline at end of file\n',
+        },
+      ],
+    },
+    {
+      kind: 'edit',
+      files: [{ path: updated, line: 4 }],
+      changes: [
+        {
+          path: original,
+          destinationPath: updated,
+          operation: 'move',
+          diff: patch,
+          additions: 1,
+          deletions: 1,
+        },
+      ],
+    },
+    { kind: 'tool', toolDescription: 'Patch failed' },
+    { kind: 'tool', toolDescription: 'Patch declined' },
+  ])
+  expect(edits.slice(2).every(edit => edit.changes === undefined)).toBe(true)
 })
 
 test('reads the Codex Desktop request and its saved screenshot together', async t => {
@@ -220,11 +451,57 @@ test('reads the Codex Desktop request and its saved screenshot together', async 
   )
 
   await expect(codexSource.open(thread).read()).resolves.toEqual([
-    { kind: 'user', text: request, files: [{ path: brief }], images: [{ name: filename, dataUrl }] },
-    { kind: 'assistant', text: 'I can see the screenshot.' },
-    { kind: 'user', text: '', images: [{ name: filename }] },
-    { kind: 'user', text: pastedRequest, files: [{ path: brief }], images: [{ name: localFilename, dataUrl }] },
-    { kind: 'user', text: '## My request:\n\nKeep this heading.' },
+    { kind: 'user', turnId: 'first', text: request, files: [{ path: brief }], images: [{ name: filename, dataUrl }] },
+    { kind: 'assistant', turnId: 'first', text: 'I can see the screenshot.' },
+    { kind: 'user', turnId: 'second', text: '', images: [{ name: filename }] },
+    {
+      kind: 'user',
+      turnId: 'third',
+      text: pastedRequest,
+      files: [{ path: brief }],
+      images: [{ name: localFilename, dataUrl }],
+    },
+    { kind: 'user', turnId: 'third', text: '## My request:\n\nKeep this heading.' },
+  ])
+})
+
+test('attaches a native ImageGen result to the final reply after commentary and a steer', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-codex-generation-'))
+  t.onTestFinished(() => rm(cwd, { force: true, recursive: true }))
+  const locator = path.join(cwd, 'thread.jsonl')
+  const thread = { provider: 'codex' as const, id: 'thread', cwd, locator, title: 'Thread', updatedAt: 0 }
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGPwa1tXvuYgAAqvA2cKS3ZXAAAAAElFTkSuQmCC'
+  const message = (content: string, phase: string) =>
+    event('item_completed', {
+      turn_id: 'generation',
+      item: { type: 'AgentMessage', content, phase },
+    })
+  await writeFile(
+    locator,
+    [
+      event('task_started', { turn_id: 'generation' }),
+      event('item_completed', {
+        turn_id: 'generation',
+        item: { type: 'Extension', kind: 'image_gen.generation', status: 'completed', result: png },
+      }),
+      message('Checking the result.', 'commentary'),
+      event('user_message', { turn_id: 'generation', message: 'Keep the transparent background.' }),
+      message('Here is the generated image.', 'final_answer'),
+      event('task_complete', { turn_id: 'generation' }),
+      event('task_started', { turn_id: 'next' }),
+      event('agent_message', { message: 'I started the next change.' }),
+    ].join(''),
+  )
+  const events = await codexSource.open(thread).read()
+  expect(events.filter(item => item.kind === 'assistant')).toEqual([
+    { kind: 'assistant', turnId: 'generation', text: 'Checking the result.' },
+    {
+      kind: 'assistant',
+      turnId: 'generation',
+      text: 'Here is the generated image.',
+      images: [{ name: 'Generated image', dataUrl: `data:image/png;base64,${png}` }],
+    },
+    { kind: 'assistant', turnId: 'next', text: 'I started the next change.' },
   ])
 })
 
@@ -271,7 +548,7 @@ test('displays each public Codex reasoning summary once in transcript order', as
     { kind: 'thinking', text: '**Reviewing the output**' },
   ]
   await expect(reader.read()).resolves.toEqual(transcript)
-  await expect(codexSource.summarize?.(thread)).resolves.toBe('I found the entry point.')
+  await expect(codexSource.summarize?.(thread)).resolves.toMatchObject({ activity: 'I found the entry point.' })
 
   await appendFile(locator, complete('refresh', ['**Checking the result**']))
   await expect(reader.read()).resolves.toEqual([...transcript, { kind: 'thinking', text: '**Checking the result**' }])

@@ -46,14 +46,14 @@
   inset-inline: 0;
   inset-block-start: calc((100% - var(--view-size)) * var(--change-view-progress));
   block-size: var(--view-size);
-  border: 1px solid color-mix(in oklab, var(--accent) 42%, var(--line));
+  border: 1px solid var(--scrollbar);
   border-radius: 4px;
-  background: var(--accent-surface);
+  background: color-mix(in oklab, var(--scrollbar) 50%, transparent) padding-box;
 }
 
 .navigator-change-rail:is(:hover, :focus-visible) .navigator-change-viewport {
-  border-color: var(--accent);
-  background: var(--selection);
+  border-color: var(--scrollbar-hover);
+  background-color: color-mix(in oklab, var(--scrollbar-hover) 50%, transparent);
 }
 
 .navigator-change-track svg {

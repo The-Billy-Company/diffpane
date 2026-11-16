@@ -24,8 +24,8 @@ import {
 /** @import { WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
 /** @import { TestedMethod, SessionResponse } from './session-fixture.ts' */
 
-/** @param {TestContext} t @param {{fileCount?: number, setup?: string, scope?: string, versions?: SessionVersions}} [options] */
-async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions } = {}) {
+/** @param {TestContext} t @param {{fileCount?: number, setup?: string, scope?: string, versions?: SessionVersions, initialFile?: string, initialLine?: number}} [options] */
+async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, initialFile, initialLine } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'diffpane-session-'))
   /** @param {...string} args */
   const git = (...args) =>
@@ -75,7 +75,12 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions }
         )
       : sessionUrl
   const worker = new Worker(workerUrl, {
-    workerData: { directory: path.join(root, scope), versions },
+    workerData: {
+      directory: path.join(root, scope),
+      versions,
+      initialFile: initialFile === undefined ? undefined : path.join(root, initialFile),
+      initialLine,
+    },
   })
   /** @type {Map<number, {resolve: (value: unknown) => void, reject: (reason: Error) => void, timer: ReturnType<typeof setTimeout>}>} */
   const pending = new Map()
@@ -193,6 +198,16 @@ const injectedWatchSetup = `
         if (message.testEvents) callbacks[0](message.testWatchError ? new Error(message.testWatchError) : null, message.testEvents);
       });
     `
+
+test('opens a linked file at its line within the full project scope', async t => {
+  const initialFile = 'src/file0.txt'
+  const repo = await fixture(t, { fileCount: 1, initialFile, initialLine: 1, setup: injectedWatchSetup })
+  const snapshot = await repo.call('snapshot')
+  assert.equal(snapshot.scope, await realpath(repo.root))
+  assert.equal(snapshot.initialPath, initialFile)
+  assert.equal(snapshot.initialLine, 1)
+  assert.equal((await repo.call('document', initialFile, 'head')).after, 'baseline 0\n')
+})
 
 test('Creature saves grouped files and publishes a new file to the inventory without a watcher', async t => {
   const repo = await fixture(t, { fileCount: 1, setup: injectedWatchSetup })

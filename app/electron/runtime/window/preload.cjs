@@ -252,6 +252,7 @@ function isAgentThread(value) {
     isString(value.cwd) &&
     isTimestamp(value.updatedAt) &&
     optional(isString)(value.projectRoot) &&
+    optional(isString)(value.agentName) &&
     optional(isBoolean)(value.active) &&
     optional(isAgentThreadStatus)(value.status) &&
     optional(isString)(value.activity)
@@ -260,19 +261,87 @@ function isAgentThread(value) {
 function isAgentThreadList(value) {
   return isRecord(value) && arrayOf(isAgentThread)(value.threads) && arrayOf(isAgentProvider)(value.unavailable)
 }
+function isAgentMemoryProcess(value) {
+  return isRecord(value) && isPositive(value.pid) && isCount(value.residentBytes) && isBoolean(value.shared)
+}
+function isAgentMemoryActivity(value) {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isAgentProvider(value.provider) &&
+    isString(value.title) &&
+    isTimestamp(value.updatedAt) &&
+    optional(isString)(value.action) &&
+    optional(isAgentMemoryProcess)(value.process)
+  )
+}
+function isAgentMemorySnapshot(value) {
+  return (
+    isRecord(value) &&
+    isTimestamp(value.sampledAt) &&
+    (value.pressure === 'normal' ||
+      value.pressure === 'warning' ||
+      value.pressure === 'critical' ||
+      value.pressure === 'unknown') &&
+    (value.source === 'system' || value.source === 'windows') &&
+    optional(isCount)(value.usedBytes) &&
+    optional(isPositive)(value.totalBytes) &&
+    arrayOf(isAgentMemoryActivity)(value.activities)
+  )
+}
 function isAgentThreadFile(value) {
   return isRecord(value) && isString(value.path) && optional(isPositive)(value.line)
 }
+function isAgentThreadChange(value) {
+  return (
+    isRecord(value) &&
+    isAgentThreadFile(value) &&
+    (value.operation === 'add' ||
+      value.operation === 'update' ||
+      value.operation === 'delete' ||
+      value.operation === 'move') &&
+    optional(isString)(value.destinationPath) &&
+    optional(isString)(value.diff) &&
+    optional(isCount)(value.additions) &&
+    optional(isCount)(value.deletions)
+  )
+}
+function isAgentThreadLink(value) {
+  return (
+    isRecord(value) &&
+    isAgentThreadFile(value) &&
+    isString(value.href) &&
+    optional(isBoolean)(value.image) &&
+    optional(isString)(value.dataUrl)
+  )
+}
 function isAgentThreadImage(value) {
   return isRecord(value) && isString(value.name) && optional(isString)(value.dataUrl)
+}
+function isAgentThreadDelegation(value) {
+  return (
+    isRecord(value) &&
+    isString(value.threadId) &&
+    optional(isString)(value.name) &&
+    (value.direction === undefined || value.direction === 'sent' || value.direction === 'received') &&
+    (value.action === 'spawn' ||
+      value.action === 'message' ||
+      value.action === 'result' ||
+      value.action === 'resume' ||
+      value.action === 'close' ||
+      value.action === 'wait')
+  )
 }
 function isAgentThreadEvent(value) {
   if (
     !isRecord(value) ||
     !isString(value.text) ||
+    !optional(isString)(value.turnId) ||
     !optional(isString)(value.toolName) ||
     !optional(isString)(value.toolDescription) ||
     !optional(arrayOf(isAgentThreadFile))(value.files) ||
+    !optional(arrayOf(isAgentThreadChange))(value.changes) ||
+    !optional(arrayOf(isAgentThreadLink))(value.links) ||
     !optional(arrayOf(isAgentThreadImage))(value.images)
   )
     return false
@@ -282,6 +351,7 @@ function isAgentThreadEvent(value) {
     value.kind === 'thinking' ||
     value.kind === 'tool' ||
     value.kind === 'edit' ||
+    (value.kind === 'delegate' && isAgentThreadDelegation(value.delegation)) ||
     value.kind === 'notice' ||
     value.kind === 'status'
   )
@@ -294,11 +364,7 @@ function isAgentThreadUpdate(value) {
   )
 }
 function isAgentFileView(value) {
-  return (
-    isRecord(value) &&
-    ((value.kind === 'workspace' && isString(value.path)) ||
-      (value.kind === 'preview' && isString(value.text) && isBoolean(value.limited)))
-  )
+  return isRecord(value) && (value.kind === 'opened' || (value.kind === 'workspace' && isString(value.path)))
 }
 function isClaudeFileEdit(value) {
   return isRecord(value) && isString(value.before) && isString(value.after) && isPositive(value.startLine)
@@ -426,6 +492,7 @@ function isSnapshot(value) {
     isString(value.root) &&
     isString(value.scope) &&
     nullable(isString)(value.initialPath) &&
+    optional(isPositive)(value.initialLine) &&
     isString(value.branch) &&
     nullable(isString)(value.head) &&
     arrayOf(isWorkspaceFile)(value.files) &&
@@ -808,6 +875,10 @@ const API = {
     onChange: callback => listen('shortcuts-updated', isShortcutOverrides, callback),
     onOpenSettings: callback => listen('open-settings', isVoid, callback),
   },
+  fileMenu: {
+    setActions: actions => electron_1.ipcRenderer.send('file-menu-actions', actions),
+    onAction: callback => listen('file-menu-action', isString, callback),
+  },
   reviewNotes: {
     list: () => invoke('review-notes-list', arrayOf(isReviewNote)),
     change: change => invoke('review-notes-change', arrayOf(isReviewNote), change),
@@ -828,10 +899,13 @@ const API = {
   },
   agentThreads: {
     list: () => invoke('agent-threads-list', isAgentThreadList),
-    read: (id, selection) => invoke('agent-threads-read', arrayOf(isAgentThreadEvent), id, selection),
-    update: (id, selection) => invoke('agent-threads-update', isAgentThreadUpdate, id, selection),
+    memory: () => invoke('agent-threads-memory', isAgentMemorySnapshot),
+    children: (selection, parentId) => invoke('agent-threads-children', arrayOf(isAgentThread), selection, parentId),
+    read: (id, selection, childId) => invoke('agent-threads-read', arrayOf(isAgentThreadEvent), id, selection, childId),
+    update: (id, selection, childId) => invoke('agent-threads-update', isAgentThreadUpdate, id, selection, childId),
     clear: selection => invoke('agent-threads-clear', isVoid, selection),
-    file: (selection, path) => invoke('agent-threads-file', isAgentFileView, selection, path),
+    file: (selection, path, childId, line) =>
+      invoke('agent-threads-file', isAgentFileView, selection, path, childId, line),
   },
   ideas: {
     list: () => invoke('ideas-list', arrayOf(isIdea)),

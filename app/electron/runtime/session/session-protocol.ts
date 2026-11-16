@@ -8,6 +8,8 @@ export interface SessionVersions {
 export interface SessionLaunch {
   directory: string
   versions?: SessionVersions
+  initialFile?: string
+  initialLine?: number
 }
 
 export interface SessionRequest {
@@ -37,7 +39,13 @@ export function parseSessionLaunch(input: unknown): SessionLaunch {
   if (!isSessionRecord(input) || typeof input.directory !== 'string' || !input.directory) {
     throw new Error('Invalid workspace worker configuration')
   }
-  if (input.versions === undefined) return { directory: input.directory }
+  const { initialFile, initialLine } = input
+  if (initialFile !== undefined && (typeof initialFile !== 'string' || !initialFile))
+    throw new Error('Invalid workspace initial file')
+  if (initialLine !== undefined && (!isSessionRevision(initialLine) || initialLine < 1))
+    throw new Error('Invalid workspace initial line')
+  const launch = { directory: input.directory, initialFile, initialLine }
+  if (input.versions === undefined) return launch
   if (!isSessionRecord(input.versions)) throw new Error('Invalid workspace worker versions')
   const versions: SessionVersions = {}
   for (const key of ['revision', 'catalogRevision', 'reviewVersion', 'checkpointId'] as const) {
@@ -46,7 +54,7 @@ export function parseSessionLaunch(input: unknown): SessionLaunch {
     if (!isSessionRevision(value)) throw new Error(`Invalid workspace worker ${key}`)
     versions[key] = value
   }
-  return { directory: input.directory, versions }
+  return { ...launch, versions }
 }
 
 export function parseSessionRequest(input: unknown): SessionRequest | InvalidSessionRequest | null {

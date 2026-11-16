@@ -4,7 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import type { AgentThreadEvent, AgentThreadStatus } from '../../../../shared/agent-threads.ts'
-import { latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
+import { readJsonLines, recentJsonRecords, summarizeActivity, toolCall } from './source.ts'
 import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sessionId = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
@@ -110,7 +110,10 @@ function events(value: unknown, cwd: string): AgentThreadEvent[] {
 
 async function summarizeTranscript(locator: string, cwd: string) {
   const records = await recentJsonRecords(locator)
-  return latestActivity(records.flatMap(record => events(record, cwd)).filter(event => event.kind !== 'user'))
+  return summarizeActivity(
+    records.flatMap(record => events(record, cwd)),
+    { includeUser: false },
+  )
 }
 
 function threadStatus(row: Record<string, unknown>): AgentThreadStatus {
@@ -153,6 +156,7 @@ async function indexedThreads(gemini: string, product: string) {
         }
         const locator = transcript(gemini, product, id)
         const status = threadStatus(row)
+        const summary = await summarizeTranscript(locator, cwd).catch(() => undefined)
         return {
           id,
           provider: 'antigravity',
@@ -162,7 +166,8 @@ async function indexedThreads(gemini: string, product: string) {
           updatedAt: Date.parse(string(row.last_modified_time).replace(' ', 'T')) || 0,
           active: status === 'running',
           status,
-          activity: await summarizeTranscript(locator, cwd).catch(() => undefined),
+          activity: summary?.activity,
+          action: summary?.action,
         }
       }),
   )

@@ -1,8 +1,9 @@
 import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
+import { createAgentThreadTranscript } from '../../../renderer/panels/assistant/agent-thread-conversation.ts'
 import { createAgentThreadPanel } from '../../../renderer/panels/assistant/agent-threads.ts'
 import { requireElement } from '../../../renderer/shell/workspace/dom.js'
 import '../../../renderer/panels/assistant/assistant.css'
-import type { AgentThread } from '../../../shared/agent-threads.ts'
+import type { AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
 import '../../../renderer/shell/workspace/style.css'
 import '../../../renderer/shell/workspace/theme-tokens.css'
 import '../../../renderer/shell/workspace/theme.css'
@@ -42,7 +43,43 @@ async function eventually(condition: () => unknown, message: string): Promise<vo
   }
 }
 
+function checkLiveEdits() {
+  const host = document.createElement('div')
+  const turnId = 'live-turn'
+  const transcript = createAgentThreadTranscript(host, { provider: 'codex' })
+  const initial: AgentThreadEvent[] = [
+    { kind: 'user', turnId, text: 'Update the parser.' },
+    { kind: 'assistant', turnId, text: 'Updated the parser.' },
+    { kind: 'edit', turnId, text: '', changes: [{ path: 'parser.ts', operation: 'update' }] },
+  ]
+  transcript.update(0, initial)
+  const card = requireElement(host, '.agent-thread-edit-summary', HTMLElement)
+  const originalEdit = requireElement(host, '.agent-thread-tool-group', HTMLElement)
+  transcript.update(initial.length, [
+    { kind: 'user', turnId, text: 'Update the test, too.' },
+    { kind: 'edit', turnId, text: '', changes: [{ path: 'parser.test.ts', operation: 'update' }] },
+    { kind: 'assistant', turnId, text: 'Updated the test.' },
+  ])
+  assert(
+    host.querySelector('.agent-thread-edit-summary') === card &&
+      card.textContent.includes('Edited 2 files') &&
+      card.previousElementSibling?.textContent.includes('Updated the test.') &&
+      host.querySelectorAll('.agent-thread-tool-group').length === 2 &&
+      host.querySelector('.agent-thread-tool-group') === originalEdit,
+    'A live steer did not move and update the native turn’s file edits.',
+  )
+  transcript.update(initial.length, [])
+  assert(
+    host.querySelector('.agent-thread-edit-summary') === card &&
+      card.textContent.includes('Edited 1 file') &&
+      card.previousElementSibling === originalEdit &&
+      host.querySelectorAll('.agent-thread-tool-group').length === 1,
+    'Removing the steer did not restore the edit card to its earlier reply.',
+  )
+}
+
 export async function run(longCommand: string, transcriptRoute: string) {
+  checkLiveEdits()
   const app = requireElement(document, '#app', HTMLDivElement)
   const workspace = document.createElement('section')
   const host = document.createElement('main')
@@ -86,14 +123,22 @@ export async function run(longCommand: string, transcriptRoute: string) {
   let updateInFlight = false
   let lateUpdateReceived = false
   const lateUpdate = Promise.withResolvers<void>()
+  let memoryReads = 0
+  let openedFile: AgentThreadFile | undefined
   const api: DiffpaneApi['agentThreads'] = {
     list: async () => {
       lists++
       return { threads: threads.map(thread => ({ ...thread })), unavailable: [] }
     },
-    read: async (id, selection) => {
+    memory: () => {
+      memoryReads++
+      return bridge.memory()
+    },
+    children: (selection, parentId) => bridge.children(selection, parentId),
+    read: async (id, selection, childId) => {
       assert(id === 'codex:1', 'The selected thread ID was sent to the source.')
       assert(!selectionId || selection === selectionId, 'Refreshing the conversation changed its selection.')
+      if (childId) return bridge.read(id, selection, childId)
       assert(!readInFlight && !updateInFlight, 'The conversation requested a simultaneous snapshot.')
       selectionId = selection
       reads++
@@ -104,8 +149,9 @@ export async function run(longCommand: string, transcriptRoute: string) {
         readInFlight = false
       }
     },
-    update: async (id, selection) => {
+    update: async (id, selection, childId) => {
       assert(id === 'codex:1' && selection === selectionId, 'The live update lost its thread or selection.')
+      if (childId) return bridge.update(id, selection, childId)
       assert(!readInFlight && !updateInFlight, 'The open conversation requested simultaneous updates.')
       updates++
       updateInFlight = true
@@ -120,15 +166,17 @@ export async function run(longCommand: string, transcriptRoute: string) {
         updateInFlight = false
       }
     },
-    clear: selection => bridge.clear(selection),
-    file: async (_selection, path) => {
-      assert(path === '/projects/juniper/fixtures/greeting.txt', 'The tool file reference sent the wrong path.')
-      return { kind: 'preview', text: 'Hello from the parser fixture.', limited: false }
+    clear: selection => {
+      if (selectionId === selection) selectionId = ''
+      return bridge.clear(selection)
     },
+    file: (selection, path, childId, line) => bridge.file(selection, path, childId, line),
   }
   const panel = createAgentThreadPanel(host, {
     api,
-    openWorkspaceFile: () => {},
+    openWorkspaceFile: file => {
+      openedFile = file
+    },
     onVisibilityChange: open => {
       workspace.hidden = open
     },
@@ -136,7 +184,18 @@ export async function run(longCommand: string, transcriptRoute: string) {
 
   try {
     panel.open()
-    await eventually(() => host.textContent.includes('Inspect the parser'), 'The thread roster did not load.')
+    const rosterRows = requireElement(host, '[data-list-content]', HTMLDivElement)
+    const memory = requireElement(host, '.agent-thread-memory', HTMLElement)
+    await eventually(() => rosterRows.textContent.includes('Inspect the parser'), 'The thread roster did not load.')
+    await eventually(() => memory.textContent.includes('Elevated'), 'The first memory pressure sample did not load.')
+    assert(memory.textContent.includes('Windows app'), 'The memory pressure sample source is missing.')
+    assert(memory.textContent.includes('8 GiB / 16 GiB used'), 'The system memory usage is missing.')
+    const measurements = [...memory.querySelectorAll('.agent-thread-memory-resident')].map(row => row.textContent)
+    assert(
+      measurements.join('|') === '512 MiB resident · shared PID 1234|Shared PID 1234',
+      'Shared process memory was not labeled and shown once per PID.',
+    )
+    assert(memory.textContent.includes('Check the parser fixture'), 'The latest recorded action is missing.')
     assert(host.tagName === 'MAIN' && !document.querySelector('dialog[open]'), 'Agent Threads opened in a modal.')
     assert(workspace.hidden, 'Agent Threads did not replace the workspace.')
     const bounds = host.getBoundingClientRect()
@@ -160,11 +219,14 @@ export async function run(longCommand: string, transcriptRoute: string) {
       document.activeElement === button(projects, 'juniper'),
       'Selecting a project moved focus out of the sidebar.',
     )
-    assert(!host.textContent.includes('Compare release notes'), 'The project filter did not narrow the thread list.')
+    assert(
+      !rosterRows.textContent.includes('Compare release notes'),
+      'The project filter did not narrow the thread list.',
+    )
     button(projects, 'marigold').click()
-    assert(!host.textContent.includes('Inspect the parser'), 'Switching projects did not update the thread list.')
+    assert(!rosterRows.textContent.includes('Inspect the parser'), 'Switching projects did not update the thread list.')
     button(projects, 'All projects').click()
-    assert(host.textContent.includes('Inspect the parser'), 'All projects did not restore the thread list.')
+    assert(rosterRows.textContent.includes('Inspect the parser'), 'All projects did not restore the thread list.')
     button(projects, 'juniper').click()
 
     button(host, 'Hide projects').click()
@@ -181,10 +243,14 @@ export async function run(longCommand: string, transcriptRoute: string) {
     const search = requireElement(host, 'input[aria-label="Search threads"]', HTMLInputElement)
     search.value = 'parser'
     search.dispatchEvent(new Event('input', { bubbles: true }))
-    button(host, 'Inspect the parser').click()
+    button(memory, 'Inspect the parser').click()
     await eventually(
       () => host.querySelector('.agent-thread-turn[data-role="assistant"]'),
       'The conversation did not load.',
+    )
+    await eventually(
+      () => host.querySelector('[role="tablist"]')?.checkVisibility(),
+      'The conversation did not discover its delegate tab.',
     )
     assert(!search.checkVisibility(), 'The roster is still visible next to the conversation.')
     assert(
@@ -200,9 +266,12 @@ export async function run(longCommand: string, transcriptRoute: string) {
       'The code fence was not rendered.',
     )
     assert(!host.textContent.includes('Turn finished'), 'Internal status was included in the conversation.')
-    assert(
-      !host.querySelector('.agent-thread-minimap')?.checkVisibility(),
-      'The thread map appeared alongside a short conversation.',
+    const conversation = requireElement(host, '.agent-thread-conversation', HTMLElement)
+    await eventually(
+      () =>
+        Boolean(host.querySelector('.agent-thread-minimap')?.checkVisibility()) ===
+        conversation.scrollHeight > conversation.clientHeight + 1,
+      'The thread map did not match the conversation’s scrollability.',
     )
     const firstPrompt = requireElement(host, '.agent-thread-prompt', HTMLElement)
 
@@ -219,36 +288,99 @@ export async function run(longCommand: string, transcriptRoute: string) {
     )
     assert(
       firstThought.nextElementSibling === tools && tools.nextElementSibling === nextThought,
-      'Thinking and tool calls were reordered in the conversation.',
+      'The tool activity was out of order relative to the surrounding thinking.',
     )
+    const edits = requireElement(host, '.agent-thread-edit-summary', HTMLElement)
+    assert(
+      host.textContent.includes('Include the legacy fixture cleanup.') &&
+        host.querySelectorAll('.agent-thread-edit-summary').length === 1 &&
+        edits.textContent.includes('Edited 2 files') &&
+        edits.textContent.includes('+3') &&
+        edits.textContent.includes('−2') &&
+        edits.textContent.includes('fixtures/legacy.txt') &&
+        edits.previousElementSibling?.classList.contains('agent-thread-markdown'),
+      'Edits across a steering message were not summarized together after the final reply.',
+    )
+    const editToggle = button(edits, 'Diff for docs/parser.md')
+    assert(editToggle.getAttribute('aria-expanded') === 'false', 'The per-file diff was initially open.')
+    editToggle.focus({ preventScroll: true })
+    editToggle.click()
+    const editDiff = requireElement(edits, '.agent-thread-edit-diff', HTMLElement)
+    assert(
+      editDiff.textContent.includes('-Old example') &&
+        editDiff.textContent.includes('+Greeting example') &&
+        editDiff.textContent.includes('+See the parser fixture.'),
+      'The per-file diff did not show each recorded hunk.',
+    )
+    assert(
+      editDiff.querySelector('[data-change="addition"]') && editDiff.querySelector('[data-change="deletion"]'),
+      'The per-file diff did not distinguish added and deleted lines.',
+    )
+    assert(document.activeElement === editToggle, 'Opening the diff moved focus away from its control.')
+    editToggle.click()
+    assert(editDiff.hidden, 'The expanded diff could not be closed.')
+    const deletedPath = button(edits, 'Diff for fixtures/legacy.txt')
+    deletedPath.click()
+    assert(
+      edits.querySelector('.agent-thread-edit-diff:not([hidden])')?.textContent.includes('-Old fixture'),
+      'The deleted file did not open its recorded diff.',
+    )
+    deletedPath.click()
     thinkingSummary.click()
     await eventually(
       () => firstThought.open && firstThought.querySelector('strong')?.textContent === 'greeting fixture',
       'Expanding thinking did not render its Markdown.',
     )
-    const summary = requireElement(tools, 'summary', HTMLElement)
+    const summary = requireElement(tools, '.agent-thread-tool-summary', HTMLElement)
+    const activity = summary.textContent.toLowerCase()
     assert(
-      !tools.open && summary.textContent.includes('2 tool calls'),
-      'The tool calls were not grouped and collapsed.',
+      !tools.open &&
+        activity.includes('edited a file') &&
+        activity.includes('read a file') &&
+        activity.includes('ran a command'),
+      'The collapsed tool group did not summarize its activity.',
     )
     summary.click()
     assert(tools.open, 'The tool call group could not be expanded.')
     await eventually(() => tools.querySelector('.agent-thread-tool-entry'), 'The open group did not display its calls.')
+    const entries = [...tools.querySelectorAll('.agent-thread-tool-entry')]
     assert(
-      tools.textContent.includes('exec_command') &&
-        tools.textContent.includes('Check the parser fixture') &&
-        tools.textContent.includes('apply_patch') &&
-        tools.textContent.includes('Add a parser example'),
-      'The expanded tool calls are missing source names or descriptions.',
+      entries.length === 4 &&
+        entries[0]?.querySelector('.agent-thread-tool-name')?.textContent === 'Ran' &&
+        entries[0]?.querySelector('.agent-thread-tool-preview')?.textContent.startsWith('cat fixtures/') &&
+        entries[1]?.querySelector('.agent-thread-tool-name')?.textContent === 'Read' &&
+        entries[1]?.textContent.includes('greeting.txt') &&
+        entries[2]?.textContent.includes('WebSearch') &&
+        entries[2]?.textContent.includes('Look up the parser contract') &&
+        entries[3]?.querySelector('.agent-thread-tool-name')?.textContent === 'Edited' &&
+        entries[3]?.querySelector('.agent-thread-edit-path')?.textContent === 'parser.md' &&
+        entries[3]?.textContent.includes('+2') &&
+        entries[3]?.textContent.includes('−1'),
+      'The expanded activity did not show each action in transcript order.',
     )
-    const conversation = requireElement(host, '.agent-thread-conversation', HTMLElement)
+    const timelinePath = button(tools, 'Diff for parser.md')
+    assert(timelinePath.getAttribute('aria-expanded') === 'false', 'The timeline diff was initially open.')
+    timelinePath.click()
+    const timelineDiff = requireElement(tools, '.agent-thread-edit-diff', HTMLElement)
+    assert(
+      timelineDiff.textContent.includes('-Old example') &&
+        timelineDiff.textContent.includes('+Greeting example') &&
+        !timelineDiff.textContent.includes('See the parser fixture.'),
+      'Clicking the timeline filename did not display the diff for that edit.',
+    )
+    timelinePath.click()
+    assert(timelineDiff.hidden && tools.open, 'Closing the diff did not preserve the expanded activity list.')
     const raw = requireElement(tools, '.agent-thread-tool-detail', HTMLDetailsElement)
     assert(!raw.open, 'Opening the tool group exposed raw command details.')
     const rowSummary = requireElement(raw, ':scope > summary', HTMLElement)
     assert(
-      rowSummary.textContent.includes('exec_command') && rowSummary.textContent.includes('Check the parser fixture'),
-      'The tool row description was missing from its disclosure.',
+      rowSummary.querySelector('.agent-thread-tool-preview')?.textContent.startsWith('cat fixtures/'),
+      'The command was missing from its disclosure.',
     )
+    rowSummary.scrollIntoView({ block: 'center' })
+    await new Promise<void>(resolve => {
+      window.requestAnimationFrame(() => resolve())
+    })
     const { top, width } = rowSummary.getBoundingClientRect()
     rowSummary.focus({ preventScroll: true })
     rowSummary.click()
@@ -274,31 +406,30 @@ export async function run(longCommand: string, transcriptRoute: string) {
       Math.abs(openedBounds.top - top) <= 1 &&
         Math.abs(openedBounds.width - width) <= 1 &&
         document.activeElement === rowSummary,
-      'Opening the command moved its tool row or focus.',
+      `Opening the command moved its tool row or focus (top ${top} → ${openedBounds.top}, width ${width} → ${openedBounds.width}).`,
     )
     rowSummary.click()
     assert(!raw.open && tools.open, 'Closing a tool row also closed the tool group.')
-    const reference = button(tools, 'greeting.txt')
-    reference.click()
-    await eventually(
-      () => host.textContent.includes('Hello from the parser fixture.'),
-      'The tool file reference did not open a preview.',
-    )
-    button(host, 'Close file preview').click()
     assert(
-      document.activeElement === reference,
-      'Closing the preview did not restore focus to the tool file reference.',
+      button(tools, 'greeting.txt').title === '/projects/juniper/fixtures/greeting.txt',
+      'The tool file reference lost its path.',
     )
 
-    await eventually(() => updates >= 1 && !updateInFlight, 'The open conversation did not check for live changes.')
+    await eventually(
+      () => memoryReads >= 2 && memory.textContent.includes('Add a parser example'),
+      'Agent activity did not update.',
+    )
+    assert(memory.querySelectorAll('.agent-thread-memory-tick').length >= 2, 'Pressure history is missing samples.')
+    const conversationPressure = requireElement(host, '[data-memory-detail]', HTMLElement)
+    assert(conversationPressure.checkVisibility(), 'Memory pressure went away when opening the conversation.')
+    assert(conversationPressure.textContent.includes('Normal'), 'The conversation memory indicator did not update.')
     assert(
-      lists === 1 && reads === 1 && firstPrompt.isConnected,
+      lists === 1 && reads === 1 && updates >= 1 && firstPrompt.isConnected,
       'Live checks should leave the roster and unchanged transcript in place.',
     )
 
-    reference.click()
-    const preview = requireElement(host, '.agent-thread-preview pre', HTMLElement)
-    await eventually(() => document.activeElement === preview, 'The file preview did not regain focus.')
+    timelinePath.focus({ preventScroll: true })
+    timelinePath.click()
     conversation.scrollTop = conversation.scrollHeight
     const atEnd = () => Math.abs(conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop) <= 1
     await publish('append')
@@ -312,11 +443,10 @@ export async function run(longCommand: string, transcriptRoute: string) {
       'The live update replaced earlier messages or closed their disclosures.',
     )
     assert(
-      document.activeElement === preview && preview.textContent === 'Hello from the parser fixture.',
-      'The live update interrupted the focused file preview.',
+      document.activeElement === timelinePath && !timelineDiff.hidden,
+      'The live update interrupted the focused filename or open diff.',
     )
-    button(host, 'Close file preview').click()
-    assert(document.activeElement === reference, 'The preview lost its original link after a live update.')
+    timelinePath.click()
 
     const liveThought = [...conversation.querySelectorAll<HTMLDetailsElement>('.agent-thread-thinking')].at(-1)
     assert(liveThought && liveThought !== nextThought, 'The live thinking block did not arrive.')
@@ -357,6 +487,22 @@ export async function run(longCommand: string, transcriptRoute: string) {
       'An image-only turn should have no empty prompt bubble.',
     )
     assert(imageTurn.textContent.includes('Unavailable screenshot.png'), 'The missing screenshot was not labeled.')
+    const inline = requireElement(host, 'img[alt="Inline diagram"]', HTMLImageElement)
+    const generated = requireElement(host, 'img[alt="Generated diagram"]', HTMLImageElement)
+    await eventually(
+      () => inline.naturalWidth === 2 && generated.naturalWidth === 2,
+      'The reply images did not decode.',
+    )
+    assert(
+      inline.previousElementSibling?.textContent === 'Before' && inline.nextElementSibling?.textContent === 'after',
+      'The Markdown image left its original position in the reply.',
+    )
+    assert(
+      generated.parentElement?.previousElementSibling === inline.closest('.agent-thread-markdown'),
+      'The generated image was not placed after its reply.',
+    )
+    const diagramLink = button(host, 'Open diagram')
+    assert(diagramLink.title.endsWith('/Example diagram.png'), 'The linked image lost its file path.')
 
     const map = requireElement(host, '.agent-thread-minimap', HTMLElement)
     await eventually(() => map.checkVisibility(), 'The thread map did not appear for the long conversation.')
@@ -392,6 +538,52 @@ export async function run(longCommand: string, transcriptRoute: string) {
       'Moving the thread map position did not seek to the end of the conversation.',
     )
 
+    const delegate = button(conversation, 'Message from Euler')
+    assert(
+      delegate.closest('.agent-thread-delegate')?.textContent.includes('I checked the parser example.'),
+      'Saved subagent communication was missing from the parent timeline.',
+    )
+    const parentScroll = conversation.scrollTop
+    delegate.click()
+    const tabs = requireElement(host, '[role="tablist"][aria-label="Conversation and subagents"]', HTMLElement)
+    await eventually(
+      () => host.textContent.includes('The delegate finished checking the example.'),
+      'The delegate transcript did not open.',
+    )
+    assert(
+      tabs.querySelector('[role="tab"][aria-selected="true"]')?.textContent.includes('Euler'),
+      'The delegate tab was not selected.',
+    )
+    const childConversation = [...host.querySelectorAll<HTMLElement>('.agent-thread-conversation')].find(element =>
+      element.checkVisibility(),
+    )
+    assert(childConversation, 'The delegate conversation was not visible.')
+    const childTools = requireElement(childConversation, '.agent-thread-tool-group', HTMLDetailsElement)
+    requireElement(childTools, '.agent-thread-tool-summary', HTMLElement).click()
+    await eventually(
+      () => childTools.querySelector('.agent-thread-edit-path'),
+      'The delegate’s native file change was missing.',
+    )
+    button(childTools, 'Diff for delegate-edit.txt').click()
+    assert(
+      childTools.querySelector('.agent-thread-edit-diff')?.textContent.includes('+Delegate edit contents.'),
+      'The delegate’s edit did not open its diff.',
+    )
+    const parent = tabs.querySelector('[role="tab"]')
+    assert(
+      parent instanceof HTMLElement && parent.textContent.includes('Main thread'),
+      'The main-thread tab was missing.',
+    )
+    parent.click()
+    await eventually(
+      () => conversation.checkVisibility() && firstPrompt.isConnected,
+      'Returning from the subagent replaced the main transcript.',
+    )
+    assert(
+      Math.abs(conversation.scrollTop - parentScroll) <= 1 && firstThought.open,
+      'Switching tabs lost the parent scroll or disclosure state.',
+    )
+
     await publish('late')
     await eventually(() => lateUpdateReceived, 'The pending live update did not reach the renderer.')
     const updatesBeforeLeaving = updates
@@ -402,11 +594,6 @@ export async function run(longCommand: string, transcriptRoute: string) {
     assert(
       !map.checkVisibility() && !host.querySelector('.agent-thread-minimap-marks [data-role]'),
       'Back did not hide and clear the thread map.',
-    )
-    await delay(1_150)
-    assert(
-      updates === updatesBeforeLeaving && !conversation.textContent.trim(),
-      'The conversation updated after returning to the thread list.',
     )
     const first = threads[0]
     assert(first, 'Missing fixture thread.')
@@ -433,8 +620,31 @@ export async function run(longCommand: string, transcriptRoute: string) {
     assert(host.querySelectorAll('.agent-thread-row').length === 2, 'The Cursor filter hid a running Cursor thread.')
     assert(sourceCount('codex')?.textContent === '1', 'Selecting Cursor hid the Codex count.')
 
-    button(host, 'Back to workspace').click()
-    assert(host.hidden && !workspace.hidden, 'Back did not restore the workspace.')
+    assert(
+      updates === updatesBeforeLeaving && !conversation.textContent.trim(),
+      'The conversation updated after returning to the thread list.',
+    )
+    requireElement(host, '[data-source="codex"]', HTMLElement).click()
+    button(host, 'Recheck the parser').click()
+    await eventually(() => host.querySelector('[role="tablist"]')?.checkVisibility(), 'Delegate tabs did not return.')
+    button(host, 'Euler').click()
+    await eventually(
+      () => conversation.textContent.includes('The delegate finished checking the example.'),
+      'The delegate transcript did not reopen.',
+    )
+    const reopenedTools = requireElement(conversation, '.agent-thread-tool-group', HTMLDetailsElement)
+    requireElement(reopenedTools, '.agent-thread-tool-summary', HTMLElement).click()
+    await eventually(() => reopenedTools.querySelector('.agent-thread-tool-entry'), 'The delegate tools did not open.')
+    button(reopenedTools, 'delegate.txt:4').click()
+    await eventually(
+      () => openedFile?.path === 'delegate.txt' && openedFile.line === 4,
+      'The delegate’s read link did not open the workspace at its recorded location.',
+    )
+    assert(host.hidden && !workspace.hidden, 'File navigation did not restore the workspace.')
+    assert(!host.querySelector('[data-preview], dialog[open]'), 'File navigation opened a thread preview.')
+    const readsAtClose = memoryReads
+    await delay(2_150)
+    assert(memoryReads === readsAtClose, 'Memory polling continued after Agent Threads closed.')
   } finally {
     lateUpdate.resolve()
     panel.dispose()

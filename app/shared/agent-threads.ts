@@ -15,6 +15,7 @@ export interface AgentThread {
   title: string
   cwd: string
   projectRoot?: string
+  agentName?: string
   updatedAt: number
   active?: boolean
   status?: AgentThreadStatus
@@ -31,9 +32,30 @@ export interface AgentThreadFile {
   line?: number
 }
 
+export interface AgentThreadChange extends AgentThreadFile {
+  operation: 'add' | 'update' | 'delete' | 'move'
+  destinationPath?: string
+  diff?: string
+  additions?: number
+  deletions?: number
+}
+
 export interface AgentThreadImage {
   name: string
   dataUrl?: string
+}
+
+export interface AgentThreadLink extends AgentThreadFile {
+  href: string
+  image?: boolean
+  dataUrl?: string
+}
+
+export interface AgentThreadDelegation {
+  threadId: string
+  action: 'spawn' | 'message' | 'result' | 'resume' | 'close' | 'wait'
+  name?: string
+  direction?: 'sent' | 'received'
 }
 
 export function isAgentThreadImageDataUrl(value: unknown): value is string {
@@ -44,12 +66,16 @@ export function isAgentThreadImageDataUrl(value: unknown): value is string {
 }
 
 export interface AgentThreadEvent {
-  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'edit' | 'status' | 'notice'
+  kind: 'user' | 'assistant' | 'thinking' | 'tool' | 'edit' | 'delegate' | 'status' | 'notice'
   text: string
+  turnId?: string
   files?: AgentThreadFile[]
+  changes?: AgentThreadChange[]
+  links?: AgentThreadLink[]
   images?: AgentThreadImage[]
   toolName?: string
   toolDescription?: string
+  delegation?: AgentThreadDelegation
 }
 
 export interface AgentThreadUpdate {
@@ -58,4 +84,4 @@ export interface AgentThreadUpdate {
   thread?: AgentThread
 }
 
-export type AgentFileView = { kind: 'workspace'; path: string } | { kind: 'preview'; text: string; limited: boolean }
+export type AgentFileView = { kind: 'workspace'; path: string } | { kind: 'opened' }

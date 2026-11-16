@@ -19,6 +19,7 @@ import {
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import { createDiagnostics, parseDiagnostic } from '../../../shared/diagnostics/diagnostics.ts'
 import { rendererOperations } from '../../../shared/diagnostics/renderer-operations.ts'
+import { fileMenuLabels, isFileMenuAction } from '../../../shared/preferences/file-menu.ts'
 import {
   actualSizeBinding,
   createShortcutSequence,
@@ -49,6 +50,8 @@ import { ClaudeSession } from '../../tools/assistant/claude-session.mjs'
 import { searchClaudeGist } from '../../tools/assistant/gist-search.mjs'
 import { prepareBillySetup, registerBillyReview, resetBillyReview } from '../../tools/billy/bridge.ts'
 import { mediaResponse } from '../../workspace/documents/media.ts'
+import { Repository } from '../../workspace/repository/repository.mjs'
+import { sampleAgentMemory } from '../diagnostics/agent-memory.ts'
 import { startDesktopMetrics } from '../diagnostics/desktop-metrics.ts'
 import { createDiagnosticLog } from '../diagnostics/diagnostic-log.ts'
 import { createTerminalDock, terminalScheme } from '../terminal/dock.ts'
@@ -56,8 +59,10 @@ import { openPickerOptions, pickMacTarget } from './open-picker.ts'
 
 /** @import { IpcMainEvent, IpcMainInvokeEvent, SaveDialogOptions, WebContents } from 'electron' */
 /** @import { OpenKind } from './open-picker.ts' */
+/** @import { SessionLaunch } from '../session/session-protocol.ts' */
 /** @import { AppError } from '../../../shared/recovery/app-errors.ts' */
 /** @import { IdeaChange } from '../../../shared/ideas/ideas.ts' */
+/** @import { FileMenuAction } from '../../../shared/preferences/file-menu.ts' */
 /** @import { ShortcutAction, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts' */
 /** @typedef {{root: string, scope: string}} WorkspaceLocation */
 /** @typedef {{root: string, path: string, type: string}} WorkspaceMedia */
@@ -69,6 +74,10 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const invokeChannels = new Set()
 /** @type {Map<number, WindowSession>} */
 const sessions = new Map()
+/** @type {WeakMap<WindowSession, ReadonlySet<FileMenuAction>>} */
+const fileMenuActions = new WeakMap()
+/** @type {Menu | null} */
+let applicationMenu = null
 /** @type {WeakMap<WindowSession, ReturnType<typeof createTerminalDock>>} */
 const terminals = new WeakMap()
 /** @type {WeakMap<WindowSession, AgentThreads>} */
@@ -352,8 +361,8 @@ function changeFiles(session, files, change) {
   )
 }
 
-/** @param {string | null} [directory] */
-function createWindow(directory = null) {
+/** @param {string | null} [directory] @param {Pick<SessionLaunch, 'initialFile' | 'initialLine'>} [initial] */
+function createWindow(directory = null, { initialFile, initialLine } = {}) {
   const windowStartedAt = performance.now()
   const window = new BrowserWindow({
     width: 1400,
@@ -447,7 +456,7 @@ function createWindow(directory = null) {
         session.repositoryScope = location.scope
         if (!remembered && directory) {
           remembered = true
-          rememberTarget(directory)
+          rememberTarget(initialFile ?? directory)
         }
       }
       if (
@@ -489,7 +498,10 @@ function createWindow(directory = null) {
     fatal = undefined
     const startedAt = performance.now()
     const result = attempt(
-      () => new Worker(new URL('../session/session.mjs', import.meta.url), { workerData: { directory, versions } }),
+      () =>
+        new Worker(new URL('../session/session.mjs', import.meta.url), {
+          workerData: { directory, versions, initialFile, initialLine },
+        }),
     )
     if (!result.ok) {
       scoped.measure('workspace-worker-online', startedAt, result)
@@ -775,6 +787,8 @@ function createWindow(directory = null) {
     resetBillyReview(session)
     const wasReady = session.rendererReady
     session.rendererReady = false
+    fileMenuActions.delete(session)
+    if (window.isFocused()) syncFileMenu(session)
     runBackground('stop-terminal', () => terminal.reset())
     session.claude.reset()
     agentThreads.get(session)?.clear()
@@ -865,9 +879,9 @@ function createWindow(directory = null) {
   return window
 }
 
-/** @param {string} target */
-function openTarget(target, source = BrowserWindow.getFocusedWindow()) {
-  const window = createWindow(path.resolve(target))
+/** @param {string} target @param {BrowserWindow | null} [source] @param {Pick<SessionLaunch, 'initialFile' | 'initialLine'>} [initial] */
+function openTarget(target, source = BrowserWindow.getFocusedWindow(), initial) {
+  const window = createWindow(path.resolve(target), initial)
   if (source && !source.isDestroyed() && sessions.get(source.webContents.id)?.directory === null) source.close()
   return window
 }
@@ -1122,29 +1136,63 @@ for (const [method, handler] of Object.entries(claudeHandlers)) {
   })
 }
 
-handle('agent-threads-list', session => {
+/** @param {WindowSession} session */
+function threadsFor(session) {
   let threads = agentThreads.get(session)
   if (!threads) {
     threads = new AgentThreads()
     agentThreads.set(session, threads)
   }
-  return threads.list()
+  return threads
+}
+
+handle('agent-threads-list', session => threadsFor(session).list())
+
+handle('agent-threads-memory', async session => {
+  const threads = threadsFor(session)
+  const { memory, processes } = await sampleAgentMemory()
+  const activities = await threads.memoryActivities(processes)
+  return { ...memory, activities }
 })
 
-handle('agent-threads-read', (session, _event, id, selection) => {
+handle('agent-threads-children', (session, _event, selection, parentId) => {
   const threads = agentThreads.get(session)
-  if (!threads || typeof id !== 'string' || typeof selection !== 'string' || selection.length !== 36)
+  if (
+    !threads ||
+    typeof selection !== 'string' ||
+    selection.length !== 36 ||
+    (parentId !== undefined && typeof parentId !== 'string')
+  )
     throw new Error('Choose an available agent thread.')
-  return threads.read(id, selection)
+  return threads.children(selection, parentId)
+})
+
+handle('agent-threads-read', (session, _event, id, selection, childId) => {
+  const threads = agentThreads.get(session)
+  if (
+    !threads ||
+    typeof id !== 'string' ||
+    typeof selection !== 'string' ||
+    selection.length !== 36 ||
+    (childId !== undefined && typeof childId !== 'string')
+  )
+    throw new Error('Choose an available agent thread.')
+  return threads.read(id, selection, childId)
 })
 
 handle(
   'agent-threads-update',
-  (session, _event, id, selection) => {
+  (session, _event, id, selection, childId) => {
     const threads = agentThreads.get(session)
-    if (!threads || typeof id !== 'string' || typeof selection !== 'string' || selection.length !== 36)
+    if (
+      !threads ||
+      typeof id !== 'string' ||
+      typeof selection !== 'string' ||
+      selection.length !== 36 ||
+      (childId !== undefined && typeof childId !== 'string')
+    )
       throw new Error('Choose an available agent thread.')
-    return threads.update(id, selection)
+    return threads.update(id, selection, childId)
   },
   { minimumSuccessMs: 25 },
 )
@@ -1153,12 +1201,29 @@ handle('agent-threads-clear', (session, _event, selection) => {
   if (typeof selection === 'string') agentThreads.get(session)?.clear(selection)
 })
 
-handle('agent-threads-file', (session, _event, selection, filename) => {
+handle('agent-threads-file', async (session, event, selection, filename, childId, line) => {
   const threads = agentThreads.get(session)
-  if (!threads || typeof selection !== 'string' || typeof filename !== 'string')
+  if (
+    !threads ||
+    typeof selection !== 'string' ||
+    typeof filename !== 'string' ||
+    (childId !== undefined && typeof childId !== 'string') ||
+    (line !== undefined && (typeof line !== 'number' || !Number.isSafeInteger(line) || line < 1))
+  )
     throw new Error('Choose an available agent file link.')
   const { repositoryRoot: root, repositoryScope: scope } = session
-  return threads.file(selection, filename, root && scope ? { root, scope } : undefined)
+  const file = await threads.resolveFile(selection, filename, root && scope ? { root, scope } : undefined, childId)
+  if (file.kind === 'workspace') return file
+  const repository = await attemptAsync(() => Repository.open(file.path))
+  if (!repository.ok)
+    throw appError('This linked file must be in a Git working tree to open it in Diffpane.', {
+      code: 'WORKSPACE_REQUIRED',
+    })
+  const source = BrowserWindow.fromWebContents(event.sender)
+  if (!source || source.isDestroyed() || quitPhase !== 'running')
+    throw appError('This Diffpane window is no longer available.', { code: 'WINDOW_UNAVAILABLE' })
+  openTarget(repository.value.root, source, { initialFile: file.path, initialLine: line })
+  return { kind: 'opened' }
 })
 
 /** @type {Record<string, (store: IdeaStore, root: string, input: unknown, sender: WebContents) => unknown>} */
@@ -1308,10 +1373,18 @@ handle('terminal-toggle', session => terminals.get(session)?.toggle() ?? false)
 onRenderer('terminal-layout', (session, height, bottom, theme) => {
   terminals.get(session)?.layout(height, bottom, theme)
 })
-onRenderer('shortcuts-modal', ({ contents }, active) => {
+onRenderer('shortcuts-modal', (session, active) => {
+  const { contents } = session
   if (active === true) modalWindows.add(contents)
   else modalWindows.delete(contents)
   contents.setIgnoreMenuShortcuts(capturingShortcuts.has(contents))
+  const window = BrowserWindow.fromWebContents(contents)
+  if (window?.isFocused()) syncFileMenu(session)
+})
+onRenderer('file-menu-actions', (session, actions) => {
+  if (!session.rendererReady || !Array.isArray(actions) || actions.length > Object.keys(fileMenuLabels).length) return
+  fileMenuActions.set(session, new Set(actions.filter(isFileMenuAction)))
+  if (BrowserWindow.fromWebContents(session.contents)?.isFocused()) syncFileMenu(session)
 })
 /** @type {Record<string, (sender: WebContents, ...args: unknown[]) => unknown>} */
 const shortcutHandlers = {
@@ -1428,89 +1501,141 @@ handle('howmany-export', async (session, event) => {
   return true
 })
 
+/** @param {WindowSession} [session] */
+function syncFileMenu(session) {
+  if (!applicationMenu) return
+  const actions = session?.rendererReady ? fileMenuActions.get(session) : undefined
+  const modalOpen = Boolean(session && modalWindows.has(session.contents))
+  for (const action of Object.keys(fileMenuLabels).filter(isFileMenuAction)) {
+    const item = applicationMenu.getMenuItemById(action)
+    if (!item) continue
+    const available = actions?.has(action) === true
+    item.enabled = available && !modalOpen
+    if (action === 'showDiff')
+      item.visible = !actions || !(actions.has('showWorkingFile') || actions.has('closeComparison'))
+    else if (action === 'showWorkingFile' || action === 'closeComparison') item.visible = available
+  }
+}
+
+/** @param {FileMenuAction} action @returns {import('electron').MenuItemConstructorOptions} */
+function fileMenuItem(action) {
+  return {
+    id: action,
+    label: fileMenuLabels[action],
+    enabled: false,
+    visible: action !== 'showWorkingFile' && action !== 'closeComparison',
+    click: () => {
+      if (quitPhase !== 'running') return
+      const window = BrowserWindow.getFocusedWindow()
+      const session = window && sessions.get(window.webContents.id)
+      if (session?.rendererReady && !modalWindows.has(session.contents) && fileMenuActions.get(session)?.has(action))
+        send(session.contents, 'file-menu-action', action)
+    },
+  }
+}
+
 function setApplicationMenu() {
   /** @param {ShortcutAction} action */
   const accelerator = action => electronAccelerator(effectiveBinding(action, shortcutOverrides), isMac) ?? undefined
-  Menu.setApplicationMenu(
-    Menu.buildFromTemplate([
-      {
-        label: 'Diffpane',
-        submenu: [
-          { role: 'about' },
-          { type: 'separator' },
-          {
-            label: 'Settings…',
-            accelerator: accelerator('openSettings'),
-            click: () => windowAction('open-settings', openSettings),
-          },
-          { type: 'separator' },
-          { role: 'hide' },
-          { role: 'hideOthers' },
-          { role: 'unhide' },
-          { type: 'separator' },
-          { role: 'quit' },
-        ],
-      },
-      {
-        label: 'File',
-        submenu: [
-          {
-            label: 'New Window',
-            accelerator: accelerator('newWindow'),
-            click: () => windowAction('new-window', () => createWindow()),
-          },
-          {
-            label: 'Open Folder…',
-            accelerator: accelerator('openFolder'),
-            click: () => windowAction('open-folder', () => chooseTarget(BrowserWindow.getFocusedWindow(), 'folder')),
-          },
-          {
-            label: 'Open File…',
-            accelerator: accelerator('openFile'),
-            click: () => windowAction('open-file', () => chooseTarget(BrowserWindow.getFocusedWindow(), 'file')),
-          },
-          { type: 'separator' },
-          { role: 'close', accelerator: accelerator('closeWindow') },
-        ],
-      },
-      {
-        label: 'Edit',
-        submenu: [
-          { role: 'undo' },
-          { role: 'redo' },
-          { type: 'separator' },
-          { role: 'cut' },
-          { role: 'copy' },
-          { role: 'paste' },
-          { role: 'selectAll' },
-        ],
-      },
-      {
-        label: 'View',
-        submenu: [
-          { role: 'zoomIn' },
-          { role: 'zoomOut' },
-          { role: 'resetZoom', accelerator: electronAccelerator(actualSizeBinding(isMac), isMac) ?? undefined },
-          { role: 'togglefullscreen' },
-          { type: 'separator' },
-          { role: 'toggleDevTools' },
-          {
-            label: 'Open Diagnostics Folder',
-            enabled: diagnosticDirectory.ok,
-            click: () =>
-              windowAction('open-diagnostics-folder', async () => {
-                if (!diagnosticDirectory.ok) return
-                await diagnosticLog?.flush()
-                const message = await shell.openPath(diagnosticDirectory.value)
-                if (message) throw new Error('Diffpane could not open the diagnostics folder.')
-              }),
-          },
-        ],
-      },
-      { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
-    ]),
-  )
+  applicationMenu = Menu.buildFromTemplate([
+    {
+      label: 'Diffpane',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Settings…',
+          accelerator: accelerator('openSettings'),
+          click: () => windowAction('open-settings', openSettings),
+        },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New Window',
+          accelerator: accelerator('newWindow'),
+          click: () => windowAction('new-window', () => createWindow()),
+        },
+        {
+          label: 'Open Folder…',
+          accelerator: accelerator('openFolder'),
+          click: () => windowAction('open-folder', () => chooseTarget(BrowserWindow.getFocusedWindow(), 'folder')),
+        },
+        {
+          label: 'Open File…',
+          accelerator: accelerator('openFile'),
+          click: () => windowAction('open-file', () => chooseTarget(BrowserWindow.getFocusedWindow(), 'file')),
+        },
+        fileMenuItem('searchFiles'),
+        { type: 'separator' },
+        fileMenuItem('saveFile'),
+        fileMenuItem('findInFile'),
+        fileMenuItem('showDiff'),
+        fileMenuItem('showWorkingFile'),
+        fileMenuItem('closeComparison'),
+        { type: 'separator' },
+        fileMenuItem('revealActiveFile'),
+        fileMenuItem('copyRelativePath'),
+        { type: 'separator' },
+        fileMenuItem('previousEditor'),
+        fileMenuItem('closeOtherEditors'),
+        fileMenuItem('closeAllEditors'),
+        { type: 'separator' },
+        { role: 'close', label: 'Close Window', accelerator: accelerator('closeWindow') },
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { role: 'resetZoom', accelerator: electronAccelerator(actualSizeBinding(isMac), isMac) ?? undefined },
+        { role: 'togglefullscreen' },
+        { type: 'separator' },
+        { role: 'toggleDevTools' },
+        {
+          label: 'Open Diagnostics Folder',
+          enabled: diagnosticDirectory.ok,
+          click: () =>
+            windowAction('open-diagnostics-folder', async () => {
+              if (!diagnosticDirectory.ok) return
+              await diagnosticLog?.flush()
+              const message = await shell.openPath(diagnosticDirectory.value)
+              if (message) throw new Error('Diffpane could not open the diagnostics folder.')
+            }),
+        },
+      ],
+    },
+    { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
+  ])
+  Menu.setApplicationMenu(applicationMenu)
+  if (applicationMenu) {
+    const window = BrowserWindow.getFocusedWindow()
+    syncFileMenu(window ? sessions.get(window.webContents.id) : undefined)
+  }
 }
+
+app.on('browser-window-focus', (_event, window) => syncFileMenu(sessions.get(window.webContents.id)))
 
 runBackground(
   'start-app',

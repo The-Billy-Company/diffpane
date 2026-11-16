@@ -61,8 +61,8 @@ function inlineRemovalBounds(pane, nextLine) {
   return [pane.getBottomForLineNumber(nextLine - 1), bottom]
 }
 
-/** @param {{ onScope: (scope: ReviewScope) => void }} options */
-export function createReviewFocus({ onScope }) {
+/** @param {{ onScope: (scope: ReviewScope) => void, onActionsChange?: () => void }} options */
+export function createReviewFocus({ onScope, onActionsChange }) {
   const bar = document.createElement('div')
   bar.className = 'review-hunk-bar'
   bar.setAttribute('role', 'group')
@@ -88,9 +88,6 @@ export function createReviewFocus({ onScope }) {
   const previous = requireElement(bar, '.review-hunk-prev', HTMLButtonElement)
   const next = requireElement(bar, '.review-hunk-next', HTMLButtonElement)
   const replayButton = requireElement(bar, '.review-hunk-replay', HTMLButtonElement)
-  const scopeControl = document.createElement('button')
-  scopeControl.type = 'button'
-  scopeControl.hidden = true
   const changeMap = createReviewChangeMap(jump)
   /** @type {import('monaco-editor').editor.IDiffEditor | null} */
   let editor = null
@@ -142,8 +139,7 @@ export function createReviewFocus({ onScope }) {
     replayButton.hidden = !hunks[index] || Boolean(message)
     previous.disabled = next.disabled = hunks.length < 2
     changeMap.select(index)
-    scopeControl.hidden = hunks.length === 0
-    scopeControl.textContent = scope === 'focus' ? 'Show unchanged lines' : 'Hide unchanged lines'
+    onActionsChange?.()
     scheduleViewport()
   }
 
@@ -264,10 +260,12 @@ export function createReviewFocus({ onScope }) {
     reveal()
   }
 
-  previous.addEventListener('click', () => step(-1))
-  next.addEventListener('click', () => step(1))
-  scopeControl.addEventListener('click', () => chooseScope(scope === 'focus' ? 'full' : 'focus'))
-  replayButton.addEventListener('click', () => {
+  function toggleScope() {
+    if (hunks.length) chooseScope(scope === 'focus' ? 'full' : 'focus')
+  }
+
+  /** @param {() => void} [restoreFocus] */
+  function replay(restoreFocus = () => replayButton.focus({ preventScroll: true })) {
     const model = editor?.getModel()
     const hunk = hunks[index]
     if (replayPending || replayDialog?.open || !model || !hunk) return
@@ -294,7 +292,7 @@ export function createReviewFocus({ onScope }) {
             if (replayDialog !== dialog) return
             replayDialog = undefined
             if (replayButton.isConnected && !replayButton.closest('[hidden]')) {
-              replayButton.focus({ preventScroll: true })
+              restoreFocus()
             }
           },
           { once: true },
@@ -303,7 +301,11 @@ export function createReviewFocus({ onScope }) {
         replayPending = false
       }
     })
-  })
+  }
+
+  previous.addEventListener('click', () => step(-1))
+  next.addEventListener('click', () => step(1))
+  replayButton.addEventListener('click', () => replay())
 
   function detach() {
     replayDialog?.close()
@@ -323,20 +325,30 @@ export function createReviewFocus({ onScope }) {
     bar.hidden = true
     positionNumber.animated = false
     replayButton.hidden = true
-    scopeControl.hidden = true
     changeMap.update([], null)
+    onActionsChange?.()
   }
 
   return {
     bar,
     changeMap: changeMap.element,
+    get actions() {
+      return {
+        scope,
+        hasChanges: hunks.length > 0,
+        canNavigate: hunks.length > 1,
+        canReplay: !replayButton.hidden,
+      }
+    },
+    step,
     revealChange,
+    toggleScope,
+    replay,
     /** @param {'HEAD' | 'Checkpoint'} value */
     setBaseline(value) {
       baseline = value === 'HEAD' ? 'Git HEAD' : value
       changeMap.setBaseline(value)
     },
-    scopeControl,
     workingLine() {
       const hunk = hunks[index]
       return hunk?.modifiedEndLineNumber ? Math.max(1, hunk.modifiedStartLineNumber) : null

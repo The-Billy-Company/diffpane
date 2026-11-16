@@ -184,6 +184,9 @@ importers:
       node-pty:
         specifier: 1.1.0
         version: 1.1.0
+      marked:
+        specifier: ^18.1.1
+        version: 18.1.1
       smol-toml:
         specifier: 1.9.0
         version: 1.9.0
@@ -272,9 +275,6 @@ importers:
       linguist-languages:
         specifier: 9.5.0
         version: 9.5.0
-      marked:
-        specifier: ^18.1.1
-        version: 18.1.1
       material-icon-theme:
         specifier: 5.39.0
         version: 5.39.0

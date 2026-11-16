@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -13,6 +13,10 @@ function edit(name: string, file: string) {
     toolDescription: `Edit ${name}`,
     files: [{ path: file }],
   }
+}
+
+function snapshot(digit: string) {
+  return `composer.content.${digit.repeat(64)}`
 }
 
 test('reads all Cursor conversation chunks and unwraps user prompts before transcript export', async t => {
@@ -174,4 +178,126 @@ test('keeps Cursor turns running between tool calls while the saved run is unfin
   } finally {
     await rm(userDirectory, { recursive: true, force: true })
   }
+})
+
+test('reads completed Cursor edits from saved snapshots and falls back to recorded additions', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-cursor-edits-'))
+  const locator = path.join(cwd, 'state.vscdb')
+  const id = 'af6ffc7e-850f-4cf0-b309-ab27f2a72ec1'
+  const writer = new DatabaseSync(locator)
+  const reader = cursorSource.open({ id, cwd, locator, provider: 'cursor', title: 'Proof', updatedAt: 0 })
+  t.onTestFinished(async () => {
+    reader.close?.()
+    writer.close()
+    await rm(cwd, { recursive: true, force: true })
+  })
+  writer.exec('CREATE TABLE cursorDiskKV (key TEXT PRIMARY KEY, value TEXT)')
+  const put = writer.prepare('INSERT INTO cursorDiskKV VALUES (?, ?)')
+  put.run(snapshot('a'), 'keep\nold\n')
+  put.run(snapshot('b'), 'keep\nnew\n')
+  const records = [
+    {
+      path: 'updated.txt',
+      status: 'completed',
+      result: { beforeContentId: snapshot('a'), afterContentId: snapshot('b') },
+      counts: { editLinesAdded: 1, editLinesRemoved: 1 },
+    },
+    {
+      path: 'created.txt',
+      status: 'completed',
+      result: { afterContentId: snapshot('c') },
+      additionalData: {
+        precomputedDiff: {
+          hasChanges: true,
+          lines: [{ type: 'added', content: 'new file', modifiedLineNumber: 1 }],
+        },
+      },
+    },
+    {
+      path: 'failed.txt',
+      status: 'error',
+      result: { afterContentId: snapshot('b') },
+      counts: { editLinesAdded: 4, editLinesRemoved: 1 },
+    },
+    {
+      path: 'counts-only.txt',
+      status: 'completed',
+      result: { beforeContentId: snapshot('d'), afterContentId: snapshot('e') },
+      counts: { editLinesAdded: 6, editLinesRemoved: 0 },
+    },
+  ]
+  const headings = records.map(({ path: filename, status, result, counts, additionalData }, index) => {
+    const bubbleId = `edit-${index}`
+    put.run(
+      `bubbleId:${id}:${bubbleId}`,
+      JSON.stringify({
+        toolFormerData: { name: 'edit_file_v2', status, result: JSON.stringify(result), additionalData },
+      }),
+    )
+    return { bubbleId, type: 2, grouping: { toolCallCase: 'editToolCall', toolDisplayPath: filename, ...counts } }
+  })
+  put.run(`composerConvHeaders:${id}:000000`, JSON.stringify(headings))
+
+  const [updated, created, failed, withoutSnapshot] = await reader.read()
+  expect(updated?.changes).toEqual([
+    {
+      path: 'updated.txt',
+      operation: 'update',
+      line: 2,
+      additions: 1,
+      deletions: 1,
+      diff: '@@ -1,2 +1,2 @@\n keep\n-old\n+new\n',
+    },
+  ])
+  expect(created?.changes).toEqual([
+    {
+      path: 'created.txt',
+      operation: 'add',
+      line: 1,
+      additions: 1,
+      deletions: 0,
+      diff: '@@ -0,0 +1,1 @@\n+new file\n',
+    },
+  ])
+  expect(failed).toMatchObject({ kind: 'edit', toolDescription: 'Edit failed.txt (error)' })
+  expect(failed?.changes).toBeUndefined()
+  expect(withoutSnapshot?.changes).toEqual([
+    { path: 'counts-only.txt', operation: 'update', additions: 6, deletions: 0 },
+  ])
+})
+
+test('shows requested changes from Cursor JSONL logs that omit tool results', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-cursor-jsonl-'))
+  t.onTestFinished(() => rm(cwd, { recursive: true, force: true }))
+  const locator = path.join(cwd, 'thread.jsonl')
+  const prompt = { role: 'user', message: { content: [{ type: 'text', text: 'Update the sample.' }] } }
+  const request = {
+    role: 'assistant',
+    message: {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'StrReplace',
+          input: { path: 'sample.txt', old_string: 'line one', new_string: 'line two' },
+        },
+      ],
+    },
+  }
+  await writeFile(locator, `${JSON.stringify(prompt)}\n${JSON.stringify(request)}\n`)
+  const reader = cursorSource.open({
+    id: 'af6ffc7e-850f-4cf0-b309-ab27f2a72ec1',
+    cwd,
+    locator,
+    provider: 'cursor',
+    title: 'Proof',
+    updatedAt: 0,
+  })
+  const [, event] = await reader.read()
+  expect(event).toMatchObject({
+    kind: 'edit',
+    toolName: 'StrReplace',
+    files: [{ path: 'sample.txt' }],
+    text: 'Requested change\n-line one\n+line two',
+  })
+  expect(event?.changes).toBeUndefined()
 })

@@ -5,10 +5,12 @@ import 'monaco-editor/editor/contrib/find/browser/findController.js'
 import 'monaco-editor/editor/contrib/clipboard/browser/clipboard.js'
 import 'monaco-editor/editor/contrib/contextmenu/browser/contextmenu.js'
 import 'monaco-editor/editor/contrib/hover/browser/hoverContribution.js'
+import 'monaco-editor/editor/standalone/browser/quickAccess/standaloneGotoLineQuickAccess.js'
 // oxlint-disable-next-line import/default -- Vite generates the worker constructor for ?worker imports.
 import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import { mediaType } from '../../../shared/documents/media-types.ts'
+import { fileMenuLabels, isFileMenuAction } from '../../../shared/preferences/file-menu.ts'
 import {
   ariaBinding,
   bindingLabel,
@@ -71,6 +73,7 @@ import { getWorkspacePreferences } from './preferences.ts'
 /** @import { WorkspaceComparison, WorkspaceDocument, WorkspaceFile, WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
 /** @import { IdeaLink } from '../../../shared/ideas/ideas.ts' */
 /** @import { ReviewAnchor } from '../../../shared/review/review-notes.ts' */
+/** @import { FileMenuAction } from '../../../shared/preferences/file-menu.ts' */
 /** @import { ShortcutAction, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts' */
 /** @import { ContentMatch } from '../../explorer/project-search/content-search.ts' */
 /** @import { FunctionRange } from '../../review/comparison/function-ranges.ts' */
@@ -148,7 +151,7 @@ import { getWorkspacePreferences } from './preferences.ts'
  * @property {EditorDecorations | null} [originalFunctionDecorations]
  * @property {EditorDecorations | null} [functionDecorations]
  * @property {import('monaco-editor/editor/editor.api.js').editor.IStandaloneDiffEditor | null} [diffEditor]
- * @property {import('monaco-editor/editor/editor.api.js').editor.IContextKey<boolean> | null} [headContext]
+ * @property {(() => void) | null} [syncEditorMenu]
  * @property {EditorSide} [ideaSide]
  * @property {EditorSide} [noteSide]
  * @property {Disposable[]} [contextActions]
@@ -295,6 +298,8 @@ if (!bridge) {
 const api = bridge
 const uiPreferences = getWorkspacePreferences()
 const shortcutApi = api?.shortcuts
+let fileMenuSyncQueued = false
+let fileMenuSignature = ''
 const platform = shortcutApi?.platform ?? (globalThis.navigator.platform.startsWith('Mac') ? 'darwin' : 'linux')
 const isMac = platform === 'darwin'
 /** @type {ShortcutOverrides} */
@@ -453,19 +458,23 @@ function matchesShortcut(event, action) {
   return matchesBinding(event, shortcutBinding(action), isMac)
 }
 
+/** @param {string} path @param {number | undefined} line @returns {FileAnchor | null} */
+function workingFileAnchor(path, line) {
+  return line === undefined ? null : { path, side: 'working', line, endLine: line, excerpt: '', direct: true }
+}
+
 const agentThreadPanel =
   api.agentThreads &&
   createAgentThreadPanel(ui.agentThreads, {
     api: api.agentThreads,
+    openExternal: api.openExternal,
     onVisibilityChange: visible => {
       if (visible) app.dataset.agentThreads = isMac ? 'mac' : 'active'
       else delete app.dataset.agentThreads
       syncWorkspaceCommands()
     },
     openWorkspaceFile: async ({ path, line }) => {
-      /** @type {FileAnchor | null} */
-      const anchor = line ? { path, side: 'working', line, endLine: line, excerpt: '', direct: true } : null
-      if (!(await openFile({ path }, { anchor, focusEditor: true })))
+      if (!(await openFile({ path }, { anchor: workingFileAnchor(path, line), focusEditor: true })))
         throw new Error('The linked file could not be opened.')
     },
   })
@@ -541,6 +550,7 @@ const assistant =
 function finishWorkspaceOpening() {
   if (workspaceOpening) workspaceOpening.hidden = true
   app.inert = false
+  syncFileMenu()
 }
 
 function revealWorkspaceWhenReady() {
@@ -797,6 +807,7 @@ async function mutateFile(action, pathname, name) {
     if (closed) return
     if (destination === pathname) return
     fileHistory.move(pathname, destination)
+    syncFileMenu()
     if (destination) navigator.renamed(pathname, destination)
     if (openedFile && pathAffects(pathname, openedFile.path)) {
       const previous = openedFile.path
@@ -976,6 +987,7 @@ function syncReviewState() {
   }
   review.setCurrent(card?.file.path ?? null, state, version)
   billyContext?.setChanged(Boolean(card && reviewFiles().some(file => file.path === card.file.path)))
+  syncFileMenu()
 }
 
 const languageFeatures = createLanguageFeatures(monaco, api, { onState: updateLanguageState })
@@ -1576,6 +1588,7 @@ function createCard(file, openedAt) {
       <span class="language-meta"><span class="language-state">Syntax</span><span class="file-language"></span></span>
     </div>`
   const reviewFocus = createReviewFocus({
+    onActionsChange: () => card.syncEditorMenu?.(),
     onScope: scope => {
       if (card.reviewComparison) reviewScope = scope
       else card.fileDiffScope = scope
@@ -1589,9 +1602,6 @@ function createCard(file, openedAt) {
   actionToggle.before(reviewFocus.bar)
   requireElement(element, '.comparison-labels', HTMLElement).before(reviewFocus.changeMap)
   actionToggle.popoverTargetElement = actions
-  reviewFocus.scopeControl.classList.add('file-action-item')
-  reviewFocus.scopeControl.addEventListener('click', () => actions.hidePopover())
-  actions.prepend(reviewFocus.scopeControl)
   const reviewNotice = documentNode('div', 'file-note', '')
   reviewNotice.hidden = true
   reviewNotice.setAttribute('role', 'status')
@@ -1630,36 +1640,9 @@ function createCard(file, openedAt) {
   requireElement(element, '.file-directory', HTMLElement).textContent = file.path.slice(0, slash + 1)
   requireElement(element, '.file-name', HTMLElement).textContent = file.path.slice(slash + 1)
   requireElement(element, '.file-path', HTMLElement).title = file.path
-  /** @param {string} label @param {string} icon @param {() => void} run */
-  function addFileAction(label, icon, run) {
-    const button = documentNode('button', 'file-action-item', label)
-    button.type = 'button'
-    button.insertAdjacentHTML('afterbegin', icon)
-    button.addEventListener('click', () => {
-      actions.hidePopover()
-      run()
-    })
-    actions.append(button)
-  }
-  if (reviewNotes) {
-    addFileAction('Add file review note', icons.note, () => {
-      if (!closingRequested) reviewNotes.openComposer(captureReviewAnchor(card, 'working', false))
-    })
-  }
-  if (ideas) addFileAction('Link to an idea', icons.idea, () => attachIdeaLink(captureIdeaLink(card)))
-  if (assistant) addFileAction('Ask The Creature about this file', creatureGlyph, () => assistant.toggle(true))
-  if (billyContext && !mediaType(file.path) && !file.submodule) {
-    const siblingAction = documentNode('button', 'file-action-item billy-sibling-action', 'Compare sibling functions')
-    siblingAction.type = 'button'
-    siblingAction.hidden = !billyAvailable
-    siblingAction.insertAdjacentHTML('afterbegin', icons.review)
-    siblingAction.addEventListener('click', () => {
-      actions.hidePopover()
-      if (billyAvailable && !closingRequested && !closed && card.active) billyContext.open('siblings')
-    })
-    actions.append(siblingAction)
-  }
-  addFileAction('Reveal in Files', icons.file, () => revealFileInExplorer(card.file.path))
+  actions.addEventListener('beforetoggle', event => {
+    if (event.newState === 'open') populateFileActions(card, actions, actionToggle)
+  })
   card.nextChange.addEventListener('click', () => {
     if (!card.editor || card.changes.length === 0) return
     card.changeIndex = (card.changeIndex + 1) % card.changes.length
@@ -1719,6 +1702,111 @@ function createCard(file, openedAt) {
   return card
 }
 
+/** @param {Card} card @param {HTMLElement} popover @param {HTMLButtonElement} trigger */
+function populateFileActions(card, popover, trigger) {
+  popover.replaceChildren()
+
+  /** @param {string} label */
+  function group(label) {
+    const section = documentNode('div', 'file-action-group', '')
+    section.setAttribute('role', 'group')
+    section.setAttribute('aria-label', label)
+    const heading = documentNode('div', 'file-action-heading', label)
+    heading.setAttribute('aria-hidden', 'true')
+    section.append(heading)
+    popover.append(section)
+    /** @param {string} name @param {() => unknown} run @param {ShortcutAction} [shortcut] */
+    return (name, run, shortcut) => {
+      const button = documentNode('button', 'file-action-item', name)
+      button.type = 'button'
+      if (shortcut) {
+        const keys = documentNode('span', 'file-action-shortcut', shortcutLabel(shortcut))
+        keys.setAttribute('aria-hidden', 'true')
+        button.append(keys)
+        const aria = ariaBinding(shortcutBinding(shortcut), isMac)
+        if (aria) button.setAttribute('aria-keyshortcuts', aria)
+      }
+      button.addEventListener('click', () => {
+        popover.hidePopover()
+        if (card.active && !closingRequested && !closed) runTask(name, run, { silent: shortcut === 'save' })
+      })
+      section.append(button)
+    }
+  }
+
+  const comparisonAction = canToggleDiff(card) ? fileComparisonActionLabel(card) : null
+  const outline = requireElement(card.element, '.symbol-outline', HTMLDetailsElement)
+  const markdown = card.element.querySelector('.markdown-toggle:not([hidden]) button[aria-pressed="false"]:enabled')
+  if (card.comparing && comparisonAction) {
+    const add = group('Comparison')
+    add(comparisonAction, () => toggleDiff(card))
+    if (card.diffEditor) {
+      const { scope, canNavigate, canReplay, hasChanges } = card.reviewFocus.actions
+      if (canNavigate) {
+        add('Previous change', () => card.reviewFocus.step(-1))
+        add('Next change', () => card.reviewFocus.step(1))
+      }
+      if (hasChanges) {
+        add(scope === 'focus' ? 'Show unchanged lines' : 'Hide unchanged lines', () => card.reviewFocus.toggleScope())
+      }
+      if (canReplay) {
+        add('Replay change', () => card.reviewFocus.replay(() => trigger.focus({ preventScroll: true })))
+      }
+    }
+  }
+
+  if (card.editor) {
+    const add = group('Editor')
+    const readOnly = editorReadOnly(card)
+    if (card.autosave && (!readOnly || card.autosave.pending)) {
+      add('Save file', () => card.autosave?.flush(), 'save')
+    }
+    add('Find in file', () => findInCard(card)?.(), 'find')
+    /** @param {string} id */
+    const runAction = id => {
+      const editor = focusedCardEditor(card)
+      editor?.focus()
+      return editor?.getAction(id)?.run()
+    }
+    if (!card.comparing && !readOnly) add('Replace in file', () => runAction('editor.action.startFindReplaceAction'))
+    add('Go to line…', () => runAction('editor.action.gotoLine'))
+    if (!outline.hidden) {
+      add('Show document symbols', () => showDocumentSymbols(card))
+    }
+    if (!card.nextChange.hidden && !card.nextChange.disabled) add('Next change in file', () => card.nextChange.click())
+  }
+
+  if (markdown instanceof HTMLButtonElement || (!card.comparing && comparisonAction)) {
+    const add = group('View')
+    if (markdown instanceof HTMLButtonElement) {
+      const label = markdown.textContent === 'Source' ? 'Show Markdown source' : 'Show Markdown preview'
+      add(label, () => markdown.click())
+    }
+    if (!card.comparing && comparisonAction) add(comparisonAction, () => toggleDiff(card))
+  }
+
+  const file = group('File')
+  file('Reveal in File Explorer', () => revealFileInExplorer(card.file.path), 'revealActiveFile')
+  if (!card.document?.workingMissing) {
+    file('Copy relative path', () => api.fileAction('copy-relative-path', card.file.path))
+  }
+
+  const canCompareSiblings = billyAvailable && billyContext && !mediaType(card.file.path) && !card.file.submodule
+  if (reviewNotes || ideas || assistant || canCompareSiblings) {
+    const add = group('Workspace')
+    if (reviewNotes) {
+      add('Add file review note', () => reviewNotes.openComposer(captureReviewAnchor(card, 'working', false)))
+    }
+    if (ideas) add('Link to an idea', () => attachIdeaLink(captureIdeaLink(card)))
+    if (assistant) add('Ask The Creature about this file', () => assistant.toggle(true))
+    if (canCompareSiblings) {
+      add('Compare sibling functions', () => {
+        if (billyAvailable) billyContext.open('siblings')
+      })
+    }
+  }
+}
+
 /** @param {WorkspaceSnapshot | null} next */
 function applySnapshot(next) {
   rendererDiagnostics.run('renderer.snapshot-apply', () => renderSnapshot(next))
@@ -1757,10 +1845,6 @@ function renderSnapshot(next) {
         billyAvailable = available
         review.laneHost.hidden = !available
         billyContext?.setAvailable(available)
-        for (const card of cards.values()) {
-          const action = card.element.querySelector('.billy-sibling-action')
-          if (action instanceof HTMLButtonElement) action.hidden = !available
-        }
         refreshBillyLanes()
       },
       { silent: true },
@@ -1803,7 +1887,15 @@ function renderSnapshot(next) {
     const path = next.initialPath?.length ? next.initialPath : next.files[0]?.path
     if (path) {
       const open = async () => {
-        const result = await attemptAsync(() => openFile({ path, submodule: false }))
+        const result = await attemptAsync(() =>
+          openFile(
+            { path, submodule: false },
+            {
+              anchor: workingFileAnchor(path, next.initialLine),
+              focusEditor: next.initialLine !== undefined,
+            },
+          ),
+        )
         if (!result.ok || !result.value) finishWorkspaceOpening()
         if (!result.ok) throw result.error
       }
@@ -2188,10 +2280,7 @@ function renderDocument(card, document, wipeState) {
   const { editor, diffEditor, decorationCollection, model, autosave } = card
   if (!editor || !model || !decorationCollection || !autosave)
     throw new Error('The editor could not be prepared for this file.')
-  if (diffEditor) {
-    updateComparisonAriaLabels(card)
-    card.headContext?.set(baseline === 'HEAD')
-  }
+  if (diffEditor) updateComparisonAriaLabels(card)
   card.text = text
   autosave.accept(text)
   syncLanguageAttachment(card)
@@ -2249,6 +2338,7 @@ function renderDocument(card, document, wipeState) {
   card.changes = Array.from(changeLines).toSorted((a, b) => a - b)
   card.nextChange.disabled = card.changes.length === 0
   card.nextChange.hidden ||= card.nextChange.disabled
+  card.syncEditorMenu?.()
   card.lines.textContent = `${document.lineCount.toLocaleString()} ${document.lineCount === 1 ? 'line' : 'lines'}`
   const language = model.getLanguageId()
   card.language.textContent =
@@ -2494,6 +2584,17 @@ function renderCurrentDocument(card) {
 }
 
 /** @param {Card} card */
+function canToggleDiff(card) {
+  return Boolean(card.document && !closingRequested)
+}
+
+/** @param {Card} card */
+function fileComparisonActionLabel(card) {
+  if (!card.comparing) return 'Compare with Git HEAD'
+  return isCheckpointOnlyDeletion(card) ? 'Close comparison' : 'Show working file'
+}
+
+/** @param {Card} card */
 function toggleDiff(card) {
   const comparing = !card.comparing
   if (!comparing && isCheckpointOnlyDeletion(card)) return closeCurrentFile()
@@ -2577,6 +2678,138 @@ function updateComparisonAriaLabels(card) {
   diffEditor.getModifiedEditor().updateOptions({ ariaLabel: modifiedAriaLabel })
 }
 
+/** @param {Card} card */
+function showDocumentSymbols(card) {
+  const outline = requireElement(card.element, '.symbol-outline', HTMLDetailsElement)
+  outline.open = true
+  outline.querySelector('summary')?.focus()
+}
+
+/** @param {Card} card @param {CodeEditor} editor @param {EditorSide} side */
+function bindEditorMenu(card, editor, side) {
+  const comparing = Boolean(card.diffEditor)
+  /** @param {string} name @returns {monaco.editor.IContextKey<boolean>} */
+  function flag(name) {
+    return editor.createContextKey(name, false)
+  }
+  const canAnchor = flag('diffpaneCanAnchor')
+  let order = 0
+  /** @param {string} group @param {string} id @param {string} label @param {() => unknown} run @param {string} [precondition] */
+  function add(group, id, label, run, precondition) {
+    card.contextActions?.push(
+      editor.addAction({
+        id: `diffpane-${id}`,
+        label,
+        contextMenuGroupId: group,
+        contextMenuOrder: ++order,
+        precondition,
+        run: () => {
+          if (!closingRequested && card.active) runTask(label, run)
+        },
+      }),
+    )
+  }
+  /** @param {string} id */
+  function runMonacoAction(id) {
+    editor.focus()
+    return editor.getAction(id)?.run()
+  }
+
+  if (reviewNotes)
+    add(
+      'z_workspace',
+      'add-review-note',
+      'Add review note',
+      () => {
+        reviewNotes.openComposer(captureReviewAnchor(card, side))
+      },
+      'diffpaneCanAnchor',
+    )
+  if (ideas)
+    add(
+      'z_workspace',
+      'attach-idea',
+      'Link code to an idea',
+      () => {
+        attachIdeaLink(captureIdeaLink(card, side))
+      },
+      'diffpaneCanAnchor',
+    )
+  if (assistant)
+    add(
+      'z_workspace',
+      'ask-creature',
+      'Ask The Creature about this code',
+      () => {
+        card.noteSide = side
+        assistant.toggle(true)
+      },
+      'diffpaneCanAnchor',
+    )
+
+  if (comparing) {
+    const hasChanges = flag('diffpaneHasHunks')
+    const canNavigate = flag('diffpaneCanNavigateHunks')
+    const canReplay = flag('diffpaneCanReplayHunk')
+    const focusedChanges = flag('diffpaneFocusedChanges')
+    const closesComparison = flag('diffpaneClosesComparison')
+    const { reviewFocus } = card
+    add('navigation', 'previous-change', 'Previous change', () => reviewFocus.step(-1), 'diffpaneCanNavigateHunks')
+    add('navigation', 'next-change', 'Next change', () => reviewFocus.step(1), 'diffpaneCanNavigateHunks')
+    add(
+      'navigation',
+      'replay-change',
+      'Replay selected change',
+      () => reviewFocus.replay(() => editor.focus()),
+      'diffpaneCanReplayHunk',
+    )
+    add(
+      '1_view',
+      'show-unchanged',
+      'Show unchanged lines',
+      reviewFocus.toggleScope,
+      'diffpaneHasHunks && diffpaneFocusedChanges',
+    )
+    add(
+      '1_view',
+      'hide-unchanged',
+      'Hide unchanged lines',
+      reviewFocus.toggleScope,
+      'diffpaneHasHunks && !diffpaneFocusedChanges',
+    )
+    add('1_view', 'show-working', 'Show working file', () => toggleDiff(card), '!diffpaneClosesComparison')
+    add('1_view', 'close-comparison', 'Close comparison', () => toggleDiff(card), 'diffpaneClosesComparison')
+    add('1_view', 'find', 'Find in this pane', () => runMonacoAction('actions.find'))
+    return () => {
+      const actions = reviewFocus.actions
+      hasChanges.set(actions.hasChanges)
+      canNavigate.set(actions.canNavigate)
+      canReplay.set(actions.canReplay)
+      focusedChanges.set(actions.scope === 'focus')
+      closesComparison.set(Boolean(isCheckpointOnlyDeletion(card)))
+      canAnchor.set(side === 'head' ? comparisonLabel(card) === 'HEAD' : !card.document?.workingMissing)
+    }
+  }
+
+  const hasSourceChanges = flag('diffpaneHasSourceChanges')
+  add('navigation', 'find', 'Find in file', () => runMonacoAction('actions.find'))
+  add(
+    'navigation',
+    'replace',
+    'Replace in file',
+    () => runMonacoAction('editor.action.startFindReplaceAction'),
+    '!editorReadonly',
+  )
+  add('navigation', 'goto-line', 'Go to line…', () => runMonacoAction('editor.action.gotoLine'))
+  add('navigation', 'show-symbols', 'Show document symbols', () => showDocumentSymbols(card))
+  add('1_view', 'compare-head', 'Compare with Git HEAD', () => toggleDiff(card))
+  add('1_view', 'next-change', 'Next change in file', () => card.nextChange.click(), 'diffpaneHasSourceChanges')
+  return () => {
+    canAnchor.set(!card.document?.workingMissing)
+    hasSourceChanges.set(card.changes.length > 0)
+  }
+}
+
 /** @param {Card} card @param {ViewState | null | undefined} state */
 function setCardEditor(card, state) {
   const { model, document } = card
@@ -2584,7 +2817,7 @@ function setCardEditor(card, state) {
   for (const action of card.contextActions ?? []) action.dispose()
   card.contextActions = []
   card.changePeek = null
-  card.headContext = null
+  card.syncEditorMenu = null
   card.languageCleanup?.()
   card.languageCleanup = null
   if (card.diffEditor) {
@@ -2627,7 +2860,6 @@ function setCardEditor(card, state) {
     card.diffEditor.setModel({ original: card.originalModel, modified: model })
     card.editor = card.diffEditor.getModifiedEditor()
     const originalEditor = card.diffEditor.getOriginalEditor()
-    card.headContext = originalEditor.createContextKey('diffpaneHeadBaseline', comparisonLabel(card) === 'HEAD')
     updateComparisonAriaLabels(card)
     const labels = requireElement(card.element, '.comparison-labels', HTMLElement)
     /** @param {{width: number}} layout */
@@ -2644,6 +2876,13 @@ function setCardEditor(card, state) {
   }
   card.noteSide = 'working'
   card.ideaSide = 'working'
+  const original = card.diffEditor?.getOriginalEditor()
+  const syncWorkingMenu = bindEditorMenu(card, card.editor, 'working')
+  const syncOriginalMenu = original && bindEditorMenu(card, original, 'head')
+  card.syncEditorMenu = () => {
+    syncWorkingMenu()
+    syncOriginalMenu?.()
+  }
   if (reviewNotes || ideas || assistant) {
     const contextActions = card.contextActions
     let contextFrame = 0
@@ -2666,19 +2905,6 @@ function setCardEditor(card, state) {
         editor.onDidChangeCursorSelection(refreshAssistantContext),
         editor.onDidScrollChange(refreshAssistantContext),
       )
-      if (reviewNotes)
-        contextActions.push(
-          editor.addAction({
-            id: `diffpane-add-review-note-${side}`,
-            label: 'Add review note',
-            precondition: side === 'head' ? 'diffpaneHeadBaseline' : undefined,
-            contextMenuGroupId: 'navigation',
-            contextMenuOrder: 20,
-            run: () => {
-              if (!closingRequested) reviewNotes.openComposer(captureReviewAnchor(card, side))
-            },
-          }),
-        )
       if (ideas) {
         const surface = editor.getDomNode()
         const selectSide = () => {
@@ -2688,19 +2914,11 @@ function setCardEditor(card, state) {
         contextActions.push(
           { dispose: () => surface?.removeEventListener('wheel', selectSide) },
           editor.onMouseDown(selectSide),
-          editor.addAction({
-            id: `diffpane-attach-idea-${side}`,
-            label: 'Attach selection or view to an idea',
-            precondition: side === 'head' ? 'diffpaneHeadBaseline' : undefined,
-            contextMenuGroupId: 'navigation',
-            contextMenuOrder: 21,
-            run: () => attachIdeaLink(captureIdeaLink(card, side)),
-          }),
         )
       }
     }
     bindContext(card.editor, 'working')
-    if (card.diffEditor) bindContext(card.diffEditor.getOriginalEditor(), 'head')
+    if (original) bindContext(original, 'head')
     refreshAssistantContext()
   }
   card.decorationCollection = card.editor.createDecorationsCollection()
@@ -2834,7 +3052,7 @@ function releaseEditor(card) {
   for (const action of card.contextActions ?? []) action.dispose()
   card.contextActions = []
   card.changePeek = null
-  card.headContext = null
+  card.syncEditorMenu = null
   card.noteSide = 'working'
   card.ideaSide = 'working'
   card.contentCleanup?.dispose()
@@ -2976,13 +3194,82 @@ function searchFiles() {
 function findAction(event) {
   if (event.target === ui.navigator.querySelector('.navigator-tree')) return navigator.focusSearch
   const card = openedFile ? cards.get(openedFile.path) : undefined
-  const original = card?.diffEditor?.getOriginalEditor()
-  const editor = original?.hasWidgetFocus() ? original : card?.editor
-  if (editor?.hasWidgetFocus()) {
-    const action = editor.getAction('actions.find')
-    if (action) return () => action.run()
-  }
+  if (card && focusedCardEditor(card)?.hasWidgetFocus()) return findInCard(card)
   return undefined
+}
+
+/** @param {Card} card */
+function focusedCardEditor(card) {
+  const original = card.diffEditor?.getOriginalEditor()
+  if (original?.hasWidgetFocus() || (original && card.noteSide === 'head' && !card.editor?.hasWidgetFocus()))
+    return original
+  return card.editor
+}
+
+/** @param {Card} card */
+function findInCard(card) {
+  const editor = focusedCardEditor(card)
+  const action = editor?.getAction('actions.find')
+  if (!editor || !action) return undefined
+  return () => {
+    if (!editor.hasWidgetFocus()) editor.focus()
+    return action.run()
+  }
+}
+
+function closeOtherEditors() {
+  fileHistory.closeOthers(openedFile?.path)
+  syncFileMenu()
+}
+
+/** @type {Record<FileMenuAction, (card: Card | undefined) => (() => unknown) | null | undefined | false>} */
+const fileMenuCommands = {
+  searchFiles: () => snapshot && openFilePicker,
+  saveFile: card => {
+    const autosave = card?.autosave
+    return card && autosave && (autosave.pending || !editorReadOnly(card)) && (() => autosave.flush())
+  },
+  findInFile: card => {
+    const find = card && findInCard(card)
+    return (
+      find &&
+      (() => {
+        returnFromIdeas()
+        return find()
+      })
+    )
+  },
+  showDiff: card => card && canToggleDiff(card) && !card.comparing && (() => toggleDiff(card)),
+  showWorkingFile: card =>
+    card && canToggleDiff(card) && card.comparing && !isCheckpointOnlyDeletion(card) && (() => toggleDiff(card)),
+  closeComparison: card =>
+    card && canToggleDiff(card) && card.comparing && isCheckpointOnlyDeletion(card) && (() => toggleDiff(card)),
+  revealActiveFile: card => card && (() => revealFileInExplorer(card.file.path)),
+  copyRelativePath: card =>
+    card && !card.document?.workingMissing && (() => api.fileAction('copy-relative-path', card.file.path)),
+  previousEditor: card => Boolean(fileHistory.previous(card?.file.path)) && switchToPreviousFile,
+  closeOtherEditors: card => Boolean(card && fileHistory.previous(card.file.path)) && closeOtherEditors,
+  closeAllEditors: card => Boolean(card ?? fileHistory.previous(undefined)) && closeEditors,
+}
+
+function syncFileMenu() {
+  if (!api.fileMenu || fileMenuSyncQueued) return
+  fileMenuSyncQueued = true
+  queueMicrotask(() => {
+    fileMenuSyncQueued = false
+    if (closed) return
+    const card = openedFile ? cards.get(openedFile.path) : undefined
+    const actions =
+      app.inert || closingRequested
+        ? []
+        : Object.keys(fileMenuCommands)
+            .filter(isFileMenuAction)
+            .filter(action => fileMenuCommands[action](card))
+    const signature = actions.join(',')
+    if (signature === fileMenuSignature) return
+    fileMenuSignature = signature
+    api.fileMenu.setActions(actions)
+  })
 }
 
 const workspaceShortcuts = {
@@ -3007,7 +3294,7 @@ const workspaceShortcuts = {
   navigateForward: () => snapshot && (() => navigateFileHistory(1)),
   previousEditor: () => snapshot && switchToPreviousFile,
   closeAllEditors: () => snapshot && closeEditors,
-  closeOtherEditors: () => snapshot && (() => fileHistory.closeOthers(openedFile?.path)),
+  closeOtherEditors: () => snapshot && closeOtherEditors,
   closeEditorGroup: () => snapshot && (() => closeEditors(true)),
   refresh: () => snapshot && refresh,
   save: (/** @type {KeyboardEvent} */ event) => {
@@ -3069,6 +3356,21 @@ document.addEventListener(
 applyShortcutOverrides(shortcutOverrides)
 
 const unsubscribeSettings = shortcutApi?.onOpenSettings(openSettings)
+const unsubscribeFileMenu = api.fileMenu?.onAction(action => {
+  if (
+    !isFileMenuAction(action) ||
+    closed ||
+    closingRequested ||
+    app.inert ||
+    !ui.agentThreads.hidden ||
+    settings?.isOpen ||
+    document.querySelector('dialog[open]')
+  )
+    return
+  const card = openedFile ? cards.get(openedFile.path) : undefined
+  const run = fileMenuCommands[action](card)
+  if (run) runTask(fileMenuLabels[action], run, { silent: action === 'saveFile' })
+})
 const unsubscribeShortcuts = shortcutApi?.onChange(overrides => {
   shortcutVersion++
   applyShortcutOverrides(overrides)
@@ -3152,6 +3454,7 @@ Object.assign(window, {
   const unsubscribeIdeas = api.ideas?.onChange(change => ideas?.applyChange(change))
   workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
   api.rendererReady()
+  syncFileMenu()
   const unsubscribePaths = subscribeLivePaths(
     api,
     guard('Apply file updates', paths => {
@@ -3224,6 +3527,7 @@ Object.assign(window, {
       unsubscribeIdeaVisibility()
       uiPreferences.dispose()
       unsubscribeSettings?.()
+      unsubscribeFileMenu?.()
       unsubscribeShortcuts?.()
       removedEditorFind?.dispose()
       unsubscribeFlush()

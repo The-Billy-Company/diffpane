@@ -4,8 +4,9 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { setImmediate } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import type { AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
-import { activityText, latestActivity, readJsonLines, recentJsonRecords, toolCall } from './source.ts'
+import { formatPatch, OMIT_HEADERS, structuredPatch } from 'diff'
+import type { AgentThreadChange, AgentThreadEvent, AgentThreadFile } from '../../../../shared/agent-threads.ts'
+import { activityText, readJsonLines, recentJsonRecords, summarizeActivity, toolCall } from './source.ts'
 import type { AgentThreadReader, AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const sessionId = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i
@@ -14,6 +15,9 @@ const fileTools = new Set(['Read', ...editTools])
 const recentLimit = 40
 const tailBytes = 64 * 1024
 const activityWindow = 5 * 60 * 1000
+const snapshotKey = /^composer\.content\.[a-f\d]{64}$/i
+const maxSnapshotBytes = 1024 * 1024
+const maxPatchLength = 64 * 1024
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -63,6 +67,23 @@ function cursorUserText(value: unknown) {
   return query?.trim() ?? ''
 }
 
+function replacementFragment(prefix: string, value: unknown) {
+  if (typeof value !== 'string' || !value) return ''
+  const text = value.slice(0, 1800).replace(/\n$/, '').replaceAll('\n', `\n${prefix}`)
+  return `${prefix}${text}`
+}
+
+function proposedEdit(name: string, input: Record<string, unknown> | undefined): string {
+  if (name === 'Write' && typeof input?.contents === 'string') return `Requested contents\n${input.contents}`
+  if (!['Edit', 'MultiEdit', 'StrReplace'].includes(name)) return ''
+  const edits: unknown[] = Array.isArray(input?.edits) ? input.edits : [input]
+  const fragments = edits.slice(0, 10).flatMap(edit => {
+    const args = object(edit)
+    return [replacementFragment('-', args?.old_string), replacementFragment('+', args?.new_string)].filter(Boolean)
+  })
+  return fragments.length ? `Requested change\n${fragments.join('\n')}` : ''
+}
+
 function toolEvent(block: Record<string, unknown>, summary = false): AgentThreadEvent[] {
   const name = string(block.name)
   if (!name) return []
@@ -88,7 +109,14 @@ function toolEvent(block: Record<string, unknown>, summary = false): AgentThread
       : name === 'Grep'
         ? string(input?.pattern)
         : command.split('\n', 1)[0])
-  return [toolCall(toolName, { kind: editTools.has(name) ? 'edit' : 'tool', description, text: command, files })]
+  return [
+    toolCall(toolName, {
+      kind: editTools.has(name) ? 'edit' : 'tool',
+      description,
+      text: summary ? '' : command || proposedEdit(name, input),
+      files,
+    }),
+  ]
 }
 
 function transcriptEvents(record: unknown, summary = false): AgentThreadEvent[] {
@@ -185,6 +213,7 @@ interface Header {
   active?: boolean
   running: boolean
   activity?: string
+  action?: string
 }
 
 function headers(databasePath: string, ids: string[], roots: Map<string, string>): Map<string, Header> {
@@ -264,6 +293,7 @@ function headers(databasePath: string, ids: string[], roots: Map<string, string>
         active: running || (!pending && freshTurn && state?.status === 'aborted') || undefined,
         running,
         activity,
+        action: toolCase ? activity : undefined,
       })
     }
   } catch {
@@ -291,15 +321,98 @@ const composerTools = new Map([
   ['updateTodosToolCall', 'TodoWrite'],
 ])
 
-function composerToolEvent(group: Record<string, unknown> | undefined, tool: Record<string, unknown>) {
+function savedCount(value: unknown) {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
+}
+
+function snapshotPatch(filename: string, before: string, after: string) {
+  const patch = structuredPatch(filename, filename, before, after, undefined, undefined, { context: 3, timeout: 20 })
+  if (!patch?.hunks.length) return undefined
+  let additions = 0
+  let deletions = 0
+  let line: number | undefined
+  for (const hunk of patch.hunks) {
+    for (const [index, row] of hunk.lines.entries()) {
+      if (row.startsWith('+')) additions++
+      else if (row.startsWith('-')) deletions++
+      else continue
+      line ??= Math.max(1, hunk.newStart + index)
+    }
+  }
+  const diff = formatPatch(patch, OMIT_HEADERS)
+  return { line, additions, deletions, ...(diff.length <= maxPatchLength ? { diff } : {}) }
+}
+
+function savedAdditions(value: unknown) {
+  const lines = object(decode(value))?.lines
+  if (!Array.isArray(lines) || !lines.length) return undefined
+  const added: string[] = []
+  let size = 0
+  for (const [index, entry] of lines.entries()) {
+    const row = object(entry)
+    const content = row?.content
+    if (row?.type !== 'added' || row.modifiedLineNumber !== index + 1 || typeof content !== 'string') return undefined
+    size += content.length + 2
+    if (size > maxPatchLength) return undefined
+    added.push(`+${content}`)
+  }
+  return {
+    line: 1,
+    additions: added.length,
+    deletions: 0,
+    diff: `@@ -0,0 +1,${added.length} @@\n${added.join('\n')}\n`,
+  }
+}
+
+function composerChange(
+  name: string,
+  filename: string,
+  group: Record<string, unknown> | undefined,
+  details: Record<string, unknown> | undefined,
+  readContent: (key: string) => string | undefined,
+): AgentThreadChange | undefined {
+  const result = object(decode(details?.result))
+  const beforeId = string(result?.beforeContentId)
+  const afterId = string(result?.afterContentId)
+  const operation = name === 'Delete' ? 'delete' : !beforeId && snapshotKey.test(afterId) ? 'add' : 'update'
+  if (beforeId && beforeId === afterId && operation === 'update') return undefined
+  const before = operation === 'add' ? '' : readContent(beforeId)
+  const after = operation === 'delete' ? '' : readContent(afterId)
+  const patch = before !== undefined && after !== undefined ? snapshotPatch(filename, before, after) : undefined
+  const savedDeletions = savedCount(group?.editLinesRemoved)
+  const fallback = patch || (savedDeletions ?? 0) > 0 ? undefined : savedAdditions(details?.diff)
+  const additions = patch?.additions ?? savedCount(group?.editLinesAdded) ?? fallback?.additions
+  const deletions = patch?.deletions ?? savedDeletions ?? fallback?.deletions
+  const diff = patch?.diff ?? fallback?.diff
+  const line = patch?.line ?? fallback?.line
+  if (operation === 'update' && !additions && !deletions && !(snapshotKey.test(beforeId) && snapshotKey.test(afterId)))
+    return undefined
+  return {
+    path: filename,
+    operation,
+    ...(line ? { line } : {}),
+    ...(diff ? { diff } : {}),
+    ...(additions !== undefined ? { additions } : {}),
+    ...(deletions !== undefined ? { deletions } : {}),
+  }
+}
+
+function composerToolEvent(
+  group: Record<string, unknown> | undefined,
+  tool: Record<string, unknown>,
+  status: string,
+  completedChange: (name: string, filename: string) => AgentThreadChange | undefined,
+) {
   const toolCase = string(group?.toolCallCase)
   const storedName = string(tool.name)
   const name = composerTools.get(toolCase) ?? (storedName === 'run_terminal_command_v2' ? 'Shell' : storedName)
   const params = object(decode(tool.params))
   const args = object(decode(tool.rawArgs))
-  return toolEvent({
+  const events = toolEvent({
     name,
     input: {
+      ...params,
+      ...args,
       path: group?.toolDisplayPath ?? args?.path ?? params?.targetFile ?? params?.relativeWorkspacePath,
       offset: args?.offset ?? params?.offset ?? params?.startLine,
       description: params?.commandDescription ?? params?.description ?? args?.description,
@@ -309,6 +422,16 @@ function composerToolEvent(group: Record<string, unknown> | undefined, tool: Rec
       completed_subtitle: args?.completedSubtitle,
     },
   })
+  const event = events[0]
+  if (!event || !editTools.has(name)) return events
+  if (status !== 'completed') {
+    if (status) event.toolDescription = `${event.toolDescription ?? name} (${status})`
+    return events
+  }
+  const filename = event.files?.[0]?.path
+  const change = filename ? completedChange(name, filename) : undefined
+  if (change) event.changes = [change]
+  return events
 }
 
 function composerReader(databasePath: string, id: string): AgentThreadReader {
@@ -340,6 +463,19 @@ function composerReader(databasePath: string, id: string): AgentThreadReader {
                json_extract(value, '$.toolFormerData.rawArgs') AS rawArgs
         FROM cursorDiskKV WHERE key = ? AND json_valid(value)
       `)
+      const selectEdit = database.prepare(`
+        SELECT json_extract(value, '$.toolFormerData.result') AS result,
+               json_extract(value, '$.toolFormerData.additionalData.precomputedDiff') AS diff
+        FROM cursorDiskKV WHERE key = ? AND json_valid(value)
+      `)
+      const selectContent = database.prepare(`
+        SELECT value FROM cursorDiskKV WHERE key = ? AND typeof(value) = 'text' AND octet_length(value) <= ?
+      `)
+      const readContent = (key: string) => {
+        if (!snapshotKey.test(key)) return undefined
+        const value = selectContent.get(key, maxSnapshotBytes)?.value
+        return typeof value === 'string' ? value : undefined
+      }
       const chunks = database.prepare('SELECT value FROM cursorDiskKV WHERE key > ? AND key < ? ORDER BY key')
       const prefix = `composerConvHeaders:${id}`
       const rows = chunks.all(`${prefix}:`, `${prefix};`)
@@ -362,7 +498,8 @@ function composerReader(databasePath: string, id: string): AgentThreadReader {
           const toolStatus = string(group?.toolFormerStatus)
           const toolCase = string(group?.toolCallCase)
           const name = fileToolCases.get(toolCase)
-          const bubble = selectBubble.get(`bubbleId:${id}:${bubbleId}`)
+          const bubbleKey = `bubbleId:${id}:${bubbleId}`
+          const bubble = selectBubble.get(bubbleKey)
           const status = toolStatus || string(bubble?.status)
           const role = heading?.type === 1 ? 'user' : 'assistant'
           const text = role === 'user' ? cursorUserText(bubble?.text) : string(bubble?.text)
@@ -372,7 +509,11 @@ function composerReader(databasePath: string, id: string): AgentThreadReader {
           }
           if (bubble && (bubble.name || name)) {
             if (name && name !== 'Read' && !stableTools.has(status)) continue
-            events.push(...composerToolEvent(group, bubble))
+            events.push(
+              ...composerToolEvent(group, bubble, status, (editName, filename) =>
+                composerChange(editName, filename, group, selectEdit.get(bubbleKey), readContent),
+              ),
+            )
           }
           if (text) events.push({ kind: role, text })
           if (typeof group?.turnDurationMs === 'number') {
@@ -465,6 +606,7 @@ export const cursorSource = {
               active: header.active,
               status: header.running ? 'running' : 'recent',
               activity: header.activity,
+              action: header.action,
               locator: databasePath,
             } satisfies AgentThreadRecord,
           ]
@@ -499,11 +641,11 @@ export const cursorSource = {
   },
   open(thread): AgentThreadReader {
     if (thread.locator.endsWith('state.vscdb')) return composerReader(thread.locator, thread.id)
-    return readJsonLines(thread.locator, () => transcriptEvents)
+    return readJsonLines(thread.locator, () => record => transcriptEvents(record))
   },
   async summarize(thread) {
     if (!thread.locator.endsWith('.jsonl')) return undefined
     const records = await recentJsonRecords(thread.locator)
-    return latestActivity(records.flatMap(record => transcriptEvents(record, true)))
+    return summarizeActivity(records.flatMap(record => transcriptEvents(record, true)))
   },
 } satisfies AgentThreadSource

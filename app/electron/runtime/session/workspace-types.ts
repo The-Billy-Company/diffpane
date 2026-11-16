@@ -26,6 +26,7 @@ export interface WorkspaceSnapshot {
   root: string
   scope: string
   initialPath: string | null
+  initialLine?: number
   branch: string
   head: string | null
   files: WorkspaceFile[]

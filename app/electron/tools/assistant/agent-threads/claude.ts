@@ -3,16 +3,23 @@ import { readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { AgentThreadEvent, AgentThreadFile, AgentThreadStatus } from '../../../../shared/agent-threads.ts'
+import { formatPatch, OMIT_HEADERS } from 'diff'
+import type { StructuredPatchHunk } from 'diff'
+import type {
+  AgentThreadChange,
+  AgentThreadEvent,
+  AgentThreadFile,
+  AgentThreadStatus,
+} from '../../../../shared/agent-threads.ts'
 import {
   activityText,
-  latestActivity,
   readJsonLines,
   recentJsonRecords,
   sampleJsonRecords,
+  summarizeActivity,
   toolCall,
 } from './source.ts'
-import type { AgentThreadRecord, AgentThreadSource } from './source.ts'
+import type { AgentThreadProcess, AgentThreadRecord, AgentThreadSource } from './source.ts'
 
 const run = promisify(execFile)
 const uuid = /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i
@@ -27,6 +34,7 @@ interface ClaudeSessionRecord {
   updatedAt: number
   status: AgentThreadStatus
   activity?: string
+  process?: AgentThreadProcess
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -41,13 +49,14 @@ function string(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
-function sessionRecord(input: unknown): ClaudeSessionRecord | undefined {
+function sessionRecord(input: unknown, observedAt: number): ClaudeSessionRecord | undefined {
   const row = object(input)
   if (!row) return undefined
   const id = string(row.sessionId)
   const cwd = absoluteDirectory(row.cwd)
   if (!uuid.test(id) || !cwd) return undefined
   const updatedAt = row.updatedAt ?? row.statusUpdatedAt ?? row.startedAt
+  const pid = row.pid
   let status: AgentThreadStatus = 'unknown'
   if (row.state === 'blocked') status = 'idle'
   else if (row.status === 'busy' || (!row.status && row.state === 'working')) status = 'running'
@@ -60,6 +69,17 @@ function sessionRecord(input: unknown): ClaudeSessionRecord | undefined {
     updatedAt: typeof updatedAt === 'number' ? updatedAt : 0,
     status,
     activity: row.state === 'blocked' ? 'Waiting for input' : undefined,
+    process:
+      typeof pid === 'number' &&
+      Number.isSafeInteger(pid) &&
+      pid > 0 &&
+      (!row.pidDomain || row.pidDomain === process.platform)
+        ? {
+            pid,
+            observedAt,
+            sessionStartedAt: typeof row.startedAt === 'number' && row.startedAt > 0 ? row.startedAt : undefined,
+          }
+        : undefined,
   }
 }
 
@@ -135,12 +155,54 @@ async function transcript(directory: string, session: Pick<ClaudeSessionRecord, 
   )
 }
 
+function isLineNumber(value: unknown, minimum: number): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum
+}
+
 function fileReference(inputPath: unknown, cwd: string, line?: unknown): AgentThreadFile | undefined {
   if (typeof inputPath !== 'string' || !inputPath || inputPath.includes('\0')) return undefined
   const filename = path.resolve(cwd, inputPath)
-  return typeof line === 'number' && Number.isSafeInteger(line) && line > 0
-    ? { path: filename, line }
-    : { path: filename }
+  return isLineNumber(line, 1) ? { path: filename, line } : { path: filename }
+}
+
+function recordedEdit(file: AgentThreadFile, result: Record<string, unknown>): AgentThreadChange | undefined {
+  if (!Array.isArray(result.structuredPatch) || !result.structuredPatch.length) return undefined
+  let additions = 0
+  let deletions = 0
+  const hunks: StructuredPatchHunk[] = []
+  for (const entry of result.structuredPatch) {
+    const hunk = object(entry)
+    if (!hunk) return undefined
+    const { oldStart, oldLines, newStart, newLines, lines } = hunk
+    if (
+      !isLineNumber(oldStart, 1) ||
+      !isLineNumber(oldLines, 0) ||
+      !isLineNumber(newStart, 1) ||
+      !isLineNumber(newLines, 0) ||
+      !Array.isArray(lines) ||
+      !lines.every((line): line is string => typeof line === 'string')
+    )
+      return undefined
+    let context = 0
+    let added = 0
+    let removed = 0
+    for (const line of lines) {
+      if (line.startsWith('+')) added++
+      else if (line.startsWith('-')) removed++
+      else if (line.startsWith(' ')) context++
+      else if (line !== '\\ No newline at end of file') return undefined
+    }
+    if (context + added !== newLines || context + removed !== oldLines) return undefined
+    additions += added
+    deletions += removed
+    hunks.push({ oldStart, oldLines, newStart, newLines, lines })
+  }
+  if (!additions && !deletions) return undefined
+  const diff = formatPatch(
+    { oldFileName: file.path, newFileName: file.path, oldHeader: undefined, newHeader: undefined, hunks },
+    OMIT_HEADERS,
+  )
+  return { ...file, operation: result.type === 'create' ? 'add' : 'update', diff, additions, deletions }
 }
 
 function toolDescription(name: string, input: Record<string, unknown> | undefined, file?: AgentThreadFile) {
@@ -204,12 +266,20 @@ function claudeEvents(initialCwd: string, summary = false) {
           if (tool) events.push({ kind: 'status', text: `${tool.toolName} failed` })
           continue
         }
-        const result = object(row.toolUseResult)
-        const patch = result?.structuredPatch
-        const firstChange = Array.isArray(patch) ? object(patch[0])?.newStart : undefined
         if (tool?.kind === 'edit') {
-          const file = fileReference(result?.filePath ?? tool.files?.[0]?.path, cwd, firstChange)
-          if (file) tool.files = [file]
+          // A row-level result is only attributable when the row reports one tool result.
+          const result = blocks.some(candidate => candidate !== item && object(candidate)?.type === 'tool_result')
+            ? undefined
+            : object(row.toolUseResult)
+          const patch = result?.structuredPatch
+          const firstChange = Array.isArray(patch) ? object(patch[0])?.newStart : undefined
+          const requestedFile = tool.files?.[0]
+          const file = fileReference(result?.filePath ?? requestedFile?.path, cwd, firstChange ?? requestedFile?.line)
+          if (file) {
+            tool.files = [file]
+            const change = !summary && result && recordedEdit(file, result)
+            if (change) tool.changes = [change]
+          }
         }
       }
     }
@@ -248,7 +318,7 @@ async function savedThreads(directory: string, liveIds: Set<string>): Promise<Ag
       const rows = [...start, ...end].map(object)
       const cwd = rows.map(row => absoluteDirectory(row?.cwd)).findLast(Boolean)
       if (!cwd) return undefined
-      const prompt = start.flatMap(claudeEvents(cwd)).find(event => event.kind === 'user')?.text
+      const prompt = start.flatMap(claudeEvents(cwd, true)).find(event => event.kind === 'user')?.text
       const customTitle = rows.findLast(row => row?.type === 'custom-title')?.customTitle
       const aiTitle = rows.findLast(row => row?.type === 'ai-title')?.aiTitle
       const inferredTitle = [string(customTitle), string(aiTitle), prompt].find(Boolean)
@@ -266,11 +336,19 @@ export const claudeSource: AgentThreadSource = {
     const running = await runningClaudeSessions()
     if (!running && !(await stat(directory)).isDirectory()) throw new Error('Claude Code storage is unavailable.')
     const rows = running ?? (await registrySessions(directory))
+    const observedAt = Date.now()
     const sessions = new Map<string, ClaudeSessionRecord>()
+    const processes = new Map<string, Map<number, AgentThreadProcess>>()
     for (const row of rows) {
-      const session = sessionRecord(row)
-      const existing = session && sessions.get(session.id)
-      if (session && (!existing || session.updatedAt > existing.updatedAt)) sessions.set(session.id, session)
+      const session = sessionRecord(row, observedAt)
+      if (!session) continue
+      const existing = sessions.get(session.id)
+      if (!existing || session.updatedAt > existing.updatedAt) sessions.set(session.id, session)
+      if (session.process) {
+        const candidates = processes.get(session.id) ?? new Map<number, AgentThreadProcess>()
+        candidates.set(session.process.pid, session.process)
+        processes.set(session.id, candidates)
+      }
     }
     const live = await Promise.all(
       [...sessions.values()].map(async session => {
@@ -284,6 +362,7 @@ export const claudeSource: AgentThreadSource = {
           active: true,
           status: session.status,
           activity: session.activity,
+          processes: [...(processes.get(session.id)?.values() ?? [])],
           updatedAt: Math.max(session.updatedAt, modifiedAt),
         } satisfies AgentThreadRecord
       }),
@@ -305,6 +384,6 @@ export const claudeSource: AgentThreadSource = {
   },
   async summarize(thread) {
     const parse = claudeEvents(thread.cwd, true)
-    return latestActivity((await recentJsonRecords(thread.locator)).flatMap(parse))
+    return summarizeActivity((await recentJsonRecords(thread.locator)).flatMap(parse))
   },
 }

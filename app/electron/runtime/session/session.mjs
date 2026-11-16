@@ -47,13 +47,21 @@ const fseventsRescanMessages = new Set([
   'Too many events. File system must be re-scanned.',
 ])
 const startupTime = performance.now()
-const { repository, initialPath, versions } = await diagnostics.run('workspace.open', async () => {
+const { repository, initialPath, initialLine, versions } = await diagnostics.run('workspace.open', async () => {
   const launch = parseSessionLaunch(workerData)
   const opened = await Repository.open(launch.directory)
-  const launchPath = await realpath(launch.directory)
+  const launchPath = await realpath(launch.initialFile ?? launch.directory)
+  const isFile = (await lstat(launchPath)).isFile()
+  const relative = path.relative(opened.scope, launchPath)
+  if (
+    launch.initialFile &&
+    (!isFile || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+  )
+    throw new Error('The initial file is outside this workspace.')
   return {
     repository: opened,
-    initialPath: (await lstat(launchPath)).isFile() ? path.relative(opened.root, launchPath) : null,
+    initialPath: isFile ? path.relative(opened.root, launchPath).split(path.sep).join('/') : null,
+    initialLine: isFile ? launch.initialLine : undefined,
     versions: launch.versions,
   }
 })
@@ -707,6 +715,7 @@ async function performRefresh() {
       root: repository.root,
       scope: repository.scope,
       initialPath,
+      ...(initialLine !== undefined ? { initialLine } : {}),
       revision,
       changedPaths,
       inventoryRevision: catalogRevision,

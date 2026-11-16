@@ -33,10 +33,12 @@ export function createAgentThreadMinimap(conversation: HTMLElement) {
     const viewport = Math.max(16, (position.clientHeight * clientHeight) / scrollHeight)
     const origin = conversation.getBoundingClientRect().top - scrollTop
     const preview = document.createDocumentFragment()
-    for (const block of transcript.querySelectorAll<HTMLElement>('.agent-thread-turn, .agent-thread-tool-group')) {
+    for (const block of transcript.querySelectorAll<HTMLElement>(
+      '.agent-thread-turn, .agent-thread-tool-group, .agent-thread-edit-summary',
+    )) {
       const { top, height } = block.getBoundingClientRect()
       const mark = document.createElement('span')
-      mark.dataset.role = block.dataset.role ?? 'tool'
+      mark.dataset.role = block.dataset.role ?? (block.matches('.agent-thread-tool-group') ? 'tool' : 'edit')
       mark.style.insetBlockStart = `${(100 * (top - origin)) / scrollHeight}%`
       mark.style.blockSize = `${(100 * height) / scrollHeight}%`
       preview.append(mark)

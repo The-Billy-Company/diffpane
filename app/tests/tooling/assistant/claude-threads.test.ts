@@ -1,4 +1,4 @@
-import { appendFile, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test, vi } from 'vite-plus/test'
@@ -20,10 +20,20 @@ test('attaches to an open Claude Code session before its transcript exists', asy
     await rm(root, { recursive: true, force: true })
   })
   const id = 'cda5083e-c9eb-4b86-8917-d9cae2377aba'
-  run.mockResolvedValue({ stdout: JSON.stringify([{ sessionId: id, cwd, name: 'Proof', status: 'idle' }]) })
+  const startedAt = Date.now() - 10_000
+  run.mockResolvedValue({
+    stdout: JSON.stringify([{ sessionId: id, cwd, name: 'Proof', status: 'idle', pid: 421, startedAt }]),
+  })
 
   const [session] = await claudeSource.list()
-  expect(session).toMatchObject({ id, cwd, title: 'Proof', provider: 'claude', active: true })
+  expect(session).toMatchObject({
+    id,
+    cwd,
+    title: 'Proof',
+    provider: 'claude',
+    active: true,
+    processes: [{ pid: 421, sessionStartedAt: startedAt }],
+  })
   if (!session) throw new Error('Missing Claude Code session')
   const reader = claudeSource.open(session)
   expect(await reader.read()).toEqual([])
@@ -86,4 +96,83 @@ test('attaches to an open Claude Code session before its transcript exists', asy
   await expect(claudeSource.list()).resolves.toMatchObject([
     { id, cwd, title: 'Saved example changes', provider: 'claude', status: 'recent' },
   ])
+})
+
+test('exposes the hunks recorded for successful Claude Code edits', async t => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'diffpane-claude-edits-'))
+  t.onTestFinished(() => rm(cwd, { recursive: true, force: true }))
+  const locator = path.join(cwd, 'session.jsonl')
+  const editedFile = path.join(cwd, 'example.txt')
+  const createdFile = path.join(cwd, 'new.txt')
+  const records = [
+    {
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', id: 'edit', name: 'Edit', input: { file_path: editedFile } },
+          { type: 'tool_use', id: 'write', name: 'Write', input: { file_path: createdFile } },
+          { type: 'tool_use', id: 'failed', name: 'Edit', input: { file_path: editedFile } },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'edit' }] },
+      toolUseResult: {
+        filePath: editedFile,
+        structuredPatch: [
+          { oldStart: 3, oldLines: 2, newStart: 3, newLines: 3, lines: [' before', '-old', '+new', '+another'] },
+          {
+            oldStart: 22,
+            oldLines: 2,
+            newStart: 23,
+            newLines: 1,
+            lines: ['-old tail', ' keep trailing space ', '\\ No newline at end of file'],
+          },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'write' }] },
+      toolUseResult: {
+        filePath: createdFile,
+        type: 'create',
+        structuredPatch: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, lines: ['+new file'] }],
+      },
+    },
+    {
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'failed', is_error: true }] },
+      toolUseResult: {
+        filePath: editedFile,
+        structuredPatch: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1, lines: ['-old', '+rejected'] }],
+      },
+    },
+  ]
+  await writeFile(locator, records.map(record => JSON.stringify(record)).join('\n'))
+  const reader = claudeSource.open({
+    id: 'session',
+    provider: 'claude',
+    title: 'Example edits',
+    cwd,
+    locator,
+    updatedAt: 0,
+  })
+  const [edit, write, failed, status] = await reader.read()
+  expect(edit?.changes).toEqual([
+    {
+      path: editedFile,
+      line: 3,
+      operation: 'update',
+      additions: 2,
+      deletions: 2,
+      diff: '@@ -3,2 +3,3 @@\n before\n-old\n+new\n+another\n@@ -22,2 +23,1 @@\n-old tail\n keep trailing space \n\\ No newline at end of file\n',
+    },
+  ])
+  expect(write?.changes).toEqual([
+    { path: createdFile, line: 1, operation: 'add', additions: 1, deletions: 0, diff: '@@ -0,0 +1,1 @@\n+new file\n' },
+  ])
+  expect(failed?.changes).toBeUndefined()
+  expect(status).toEqual({ kind: 'status', text: 'Edit failed' })
 })

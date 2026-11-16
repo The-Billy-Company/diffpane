@@ -41,6 +41,7 @@ export function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot 
     isString(value.root) &&
     isString(value.scope) &&
     (value.initialPath === null || isString(value.initialPath)) &&
+    (value.initialLine === undefined || (isSessionRevision(value.initialLine) && value.initialLine > 0)) &&
     isString(value.branch) &&
     (value.head === null || isString(value.head)) &&
     Array.isArray(value.files) &&

@@ -1,4 +1,5 @@
 import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
+import type { AgentMemoryActivity, AgentMemorySnapshot, MemoryPressure } from '../../../shared/agent-memory.ts'
 import { agentProviderNames } from '../../../shared/agent-threads.ts'
 import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
@@ -37,17 +38,39 @@ const providerLogos: Record<AgentProvider, string> = {
 
 const providers = ['codex', 'claude', 'antigravity', 'cursor'] satisfies AgentProvider[]
 const stateLabels = { running: 'Running', idle: 'Idle', recent: 'Recent', unknown: 'Unknown', stale: 'Stale' }
+const pressureLabels: Record<MemoryPressure, string> = {
+  normal: 'Normal',
+  warning: 'Elevated',
+  critical: 'Critical',
+  unknown: 'Unavailable',
+}
 const NO_PROJECT = 'unassigned'
 const timeFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+const sampleTimeFormat = new Intl.DateTimeFormat(undefined, { timeStyle: 'medium' })
+const memoryNumberFormat = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 })
+const MEMORY_INTERVAL_MS = 2_000
+const MEMORY_HISTORY_LIMIT = 30
 const RUNNING_THREAD_INTERVAL_MS = 350
 const IDLE_THREAD_INTERVAL_MS = 1_200
+const CHILDREN_REFRESH_INTERVAL_MS = 2_000
 
 type ThreadState = keyof typeof stateLabels
 
 interface ThreadPanelOptions {
   api: DiffpaneApi['agentThreads']
   openWorkspaceFile: (file: AgentThreadFile) => unknown
+  openExternal?: (href: string) => unknown
   onVisibilityChange?: (visible: boolean) => void
+}
+
+interface ConversationView {
+  thread: AgentThread
+  reading: boolean
+  needsSnapshot: boolean
+  transcript?: ReturnType<typeof createAgentThreadTranscript>
+  transcriptElement?: HTMLElement
+  contents?: ChildNode[]
+  scrollTop: number
 }
 
 function icon(name: keyof typeof glyphs) {
@@ -67,6 +90,11 @@ function basename(path: string) {
 
 function threadCount(count: number) {
   return `${count} ${count === 1 ? 'thread' : 'threads'}`
+}
+
+function memorySize(bytes: number) {
+  if (bytes >= 1024 ** 3) return `${memoryNumberFormat.format(bytes / 1024 ** 3)} GiB`
+  return `${memoryNumberFormat.format(bytes / 1024 ** 2)} MiB`
 }
 
 function projectOf(thread: AgentThread) {
@@ -119,7 +147,7 @@ function renderTime(element: HTMLTimeElement, stamp: number, now: number, absolu
 
 export function createAgentThreadPanel(
   host: HTMLElement,
-  { api, openWorkspaceFile, onVisibilityChange }: ThreadPanelOptions,
+  { api, openWorkspaceFile, openExternal, onVisibilityChange }: ThreadPanelOptions,
 ) {
   host.classList.add('agent-threads')
   host.hidden = true
@@ -133,6 +161,7 @@ export function createAgentThreadPanel(
       <button class="agent-thread-control" type="button" data-back aria-label="Back to threads" hidden>${icon('arrow')}<span>Threads</span></button>
       <div class="agent-thread-topbar-end">
         <span class="agent-thread-sync" role="status" data-sync></span>
+        <span class="agent-thread-memory-state agent-thread-memory-detail" role="status" data-memory-detail hidden>Memory pressure · Checking…</span>
         <button class="agent-thread-control" type="button" data-refresh aria-label="Refresh threads" title="Refresh threads">${icon('refresh')}<span>Refresh</span></button>
         <span class="agent-thread-topbar-rule" aria-hidden="true"></span>
         <button class="agent-thread-control" type="button" data-close aria-label="Back to workspace" title="Back to workspace">${icon('close')}<span>Workspace</span></button>
@@ -163,6 +192,32 @@ export function createAgentThreadPanel(
               .join('')}
           </div>
         </div>
+        <section class="agent-thread-memory" aria-labelledby="agent-thread-memory-title">
+          <div class="agent-thread-memory-system">
+            <div class="agent-thread-memory-heading">
+              <h2 id="agent-thread-memory-title">Memory pressure</h2>
+              <span class="agent-thread-memory-state" role="status" data-memory-pressure>Checking…</span>
+            </div>
+            <div class="agent-thread-memory-sample">
+              <div>
+                <div class="agent-thread-memory-usage" data-memory-usage hidden></div>
+                <div class="agent-thread-memory-source" data-memory-source hidden>
+                  <span data-memory-provider></span><time data-memory-time></time>
+                </div>
+              </div>
+              <div class="agent-thread-memory-history" aria-hidden="true" data-memory-history></div>
+            </div>
+          </div>
+          <div class="agent-thread-memory-agents">
+            <div class="agent-thread-memory-heading">
+              <h3>Active agent threads</h3>
+              <span class="agent-thread-memory-caption" data-memory-caption hidden>Latest recorded action</span>
+            </div>
+            <p class="agent-thread-memory-empty" data-memory-empty>Checking activity…</p>
+            <ul class="agent-thread-memory-actions" aria-label="Active agent threads" data-memory-actions hidden></ul>
+            <p class="agent-thread-memory-empty" role="status" data-memory-activity-status hidden></p>
+          </div>
+        </section>
         <div class="agent-thread-list" data-list>
           <div class="agent-thread-list-content" data-list-content></div>
         </div>
@@ -184,17 +239,14 @@ export function createAgentThreadPanel(
         </div>
         <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')} Latest</button>
       </header>
-      <div class="agent-thread-reading">
+      <div class="agent-thread-delegate-tabs" data-delegate-tabs hidden>
+        <div class="agent-thread-tablist" role="tablist" aria-label="Conversation and subagents" data-delegate-tablist></div>
+        <p class="agent-thread-tab-status" data-delegate-status role="status" hidden></p>
+      </div>
+      <p class="agent-thread-file-status" data-file-status role="status" hidden></p>
+      <div class="agent-thread-reading" id="agent-thread-active-panel">
         <div class="agent-thread-transcript" data-conversation></div>
       </div>
-      <section class="agent-thread-preview" aria-label="File preview" data-preview hidden>
-        <header>
-          <strong></strong>
-          <button type="button" class="agent-thread-control" data-close-preview aria-label="Close file preview" title="Close file preview">${icon('close')}</button>
-        </header>
-        <p hidden>Showing the first 256 KiB</p>
-        <pre tabindex="0"></pre>
-      </section>
     </section>`
 
   const browser = requireElement(host, '[data-browser]', HTMLDivElement)
@@ -210,6 +262,17 @@ export function createAgentThreadPanel(
   const running = requireElement(host, '[data-running]', HTMLButtonElement)
   const list = requireElement(host, '[data-list]', HTMLDivElement)
   const listContent = requireElement(list, '[data-list-content]', HTMLDivElement)
+  const memoryPressure = requireElement(host, '[data-memory-pressure]', HTMLElement)
+  const memoryDetail = requireElement(host, '[data-memory-detail]', HTMLElement)
+  const memoryUsage = requireElement(host, '[data-memory-usage]', HTMLDivElement)
+  const memorySource = requireElement(host, '[data-memory-source]', HTMLDivElement)
+  const memoryProvider = requireElement(memorySource, '[data-memory-provider]', HTMLElement)
+  const memoryTime = requireElement(memorySource, '[data-memory-time]', HTMLTimeElement)
+  const memoryHistory = requireElement(host, '[data-memory-history]', HTMLDivElement)
+  const memoryCaption = requireElement(host, '[data-memory-caption]', HTMLElement)
+  const memoryActions = requireElement(host, '[data-memory-actions]', HTMLUListElement)
+  const memoryEmpty = requireElement(host, '[data-memory-empty]', HTMLParagraphElement)
+  const memoryActivityStatus = requireElement(host, '[data-memory-activity-status]', HTMLParagraphElement)
   const allAgents = requireElement(host, '[data-any-agent]', HTMLButtonElement)
   const sources = new Map(
     providers.map(provider => {
@@ -227,12 +290,13 @@ export function createAgentThreadPanel(
   const detailTime = requireElement(detail, '[data-detail-time]', HTMLTimeElement)
   const conversation = requireElement(detail, '[data-conversation]', HTMLDivElement)
   const minimap = createAgentThreadMinimap(conversation)
-  requireElement(detail, '.agent-thread-reading', HTMLDivElement).append(minimap.element)
+  const readingPanel = requireElement(detail, '.agent-thread-reading', HTMLDivElement)
+  readingPanel.append(minimap.element)
+  const delegateTabs = requireElement(detail, '[data-delegate-tabs]', HTMLDivElement)
+  const delegateTablist = requireElement(delegateTabs, '[data-delegate-tablist]', HTMLDivElement)
+  const delegateStatus = requireElement(delegateTabs, '[data-delegate-status]', HTMLParagraphElement)
   const latest = requireElement(detail, '[data-latest]', HTMLButtonElement)
-  const preview = requireElement(detail, '[data-preview]', HTMLElement)
-  const previewTitle = requireElement(preview, 'strong', HTMLElement)
-  const previewContents = requireElement(preview, 'pre', HTMLPreElement)
-  const previewLimit = requireElement(preview, 'p', HTMLParagraphElement)
+  const fileStatus = requireElement(detail, '[data-file-status]', HTMLParagraphElement)
 
   let threads = new Map<string, AgentThread>()
   const rowButtons = new Map<string, HTMLButtonElement>()
@@ -240,7 +304,6 @@ export function createAgentThreadPanel(
   let loaded = false
   let listError = false
   let listing = false
-  let reading = false
   let disposed = false
   let lastChecked = 0
   let projectFilter = ''
@@ -252,12 +315,148 @@ export function createAgentThreadPanel(
   let selected: AgentThread | undefined
   let selection = ''
   let threadTimer: number | undefined
-  let transcript: ReturnType<typeof createAgentThreadTranscript> | undefined
-  let transcriptElement: HTMLElement | undefined
-  let needsSnapshot = true
+  const views = new Map<string, ConversationView>()
+  const children = new Map<string, AgentThread>()
+  const childLookups = new Map<string, { checkedAt: number; pending?: Promise<void> }>()
+  const tabButtons = new Map<string, HTMLButtonElement>()
+  let activeView: ConversationView | undefined
+  let observedTranscript: HTMLElement | undefined
   let following = false
-  let fileButton: HTMLButtonElement | undefined
   let fileRequest = 0
+  let memoryTimer: number | undefined
+  let memoryRun = 0
+  let samplingMemory = false
+  let renderedMemoryActions = ''
+  let pendingMemoryThread = ''
+  let returnMemoryThread = ''
+  const memorySamples: Pick<AgentMemorySnapshot, 'sampledAt' | 'pressure'>[] = []
+
+  function memoryThreadButton(id: string) {
+    return [...memoryActions.querySelectorAll('button')].find(button => button.dataset.threadId === id)
+  }
+
+  function openMemoryThread(id: string) {
+    memoryActivityStatus.hidden = true
+    const thread = threads.get(id)
+    if (thread) openThread(thread, id)
+    else {
+      pendingMemoryThread = id
+      requestRefresh()
+    }
+  }
+
+  function memoryActionRow(activity: AgentMemoryActivity, displayedPids: Set<number>) {
+    const row = node('li', 'agent-thread-memory-action')
+    const button = node('button', 'agent-thread-memory-open')
+    button.type = 'button'
+    button.dataset.threadId = activity.id
+    const mark = providerMark(activity.provider)
+    mark.setAttribute('role', 'img')
+    mark.setAttribute('aria-label', agentProviderNames[activity.provider])
+    const title = node('strong', 'agent-thread-memory-thread', activity.title)
+    title.title = `${agentProviderNames[activity.provider]} · ${activity.title}`
+    const action = node('span', 'agent-thread-memory-action-text', activity.action ?? 'No action recorded')
+    action.title = action.textContent
+    const process = activity.process
+    const measurement = node('span', 'agent-thread-memory-resident')
+    if (process) {
+      measurement.textContent = displayedPids.has(process.pid)
+        ? `Shared PID ${process.pid}`
+        : `${memorySize(process.residentBytes)} resident${process.shared ? ` · shared PID ${process.pid}` : ''}`
+      measurement.title = `Resident memory of PID ${process.pid}${process.shared ? ' shared across threads' : ''}`
+      displayedPids.add(process.pid)
+    }
+    button.append(mark, title, action, measurement)
+    button.addEventListener('click', () => openMemoryThread(activity.id))
+    row.append(button)
+    return row
+  }
+
+  function renderMemory(sample: AgentMemorySnapshot | undefined, failed = false) {
+    const pressure = sample?.pressure ?? 'unknown'
+    const pressureLabel = sample || failed ? pressureLabels[pressure] : 'Checking…'
+    memoryPressure.dataset.pressure = pressure
+    if (memoryPressure.textContent !== pressureLabel) memoryPressure.textContent = pressureLabel
+    memoryDetail.dataset.pressure = pressure
+    const detailLabel = `Memory pressure · ${pressureLabel}`
+    if (memoryDetail.textContent !== detailLabel) memoryDetail.textContent = detailLabel
+    const { usedBytes, totalBytes } = sample ?? {}
+    memoryUsage.hidden = usedBytes === undefined || totalBytes === undefined
+    if (usedBytes !== undefined && totalBytes !== undefined)
+      memoryUsage.textContent = `${memorySize(usedBytes)} / ${memorySize(totalBytes)} used`
+    memorySource.hidden = !sample
+    if (sample) {
+      memoryProvider.textContent = sample.source === 'windows' ? 'Windows app' : 'System'
+      memoryTime.dateTime = new Date(sample.sampledAt).toISOString()
+      memoryTime.textContent = sampleTimeFormat.format(sample.sampledAt)
+      memoryTime.title = `Latest sample at ${timeFormat.format(sample.sampledAt)}`
+      if (memorySamples.at(-1)?.sampledAt !== sample.sampledAt) {
+        memorySamples.push({ sampledAt: sample.sampledAt, pressure })
+        while (memorySamples.length > MEMORY_HISTORY_LIMIT) memorySamples.shift()
+        memoryHistory.replaceChildren(
+          ...memorySamples.map(previous => {
+            const marker = node('span', 'agent-thread-memory-tick')
+            marker.dataset.pressure = previous.pressure
+            marker.title = `${pressureLabels[previous.pressure]} · ${sampleTimeFormat.format(previous.sampledAt)}`
+            return marker
+          }),
+        )
+      }
+    }
+    memoryHistory.hidden = !sample
+
+    const activities = sample?.activities ?? []
+    memoryCaption.hidden = !activities.length
+    memoryActions.hidden = !activities.length
+    memoryEmpty.hidden = Boolean(activities.length)
+    memoryEmpty.textContent = failed
+      ? 'Activity unavailable'
+      : sample
+        ? 'No active agent threads detected'
+        : 'Checking activity…'
+    const actions = JSON.stringify(activities)
+    if (actions === renderedMemoryActions) return
+    renderedMemoryActions = actions
+    const activeId =
+      document.activeElement instanceof HTMLButtonElement && memoryActions.contains(document.activeElement)
+        ? document.activeElement.dataset.threadId
+        : undefined
+    const displayedPids = new Set<number>()
+    memoryActions.replaceChildren(...activities.map(activity => memoryActionRow(activity, displayedPids)))
+    if (activeId) (memoryThreadButton(activeId) ?? query).focus({ preventScroll: true })
+  }
+
+  function canSampleMemory() {
+    return !disposed && !host.hidden && !document.hidden
+  }
+
+  async function pollMemory() {
+    if (samplingMemory || !canSampleMemory()) return
+    samplingMemory = true
+    const run = memoryRun
+    const started = performance.now()
+    try {
+      const sample = await api.memory()
+      if (run === memoryRun && canSampleMemory()) renderMemory(sample)
+    } catch {
+      if (run === memoryRun && canSampleMemory()) renderMemory(undefined, true)
+    } finally {
+      samplingMemory = false
+      if (canSampleMemory()) {
+        const delay = run === memoryRun ? Math.max(0, MEMORY_INTERVAL_MS - (performance.now() - started)) : 0
+        memoryTimer = window.setTimeout(() => void pollMemory(), delay)
+      }
+    }
+  }
+
+  function updateMemorySampling() {
+    window.clearTimeout(memoryTimer)
+    memoryRun++
+    if (canSampleMemory()) {
+      renderMemory(undefined)
+      void pollMemory().catch((error: unknown) => reportError(error, { silent: true }))
+    }
+  }
 
   function stateOf(thread: AgentThread): ThreadState {
     return listError || unavailable.has(thread.provider) ? 'stale' : (thread.status ?? 'unknown')
@@ -268,10 +467,11 @@ export function createAgentThreadPanel(
     appTitle.classList.toggle('agent-thread-app-title-compact', Boolean(selected))
     back.hidden = !selected
     sync.hidden = Boolean(selected)
+    memoryDetail.hidden = !selected
     const label = selected ? 'Refresh conversation' : 'Refresh threads'
     refresh.setAttribute('aria-label', label)
     refresh.title = label
-    refresh.disabled = selected ? reading && !transcript : listing
+    refresh.disabled = selected ? Boolean(activeView?.reading && !activeView.transcript) : listing
   }
 
   function setProjectsOpen(open: boolean) {
@@ -440,53 +640,178 @@ export function createAgentThreadPanel(
     list.scrollTop = 0
   }
 
+  function renderDelegateTabs() {
+    const root = selected
+    const shown = Boolean(root && children.size)
+    delegateTabs.hidden = !shown && delegateStatus.hidden
+    delegateTablist.hidden = !shown
+    if (!root || !shown) {
+      delegateTablist.replaceChildren()
+      readingPanel.removeAttribute('role')
+      readingPanel.removeAttribute('aria-labelledby')
+      return
+    }
+    const buttons = [root, ...children.values()].map(thread => {
+      let tab = tabButtons.get(thread.id)
+      if (!tab) {
+        tab = node('button', 'agent-thread-tab')
+        tab.type = 'button'
+        tab.id = `agent-thread-tab-${tabButtons.size}`
+        tab.setAttribute('role', 'tab')
+        tab.setAttribute('aria-controls', readingPanel.id)
+        tab.addEventListener('click', () => {
+          const next = thread.id === selected?.id ? selected : children.get(thread.id)
+          if (next) switchConversation(next, true)
+        })
+        tabButtons.set(thread.id, tab)
+      }
+      const label = thread.id === root.id ? 'Main thread' : (thread.agentName ?? thread.title)
+      if (tab.textContent !== label) tab.textContent = label
+      tab.title = thread.title
+      const active = thread.id === activeView?.thread.id
+      tab.setAttribute('aria-selected', String(active))
+      tab.tabIndex = active ? 0 : -1
+      return tab
+    })
+    if (
+      buttons.length !== delegateTablist.children.length ||
+      buttons.some((tab, i) => tab !== delegateTablist.children[i])
+    ) {
+      delegateTablist.replaceChildren(...buttons)
+    }
+    const active = buttons.find(tab => tab.tabIndex === 0)
+    if (active) {
+      readingPanel.setAttribute('role', 'tabpanel')
+      readingPanel.setAttribute('aria-labelledby', active.id)
+    }
+  }
+
+  function lookupChildren(view: ConversationView, force = false): Promise<void> | undefined {
+    const root = selected
+    if (!root) return undefined
+    const id = view.thread.id
+    const previous = childLookups.get(id)
+    if (previous?.pending) return previous.pending
+    if (!force && previous && Date.now() - previous.checkedAt < CHILDREN_REFRESH_INTERVAL_MS) return undefined
+    const current = selection
+    const lookup: { checkedAt: number; pending?: Promise<void> } = { checkedAt: Date.now() }
+    const parentId = id === root.id ? undefined : id
+    async function discover() {
+      const found = await api.children(current, parentId)
+      if (selection !== current) return
+      let changed = false
+      for (const child of found) {
+        const prior = children.get(child.id)
+        children.set(child.id, child)
+        if (!prior || prior.title !== child.title || prior.agentName !== child.agentName) changed = true
+      }
+      if (changed) renderDelegateTabs()
+    }
+    lookup.pending = discover()
+      .catch((error: unknown) => {
+        reportError(error, { silent: true })
+      })
+      .finally(() => {
+        lookup.pending = undefined
+      })
+    childLookups.set(id, lookup)
+    return lookup.pending
+  }
+
+  async function openDelegate(id: string, origin: ConversationView) {
+    const root = selected
+    if (activeView !== origin) return
+    if (root?.id === id) {
+      switchConversation(root, true)
+      return
+    }
+    if (!children.has(id)) await lookupChildren(origin, true)
+    if (activeView !== origin) return
+    const next = children.get(id)
+    if (next) switchConversation(next, true)
+    else {
+      delegateStatus.textContent = 'This subagent transcript is unavailable.'
+      delegateStatus.hidden = false
+      renderDelegateTabs()
+    }
+  }
+
+  function switchConversation(thread: AgentThread, focusTab = false) {
+    if (activeView?.thread.id !== thread.id) {
+      const previous = activeView
+      if (previous?.transcript) {
+        previous.contents = [...conversation.childNodes]
+        previous.scrollTop = conversation.scrollTop
+      }
+      window.clearTimeout(threadTimer)
+      clearFileNavigation()
+      delegateStatus.hidden = true
+      const view = views.get(thread.id) ?? { thread, reading: false, needsSnapshot: true, scrollTop: 0 }
+      view.thread = thread
+      views.set(thread.id, view)
+      activeView = view
+      if (view.contents) {
+        conversation.replaceChildren(...view.contents)
+        conversation.setAttribute('aria-busy', 'false')
+        conversation.scrollTop = view.scrollTop
+        syncConversationScroll()
+      } else {
+        showAgentThreadConversationState(conversation, thread.provider)
+        conversation.scrollTop = 0
+        following = false
+        latest.hidden = true
+      }
+      setTranscriptElement(view.transcriptElement)
+      renderDelegateTabs()
+      updateTopbar()
+      requestRefresh()
+    }
+    if (focusTab) tabButtons.get(thread.id)?.focus()
+  }
+
   function clearSelection() {
     const previous = selection
     selection = ''
-    reading = false
+    activeView = undefined
     window.clearTimeout(threadTimer)
-    needsSnapshot = true
     following = false
-    transcript = undefined
+    views.clear()
+    children.clear()
+    childLookups.clear()
+    tabButtons.clear()
+    delegateStatus.hidden = true
+    renderDelegateTabs()
     setTranscriptElement()
-    fileRequest++
     if (previous) void api.clear(previous).catch((error: unknown) => reportError(error, { silent: true }))
-    preview.hidden = true
-    previewContents.textContent = ''
-    fileButton = undefined
+    clearFileNavigation()
   }
 
-  async function readFile(file: AgentThreadFile, button?: HTMLButtonElement) {
+  function clearFileNavigation() {
+    fileRequest++
+    fileStatus.hidden = true
+    fileStatus.textContent = ''
+  }
+
+  async function openLinkedFile(file: AgentThreadFile) {
     const current = selection
     const request = ++fileRequest
-    fileButton = button
+    fileStatus.hidden = true
     try {
-      const result = await api.file(current, file.path)
+      const childId = activeView?.thread.id === selected?.id ? undefined : activeView?.thread.id
+      const result = await api.file(current, file.path, childId, file.line)
       if (selection !== current || request !== fileRequest) return
+      close()
       if (result.kind === 'workspace') {
-        close()
         try {
           await openWorkspaceFile({ ...file, path: result.path })
         } catch (error) {
-          reportError(error)
+          reportError(error, { operation: 'Open linked file' })
         }
-        return
       }
-      previewTitle.textContent = basename(file.path)
-      previewTitle.title = file.path
-      previewContents.textContent = result.text
-      previewLimit.hidden = !result.limited
-      preview.hidden = false
-      previewContents.focus({ preventScroll: true })
-      const lineHeight = Number.parseFloat(getComputedStyle(previewContents).lineHeight)
-      previewContents.scrollTop = file.line ? (file.line - 1) * lineHeight : 0
     } catch (error) {
       if (selection === current && request === fileRequest) {
-        preview.hidden = false
-        previewTitle.textContent = basename(file.path)
-        previewLimit.hidden = true
-        previewContents.textContent = reportError(error, { silent: true }).message
-        previewContents.focus({ preventScroll: true })
+        fileStatus.textContent = reportError(error, { operation: 'Open linked file', silent: true }).message
+        fileStatus.hidden = false
       }
     }
   }
@@ -502,20 +827,29 @@ export function createAgentThreadPanel(
 
   function setTranscriptElement(next?: HTMLElement) {
     minimap.setTranscript(next)
-    if (transcriptElement === next) return
-    if (transcriptElement) transcriptSize.unobserve(transcriptElement)
-    transcriptElement = next
+    if (observedTranscript === next) return
+    if (observedTranscript) transcriptSize.unobserve(observedTranscript)
+    observedTranscript = next
     if (next) transcriptSize.observe(next)
   }
 
-  function applyTranscript(from: number, events: readonly AgentThreadEvent[], thread: AgentThread) {
-    const follow = transcript ? isAtLatest() : thread.status === 'running'
-    transcript ??= createAgentThreadTranscript(conversation, {
+  function applyTranscript(from: number, events: readonly AgentThreadEvent[], view: ConversationView) {
+    const { thread } = view
+    const follow = view.transcript ? isAtLatest() : thread.status === 'running'
+    view.transcript ??= createAgentThreadTranscript(conversation, {
       provider: thread.provider,
       providerMark: providerMark(thread.provider),
-      onOpenFile: (file, button) => void readFile(file, button),
+      projectRoot: thread.projectRoot ?? thread.cwd,
+      assistantName: thread.agentName,
+      userName: thread.id === selected?.id ? undefined : 'Parent agent',
+      openExternal,
+      onOpenFile: file => void openLinkedFile(file),
+      onOpenDelegate: id => {
+        void openDelegate(id, view).catch((error: unknown) => reportError(error, { silent: true }))
+      },
     })
-    setTranscriptElement(transcript.update(from, events))
+    view.transcriptElement = view.transcript.update(from, events)
+    setTranscriptElement(view.transcriptElement)
     if (follow) conversation.scrollTop = conversation.scrollHeight
     syncConversationScroll()
   }
@@ -538,39 +872,46 @@ export function createAgentThreadPanel(
   }
 
   async function readThread() {
-    const thread = selected
-    if (!thread || reading) return
+    const root = selected
+    const view = activeView
+    if (!root || !view || view.reading) return
+    const thread = view.thread
+    const childId = root.id === thread.id ? undefined : thread.id
     window.clearTimeout(threadTimer)
     const current = selection
-    reading = true
-    const initial = !transcript
+    view.reading = true
+    const initial = !view.transcript
     if (initial) updateTopbar()
     let retryDelay: number | undefined
     try {
-      if (needsSnapshot) {
-        const events = await api.read(thread.id, current)
-        if (selection !== current) return
-        applyTranscript(0, events, thread)
-        needsSnapshot = false
+      if (view.needsSnapshot) {
+        const events = await api.read(root.id, current, childId)
+        if (selection !== current || activeView !== view) return
+        applyTranscript(0, events, view)
+        view.needsSnapshot = false
       } else {
-        const { change, thread: updated } = await api.update(thread.id, current)
+        const { change, thread: updated } = await api.update(root.id, current, childId)
         if (selection !== current) return
-        if (updated?.id === thread.id) updateSelectedThread(updated)
+        if (updated?.id === thread.id) {
+          view.thread = updated
+          if (!childId) updateSelectedThread(updated)
+        }
         if (change) {
-          if (!transcript || change.from > transcript.eventCount) {
-            needsSnapshot = true
+          if (activeView !== view || !view.transcript || change.from > view.transcript.eventCount) {
+            view.needsSnapshot = true
           } else {
-            applyTranscript(change.from, change.events, selected ?? thread)
+            applyTranscript(change.from, change.events, view)
           }
         }
       }
+      await lookupChildren(view)
     } catch (error) {
-      if (selection !== current) return
+      if (selection !== current || activeView !== view) return
       const loading = conversation.getAttribute('aria-busy') === 'true'
-      if (!needsSnapshot || loading) reportError(error, { silent: true })
-      needsSnapshot = true
+      if (!view.needsSnapshot || loading) reportError(error, { silent: true })
+      view.needsSnapshot = true
       retryDelay = IDLE_THREAD_INTERVAL_MS
-      if (!transcript && loading) {
+      if (!view.transcript && loading) {
         showAgentThreadConversationState(
           conversation,
           thread.provider,
@@ -579,12 +920,15 @@ export function createAgentThreadPanel(
         )
       }
     } finally {
-      if (selection === current) {
-        reading = false
+      view.reading = false
+      if (selection === current && activeView === view) {
         if (initial) updateTopbar()
         if (canUpdateConversation()) {
-          const interval = selected?.status === 'running' ? RUNNING_THREAD_INTERVAL_MS : IDLE_THREAD_INTERVAL_MS
-          threadTimer = window.setTimeout(updateConversationVisibility, retryDelay ?? (needsSnapshot ? 0 : interval))
+          const interval = view.thread.status === 'running' ? RUNNING_THREAD_INTERVAL_MS : IDLE_THREAD_INTERVAL_MS
+          threadTimer = window.setTimeout(
+            updateConversationVisibility,
+            retryDelay ?? (view.needsSnapshot ? 0 : interval),
+          )
         }
       }
     }
@@ -600,10 +944,12 @@ export function createAgentThreadPanel(
     void operation.catch((error: unknown) => reportError(error))
   }
 
-  function openThread(thread: AgentThread) {
+  function openThread(thread: AgentThread, fromMemory = '') {
     previousListTop = list.scrollTop
     clearSelection()
     selection = crypto.randomUUID()
+    pendingMemoryThread = ''
+    returnMemoryThread = fromMemory
     browser.hidden = true
     detail.hidden = false
     detail.dataset.provider = thread.provider
@@ -612,9 +958,7 @@ export function createAgentThreadPanel(
       document.createTextNode(agentProviderNames[thread.provider]),
     )
     updateSelectedThread(thread)
-    showAgentThreadConversationState(conversation, thread.provider)
-    latest.hidden = true
-    requestRefresh()
+    switchConversation(thread)
     detailTitle.focus({ preventScroll: true })
   }
 
@@ -629,7 +973,9 @@ export function createAgentThreadPanel(
     renderRoster()
     list.scrollTop = previousListTop
     updateTopbar()
-    ;(rowButtons.get(id) ?? roster).focus({ preventScroll: true })
+    const opener = returnMemoryThread ? memoryThreadButton(returnMemoryThread) : undefined
+    returnMemoryThread = ''
+    ;(opener ?? rowButtons.get(id) ?? roster).focus({ preventScroll: true })
   }
 
   async function refreshList() {
@@ -669,6 +1015,16 @@ export function createAgentThreadPanel(
       if (!disposed) {
         updateTopbar()
         renderRoster()
+        if (pendingMemoryThread && !host.hidden && !selected) {
+          const id = pendingMemoryThread
+          pendingMemoryThread = ''
+          const thread = threads.get(id)
+          if (thread) openThread(thread, id)
+          else {
+            memoryActivityStatus.hidden = false
+            memoryActivityStatus.textContent = 'Couldn’t open that thread.'
+          }
+        }
       }
     }
   }
@@ -678,6 +1034,10 @@ export function createAgentThreadPanel(
     const previous = returnFocus
     returnFocus = null
     host.hidden = true
+    updateMemorySampling()
+    pendingMemoryThread = ''
+    returnMemoryThread = ''
+    memoryActivityStatus.hidden = true
     if (selected) {
       clearSelection()
       selected = undefined
@@ -696,8 +1056,30 @@ export function createAgentThreadPanel(
     if (projectsOpen) projectNav.querySelector<HTMLElement>('[aria-current="true"]')?.focus({ preventScroll: true })
   })
   back.addEventListener('click', backToThreads)
+  delegateTablist.addEventListener('keydown', event => {
+    const tabs = [...delegateTablist.querySelectorAll('button')]
+    const current = tabs.findIndex(tab => tab === event.target)
+    if (current < 0) return
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? tabs.length - 1
+          : event.key === 'ArrowRight'
+            ? (current + 1) % tabs.length
+            : event.key === 'ArrowLeft'
+              ? (current - 1 + tabs.length) % tabs.length
+              : -1
+    if (next < 0) return
+    event.preventDefault()
+    tabs[next]?.click()
+  })
   refresh.addEventListener('click', () => {
-    if (selected) needsSnapshot = true
+    if (activeView) {
+      activeView.needsSnapshot = true
+      const lookup = childLookups.get(activeView.thread.id)
+      if (lookup) lookup.checkedAt = 0
+    }
     requestRefresh()
   })
   query.addEventListener('input', applyFilters)
@@ -726,11 +1108,18 @@ export function createAgentThreadPanel(
       return
     }
     event.preventDefault()
-    if (!preview.hidden) closePreview()
+    if (selected && activeView?.thread.id !== selected.id) switchConversation(selected, true)
     else if (selected) backToThreads()
     else close()
   })
   conversation.addEventListener('scroll', syncConversationScroll, { passive: true })
+  conversation.addEventListener(
+    'click',
+    event => {
+      if (event.target instanceof Element && event.target.closest('summary, button[aria-expanded]')) following = false
+    },
+    { capture: true },
+  )
   conversation.addEventListener('toggle', () => requestAnimationFrame(syncConversationScroll), { capture: true })
   latest.addEventListener('click', () => {
     conversation.scrollTop = conversation.scrollHeight
@@ -738,23 +1127,14 @@ export function createAgentThreadPanel(
     conversation.focus({ preventScroll: true })
   })
   const transcriptSize = new ResizeObserver(() => {
-    if (!transcriptElement || !canUpdateConversation()) return
+    if (!observedTranscript || !canUpdateConversation()) return
     if (following) conversation.scrollTop = conversation.scrollHeight
     syncConversationScroll()
   })
   transcriptSize.observe(conversation)
 
-  function closePreview() {
-    fileRequest++
-    preview.hidden = true
-    previewContents.textContent = ''
-    if (fileButton?.isConnected) fileButton.focus({ preventScroll: true })
-    else detailTitle.focus({ preventScroll: true })
-    fileButton = undefined
-  }
-  requireElement(preview, '[data-close-preview]', HTMLButtonElement).addEventListener('click', closePreview)
-
   setProjectsOpen(true)
+  document.addEventListener('visibilitychange', updateMemorySampling)
   document.addEventListener('visibilitychange', updateConversationVisibility)
 
   return {
@@ -766,11 +1146,13 @@ export function createAgentThreadPanel(
       onVisibilityChange?.(true)
       roster.focus({ preventScroll: true })
       requestRefresh()
+      updateMemorySampling()
     },
     close,
     dispose() {
       close()
       disposed = true
+      document.removeEventListener('visibilitychange', updateMemorySampling)
       document.removeEventListener('visibilitychange', updateConversationVisibility)
       transcriptSize.disconnect()
       minimap.dispose()

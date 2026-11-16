@@ -60,6 +60,7 @@ test('reads Antigravity project status and snapshots from local storage', async 
         active: true,
         status: 'running',
         activity: 'Reading README.md',
+        action: 'Reading README.md',
       },
     ])
     const [thread] = threads
