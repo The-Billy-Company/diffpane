@@ -60,7 +60,7 @@
     "d3-hierarchy": "3.1.2",
     "d3-shape": "3.2.0",
     "dompurify": "^3.4.17",
-    "electron": "44.7.0",
+    "electron": "44.11.3",
     "linguist-languages": "9.5.0",
     "material-icon-theme": "5.39.0",
     "mermaid": "^12.2.0",
