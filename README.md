@@ -23,7 +23,7 @@ Diffpane is a desktop file browser and editor for reading code while an agent wo
 
 An agent's chat window doesn't always give you a way to browse the project. Opening another IDE just to read files adds another app, more memory use, and sometimes another subscription. This is a separate window for that part of the work.
 
-Run your agent as usual, then run `dp` in your project folder. The file explorer shows the project, and the editor shows the full file. Files update when the agent saves changes, so you can follow along without reopening them.
+Run your agent as usual, then open Diffpane and choose your working tree. If you installed the shell launcher, run `dp` in your project folder. The file explorer shows the project, and the editor shows the full file. Files update when the agent saves changes, so you can follow along without reopening them.
 
 Git changes are marked beside the line numbers. You can compare files against HEAD. Edit files yourself; edits save automatically.
 
@@ -65,6 +65,10 @@ Use **Ask** to search the project, talk through code, or find and read ideas. Th
 Ask the Creature to make a change and it switches to **Edit** mode in the same turn. In **Edit** mode, it can make related edits across files, create text files in existing project folders, or draft an idea. Expand each file in the proposal to inspect its changes, then apply or discard the set. If a source changed while the Creature was working, request a fresh proposal.
 
 Diffpane calls Claude Haiku directly. Your prompts, context references, and the file or idea excerpts Claude requests go to Anthropic and use your API workspace. Chat history lasts for the window session.
+
+## Install with Box on Apple Silicon
+
+Run `box unpack diffpane-app` with Box 0.3.0 or later. Open `Diffpane.app` from your Applications folder. Box manages updates and removal under the `diffpane-app` ID.
 
 ## Build from source
 

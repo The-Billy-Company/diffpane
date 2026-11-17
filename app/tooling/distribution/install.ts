@@ -1,5 +1,17 @@
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { chmod, lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod,
+  copyFile,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readlink,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,7 +30,8 @@ if (
 )
   throw new Error('Diffpane requires a numeric release version in package.json.')
 const { version } = metadata
-if (process.argv.length > 2) throw new Error('Usage: pnpm run install:app')
+const buildOnly = process.argv.length === 3 && process.argv[2] === '--build-only'
+if (process.argv.length > 2 && !buildOnly) throw new Error('Use pnpm run install:app or pnpm run package:app.')
 
 if (process.platform !== 'darwin')
   throw new Error('The terminal launcher installer currently targets macOS. Use pnpm start on other platforms.')
@@ -52,17 +65,19 @@ async function existingLauncher(filename: string) {
     throw error
   }
 }
-const [existingShortLauncher, existingLongLauncher] = await Promise.all([
-  existingLauncher(shortLauncher),
-  existingLauncher(longLauncher),
-])
-if (
-  existingShortLauncher &&
-  (!existingShortLauncher.isSymbolicLink() || (await readlink(shortLauncher)) !== 'diffpane')
-)
-  throw new Error(`Cannot install the dp shortcut because ${shortLauncher} is already in use.`)
-if (existingLongLauncher && !existingLongLauncher.isFile() && !existingLongLauncher.isSymbolicLink())
-  throw new Error(`Cannot install the launcher because ${longLauncher} is already in use.`)
+if (!buildOnly) {
+  const [existingShortLauncher, existingLongLauncher] = await Promise.all([
+    existingLauncher(shortLauncher),
+    existingLauncher(longLauncher),
+  ])
+  if (
+    existingShortLauncher &&
+    (!existingShortLauncher.isSymbolicLink() || (await readlink(shortLauncher)) !== 'diffpane')
+  )
+    throw new Error(`Cannot install the dp shortcut because ${shortLauncher} is already in use.`)
+  if (existingLongLauncher && !existingLongLauncher.isFile() && !existingLongLauncher.isSymbolicLink())
+    throw new Error(`Cannot install the launcher because ${longLauncher} is already in use.`)
+}
 
 const identity = signingIdentity()
 const adHoc = identity === '-'
@@ -119,7 +134,7 @@ const [bundle] = await (async () => {
   try {
     return await packager({
       dir: '.',
-      out: 'release',
+      out: buildOnly ? 'release/box-build' : 'release',
       tmpdir: scratch,
       name: 'Diffpane',
       appBundleId: 'com.diffpane.app',
@@ -134,8 +149,17 @@ const [bundle] = await (async () => {
             continueOnError: false,
             preAutoEntitlements: false,
             preEmbedProvisioningProfile: false,
-            optionsForFile: () => ({ timestamp: 'none' }),
+            optionsForFile: buildOnly ? undefined : () => ({ timestamp: 'none' }),
           },
+      afterExtract: [
+        async ({ buildPath }) => {
+          const resources = path.join(buildPath, 'Electron.app/Contents/Resources')
+          await Promise.all([
+            copyFile(path.join(buildPath, 'LICENSE'), path.join(resources, 'LICENSE.electron')),
+            copyFile(path.join(buildPath, 'LICENSES.chromium.html'), path.join(resources, 'LICENSES.chromium.html')),
+          ])
+        },
+      ],
       // Match by basename so ASAR finds native files under the hidden staging directory.
       asar: { unpack: '{*.node,spawn-helper}' },
       beforeAsar: [
@@ -193,7 +217,33 @@ const [bundle] = await (async () => {
   }
 })()
 if (!bundle) throw new Error('Electron Packager did not produce a macOS app.')
-const app = path.join(bundle, 'Diffpane.app')
+const bundleApp = path.resolve(bundle, 'Diffpane.app')
+function verifyApp(app: string) {
+  if (adHoc) execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' })
+  execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' })
+  // Signature verification alone does not check whether Electron can launch its native code.
+  execFileSync(
+    path.join(app, 'Contents/MacOS/Diffpane'),
+    [
+      '--eval',
+      `const load = require('node:module').createRequire(process.argv[1]);
+       load('@parcel/watcher');
+       const shell = load('node-pty').spawn('/bin/sh', ['-c', 'exit 0']);
+       shell.onExit(({ exitCode, signal }) => {
+         if (exitCode !== 0 || signal) throw new Error('The packaged terminal smoke test failed.');
+       });`,
+      path.join(app, 'Contents/Resources/app.asar/package.json'),
+    ],
+    { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit', timeout: 10_000 },
+  )
+}
+
+if (buildOnly) {
+  verifyApp(bundleApp)
+  console.info(`Packaged ${bundleApp}`)
+  process.exit(0)
+}
+
 const launcher = (await readFile(new URL('./diffpane.sh', import.meta.url), 'utf8')).replace('@VERSION@', version)
 await mkdir(applications, { recursive: true })
 await mkdir(bin, { recursive: true })
@@ -206,24 +256,8 @@ let backup = false
 let appInstalled = false
 try {
   // macOS cp clones files on APFS and falls back to copying across volumes.
-  await execute('/bin/cp', ['-cR', app, stagedApp])
-  if (adHoc) execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp], { stdio: 'inherit' })
-  execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagedApp], { stdio: 'inherit' })
-  // Signature verification alone does not check whether Electron can load and launch the native code.
-  execFileSync(
-    path.join(stagedApp, 'Contents/MacOS/Diffpane'),
-    [
-      '--eval',
-      `const load = require('node:module').createRequire(process.argv[1]);
-       load('@parcel/watcher');
-       const shell = load('node-pty').spawn('/bin/sh', ['-c', 'exit 0']);
-       shell.onExit(({ exitCode, signal }) => {
-         if (exitCode !== 0 || signal) throw new Error('The packaged terminal smoke test failed.');
-       });`,
-      path.join(stagedApp, 'Contents/Resources/app.asar/package.json'),
-    ],
-    { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit', timeout: 10_000 },
-  )
+  await execute('/bin/cp', ['-cR', bundleApp, stagedApp])
+  verifyApp(stagedApp)
   launcherStage = await mkdtemp(path.join(bin, '.diffpane-'))
   const stagedLauncher = path.join(launcherStage, 'diffpane')
   await writeFile(stagedLauncher, launcher, { mode: 0o755 })

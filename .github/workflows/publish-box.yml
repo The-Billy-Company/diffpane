@@ -1,0 +1,97 @@
+name: Publish Diffpane to Box
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: publish-box
+  cancel-in-progress: false
+
+env:
+  BOX_REGISTRY: https://box.billylives.com
+  BOX_VERSION: 0.3.0
+  DIFFPANE_SIGNING_REQUIREMENT: 'anchor apple generic and identifier "com.diffpane.app" and certificate leaf[subject.OU] = "Y33HK6N24V"'
+
+jobs:
+  publish:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install the Box release runtime
+        env:
+          GH_TOKEN: ${{ secrets.BOX_RUNTIME_TOKEN }}
+        run: |
+          runtime="$RUNNER_TEMP/box-runtime"
+          mkdir -p "$runtime/bin"
+          archive=thebox-aarch64-apple-darwin.tar.gz
+          gh release download "v$BOX_VERSION" --repo The-Billy-Company/the-box \
+            --pattern "$archive" --pattern SHA256SUMS --dir "$runtime"
+          expected=$(awk -v archive="$archive" '$2 == archive { print $1 }' "$runtime/SHA256SUMS")
+          actual=$(shasum -a 256 "$runtime/$archive" | cut -d ' ' -f 1)
+          test "$expected" = "$actual"
+          tar -xzf "$runtime/$archive" -C "$runtime/bin" box
+          test "$("$runtime/bin/box" --version)" = "box $BOX_VERSION"
+          echo "$runtime/bin" >> "$GITHUB_PATH"
+
+      - name: Stage the signed GitHub release bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(jq -er '.version | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' package.json)
+          tag="v$version"
+          test -z "$RELEASE_TAG" || test "$RELEASE_TAG" = "$tag"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft | jq -e '.isDraft == false'
+
+          stage=release/box-build/Diffpane-darwin-arm64
+          archive="Diffpane-$version-macos-arm64.zip"
+          download="$RUNNER_TEMP/diffpane-release"
+          mkdir -p "$stage" "$download"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$archive" \
+            --pattern "$archive.sha256" --dir "$download"
+          expected=$(awk -v archive="$archive" '$2 == archive { print $1 }' "$download/$archive.sha256")
+          actual=$(shasum -a 256 "$download/$archive" | cut -d ' ' -f 1)
+          test "$expected" = "$actual"
+          ditto -x -k "$download/$archive" "$stage"
+
+          app="$stage/Diffpane.app"
+          test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")" = "$version"
+          test -s "$app/Contents/Resources/LICENSE.electron"
+          test -s "$app/Contents/Resources/LICENSES.chromium.html"
+          lipo "$app/Contents/MacOS/Diffpane" -verify_arch arm64
+          codesign --verify --deep --strict -R="$DIFFPANE_SIGNING_REQUIREMENT" "$app"
+          xcrun stapler validate "$app"
+
+          box --json pack --dry-run | jq -e --arg version "$version" '
+            .manifest | .id == "diffpane-app" and .kind == "application" and .version == $version
+          '
+          echo "DIFFPANE_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Publish the application to Box
+        env:
+          BOX_REGISTRY_TOKEN: ${{ secrets.BOX_REGISTRY_TOKEN }}
+          BOX_REGISTRY_READ_TOKEN: ${{ secrets.BOX_REGISTRY_READ_TOKEN }}
+        run: box ci publish --registry "$BOX_REGISTRY"
+
+      - name: Verify the installed app from Box
+        env:
+          BOX_REGISTRY_READ_TOKEN: ${{ secrets.BOX_REGISTRY_READ_TOKEN }}
+        run: |
+          home="$RUNNER_TEMP/diffpane-box-home"
+          box --home "$home" --state "$RUNNER_TEMP/diffpane-box-state" \
+            --catalog "$BOX_REGISTRY/catalog.json" unpack "diffpane-app@$DIFFPANE_RELEASE_VERSION"
+          codesign --verify --deep --strict -R="$DIFFPANE_SIGNING_REQUIREMENT" "$home/Applications/Diffpane.app"
+          xcrun stapler validate "$home/Applications/Diffpane.app"

@@ -1,0 +1,15 @@
+kind = "application"
+id = "diffpane-app"
+version = "0.8.2"
+description = "Browse and edit project files and watch Git changes as they happen."
+
+[applications.macos-aarch64]
+format = "macos-app"
+path = "Diffpane.app"
+
+[pack]
+source = "release/box-build/Diffpane-darwin-arm64"
+compression = "balanced"
+
+[publish]
+registry = "https://box.billylives.com"
