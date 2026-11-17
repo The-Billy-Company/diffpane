@@ -461,8 +461,8 @@ export function showMarkdownPreview(
     article,
     sections,
     scrollToAnchor,
-    () => {
-      if (anchored && root.scrollTop !== anchored.top) anchored = null
+    scrollTop => {
+      if (anchored && scrollTop !== anchored.top) anchored = null
       return anchored?.heading
     },
     lifetime.signal,

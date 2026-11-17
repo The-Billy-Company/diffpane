@@ -10,7 +10,7 @@ export function createReadingRail(
   article: HTMLElement,
   sections: ReadingSection[],
   jump: (anchor: string) => void,
-  readAnchor: () => HTMLHeadingElement | undefined,
+  readAnchor: (scrollTop: number) => HTMLHeadingElement | undefined,
   signal: AbortSignal,
 ) {
   if (sections.length < 2) return null
@@ -25,6 +25,8 @@ export function createReadingRail(
   header.textContent = 'On this page'
   const percent = document.createElement('span')
   percent.setAttribute('aria-hidden', 'true')
+  const percentText = document.createTextNode('0%')
+  percent.append(percentText)
   header.append(percent)
   const progress = document.createElement('div')
   progress.className = 'md-reading-progress'
@@ -59,11 +61,11 @@ export function createReadingRail(
   let frame = 0
   function update() {
     frame = 0
-    const anchor = readAnchor()
+    const scrollTop = root.scrollTop
+    const anchor = readAnchor(scrollTop)
     if (!rail.clientWidth) return
 
     const max = root.scrollHeight - root.clientHeight
-    const scrollTop = root.scrollTop
     const atEnd = max > 0 && max - scrollTop <= 1
     const fraction = max > 0 && !atEnd ? Math.max(0, scrollTop / max) : 1
     const readingEdge = root.getBoundingClientRect().top + 32
@@ -80,24 +82,29 @@ export function createReadingRail(
     const index = atEnd ? sections.length - 1 : Math.max(0, low - 1)
     const current = links[picked >= 0 ? picked : index]
 
-    rail.style.setProperty('--reading-progress', String(fraction))
+    // Read geometry and reveal the active link before changing text or styles.
+    if (current && !list.contains(document.activeElement)) {
+      const top = current.offsetTop
+      const bottom = top + current.offsetHeight
+      const listTop = list.scrollTop
+      const listHeight = list.clientHeight
+      if (top < listTop) list.scrollTop = top
+      else if (bottom > listTop + listHeight) list.scrollTop = bottom - listHeight
+    }
+
+    progress.style.setProperty('--reading-progress', String(fraction))
     const value = String(Math.round(fraction * 100))
-    if (percent.textContent !== `${value}%`) {
-      percent.textContent = `${value}%`
+    const label = `${value}%`
+    if (percentText.data !== label) {
+      // Replacing the text node invalidates styles across the workspace.
+      percentText.data = label
       progress.setAttribute('aria-valuenow', value)
     }
-    if (!current) return
-    if (current !== active) {
+    if (current && current !== active) {
       active?.removeAttribute('aria-current')
       current.setAttribute('aria-current', 'location')
       active = current
     }
-    if (list.contains(document.activeElement)) return
-
-    const top = current.offsetTop
-    const bottom = top + current.offsetHeight
-    if (top < list.scrollTop) list.scrollTop = top
-    else if (bottom > list.scrollTop + list.clientHeight) list.scrollTop = bottom - list.clientHeight
   }
 
   function refresh() {
