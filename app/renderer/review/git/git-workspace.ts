@@ -4,6 +4,8 @@ import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { layoutCommitGraph, renderCommitGraphRow } from './commit-graph.ts'
 import './git-workspace.css'
+import './git-inspector.css'
+import './git-activity.css'
 
 interface Options {
   loadOverview: (dayStartMs: number, dayEndMs: number, historyLimit: number) => Promise<GitOverview>
@@ -67,6 +69,11 @@ function button(className: string, text?: string) {
   return control
 }
 
+function setDiffFocus(control: HTMLButtonElement, expanded: boolean) {
+  control.setAttribute('aria-pressed', String(expanded))
+  control.title = expanded ? 'Restore Git layout' : 'Focus diff'
+}
+
 function dayBounds() {
   const today = new Date()
   const [year, month, day] = [today.getFullYear(), today.getMonth(), today.getDate()]
@@ -108,14 +115,14 @@ function fileRow(file: GitFile, maximum: number) {
     identifier.append(icon)
   }
   const detail = element('span', 'git-file-description')
-  detail.append(
-    element('strong', 'git-file-name', name),
-    element(
-      'span',
-      'git-file-location',
-      [directory, file.status === 'M' && directory ? '' : status].filter(Boolean).join(' · '),
-    ),
-  )
+  const location = element('span', 'git-file-location')
+  if (directory) location.append(element('span', 'git-file-directory', directory))
+  if (file.status !== 'M' || !directory) {
+    const badge = element('span', 'git-file-status', status)
+    badge.dataset.status = file.status
+    location.append(badge)
+  }
+  detail.append(element('strong', 'git-file-name', name), location)
   identifier.append(detail)
   row.append(identifier)
   if (!known) {
@@ -161,7 +168,10 @@ function commitRow(
   const primary = element('span', 'git-activity-primary')
   const meta = element('span', 'git-activity-meta')
   meta.append(hash)
-  if (commit.id === head) meta.append(refPill({ name: 'HEAD', kind: 'head' }))
+  if (commit.id === head) {
+    row.dataset.gitHead = ''
+    meta.append(refPill({ name: 'HEAD', kind: 'head' }))
+  }
   for (const ref of commit.refs) meta.append(refPill(ref))
   if (commit.parents.length > 1 && !commit.refs.length) meta.append(element('span', '', 'Merge'))
   primary.append(element('strong', 'git-activity-subject', commit.subject || '(No commit message)'), meta)
@@ -182,11 +192,11 @@ function workingRow(rail: SVGSVGElement | null, headOutside: boolean) {
   row.dataset.gitCommit = 'working'
   if (rail) row.append(rail)
   const primary = element('span', 'git-activity-primary')
-  primary.append(
-    element('strong', 'git-activity-subject', 'Working tree'),
-    element('span', 'git-activity-meta', headOutside ? 'HEAD outside loaded history' : 'Uncommitted changes'),
-  )
-  row.append(primary, element('span', 'git-activity-time', 'Live'))
+  const subtitle = headOutside ? 'HEAD outside loaded history' : 'Uncommitted changes'
+  const meta = element('span', 'git-activity-meta', subtitle)
+  meta.title = subtitle
+  primary.append(element('strong', 'git-activity-subject', 'Working tree'), meta)
+  row.append(primary, element('span', 'git-working-status', 'Live'))
   return row
 }
 
@@ -206,7 +216,6 @@ function commitTimeline(commits: readonly GitCommit[]) {
   const plot = element('div', 'git-timeline-plot')
   plot.setAttribute('role', 'group')
   plot.setAttribute('aria-label', 'Commits by local hour')
-  plot.setAttribute('aria-hidden', String(!commits.length))
   const ticks = element('div', 'git-timeline-ticks')
   ticks.setAttribute('aria-hidden', 'true')
   for (let hour = 0; hour < 24; hour++) {
@@ -253,12 +262,20 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   root.setAttribute('aria-label', 'Git workspace')
   root.innerHTML = `
     <header class="git-heading">
-      <h1>Git</h1>
+      <div class="git-page-identity">
+        <h1>Git</h1>
+        <div class="git-repository" hidden>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.25" aria-hidden="true">
+            <circle cx="4.5" cy="3.5" r="1.5"/><circle cx="4.5" cy="12.5" r="1.5"/><circle cx="11.5" cy="3.5" r="1.5"/>
+            <path d="M4.5 5v6m7-6v.5a3 3 0 0 1-3 3h-4"/>
+          </svg>
+          <span class="git-repository-scope"></span>
+        </div>
+      </div>
       <nav class="git-tabs" aria-label="Git view">
         <button type="button" data-git-view="today" aria-pressed="true">Today</button>
         <button type="button" data-git-view="history" aria-pressed="false">History</button>
       </nav>
-      <span class="git-repository-scope"></span>
     </header>
     <div class="git-columns">
       <section class="git-activity" aria-label="Git activity">
@@ -276,17 +293,21 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
         <header class="git-inspector-heading">
           <div class="git-inspector-top">
             <div class="git-inspector-identity"><h2>Working tree</h2><span class="git-inspector-hash git-hash"></span></div>
-            <button type="button" class="git-secondary git-review">Review changes</button>
+            <button type="button" class="git-review" aria-label="Review changes">
+              Review changes <span aria-hidden="true">→</span>
+            </button>
           </div>
-          <div class="git-inspector-refs" hidden></div>
-          <div class="git-comparison">
-            <label for="git-comparison-select">Comparison</label>
-            <select id="git-comparison-select"></select>
-            <span class="git-fixed-comparison" hidden></span>
+          <div class="git-inspector-context">
+            <div class="git-comparison">
+              <label for="git-comparison-select">Comparison</label>
+              <select id="git-comparison-select"></select>
+              <span class="git-fixed-comparison" hidden><span></span><span>→</span><span></span></span>
+            </div>
+            <div class="git-inspector-refs" hidden></div>
           </div>
         </header>
         <div class="git-files-heading">
-          <h3>Changed files</h3>
+          <div class="git-files-title"><h3>Changed files</h3><span class="git-file-count" aria-hidden="true"></span></div>
           <div class="git-line-totals" role="status"></div>
         </div>
         <div class="git-file-list" aria-label="Changed files"></div>
@@ -295,6 +316,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
       </section>
     </div>
   `
+  const repository = requireElement(root, '.git-repository', HTMLDivElement)
   const scope = requireElement(root, '.git-repository-scope', HTMLSpanElement)
   const todayTab = requireElement(root, '[data-git-view="today"]', HTMLButtonElement)
   const historyTab = requireElement(root, '[data-git-view="history"]', HTMLButtonElement)
@@ -313,6 +335,9 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   const chooser = requireElement(root, '#git-comparison-select', HTMLSelectElement)
   const chooserLabel = requireElement(root, '.git-comparison label', HTMLLabelElement)
   const fixed = requireElement(root, '.git-fixed-comparison', HTMLSpanElement)
+  const fixedBase = requireElement(fixed, 'span:first-child', HTMLSpanElement)
+  const fixedTarget = requireElement(fixed, 'span:last-child', HTMLSpanElement)
+  const fileCount = requireElement(root, '.git-file-count', HTMLSpanElement)
   const totals = requireElement(root, '.git-line-totals', HTMLDivElement)
   const files = requireElement(root, '.git-file-list', HTMLDivElement)
   const comparisonMessage = requireElement(root, '.git-comparison-message', HTMLDivElement)
@@ -362,6 +387,8 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     historyTab.setAttribute('aria-pressed', String(view === 'history'))
     scope.textContent = overview?.branch ?? ''
     if (overview?.head && !scope.textContent) scope.textContent = 'Detached HEAD'
+    scope.title = scope.textContent
+    repository.hidden = !scope.textContent
     const history = view === 'history'
     activityHeading.textContent = history ? 'Commit graph' : DISPLAY_DATE.format(todayStart)
     activityScope.textContent = history ? 'Repository history' : 'Local time'
@@ -393,18 +420,32 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
         content.push(commitRow(commit, overview?.head ?? null, todayStart, todayEnd, rail))
       }
     } else if (overview) {
+      const summary = element('div', 'git-today-summary')
       const header = element('div', 'git-today-selection')
-      const label = `${printNumber(commits.length)} ${commits.length === 1 ? 'commit' : 'commits'} from HEAD`
-      header.append(element('span', '', label))
+      const count = element('span', 'git-today-count')
+      if (commits.length) {
+        count.title = 'Commits reachable from HEAD today'
+        count.append(
+          element('strong', '', printNumber(commits.length)),
+          element('span', '', commits.length === 1 ? 'commit' : 'commits'),
+        )
+      } else {
+        count.textContent = 'No commits today'
+      }
+      header.append(count)
       if (commits.length > 0 && overview.head && overview.head !== overview.dayBase) {
         const compare = button('git-compare-day', 'Compare day')
         compare.dataset.gitCommit = 'day'
         header.append(compare)
       }
-      content.push(header, commitTimeline(commits))
-      const list = element('div', 'git-today-commits')
-      for (const commit of commits) list.append(commitRow(commit, overview.head, todayStart, todayEnd, null))
-      content.push(list)
+      summary.append(header)
+      content.push(summary)
+      if (commits.length) {
+        summary.append(commitTimeline(commits))
+        const list = element('div', 'git-today-commits')
+        for (const commit of commits) list.append(commitRow(commit, overview.head, todayStart, todayEnd, null))
+        content.push(list)
+      }
     }
     activity.replaceChildren(...content)
     renderSelections()
@@ -455,16 +496,19 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     inspectorTitle.textContent = title
     inspectorId.textContent = commit ? shortId(commit.id) : ''
     inspectorId.title = commit?.id ?? ''
+    inspectorId.hidden = !commit
     const refs = commit?.refs ?? []
     inspectorRefs.hidden = refs.length === 0
     inspectorRefs.replaceChildren(...refs.map(refPill))
     review.hidden = !working
+    review.classList.toggle('is-primary', working && comparison.mode === 'head')
     const canChoose = working || Boolean(merge)
     chooser.hidden = !canChoose
     chooserLabel.hidden = !canChoose
     chooserLabel.textContent = merge ? 'Compare parent' : 'Comparison'
     fixed.hidden = canChoose
-    fixed.textContent = beforeAfter(baseLabel, targetLabel)
+    fixedBase.textContent = baseLabel
+    fixedTarget.textContent = targetLabel
     if (canChoose) {
       const options =
         comparison.kind === 'working'
@@ -526,13 +570,14 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
       const count = loadedFiles.length
       const label = `${printNumber(count)} ${count === 1 ? 'file' : 'files'}`
       const unknown = loadedFiles.filter(file => file.additions === null || file.deletions === null).length
-      totals.replaceChildren(element('span', 'git-file-count', label), ...counts(additions, deletions))
+      fileCount.textContent = printNumber(count)
+      totals.replaceChildren(...counts(additions, deletions))
       totals.setAttribute(
         'aria-label',
         `${label}, ${linesLabel(additions, deletions)}${unknown ? `, ${unknown} with no line count` : ''}`,
       )
       const maximum = loadedFiles.reduce((max, file) => Math.max(max, file.additions ?? 0, file.deletions ?? 0), 1)
-      files.style.setProperty('--git-count-width', `${Math.max(66, (printNumber(maximum).length + 1) * 14 + 8)}px`)
+      files.style.setProperty('--git-count-width', `${Math.max(3, printNumber(maximum).length + 1)}ch`)
       const focused = document.activeElement
       const focusedPath =
         focused instanceof HTMLButtonElement && files.contains(focused) ? focused.dataset.gitFile : undefined
@@ -553,6 +598,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     comparisonKey = fileKey = ''
     loadedFiles = []
     selectedFile = null
+    fileCount.textContent = ''
     totals.replaceChildren()
     totals.removeAttribute('aria-label')
     files.replaceChildren()
@@ -695,14 +741,30 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   }
 
   root.addEventListener(
+    'keydown',
+    event => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return
+      const control = preview.querySelector<HTMLButtonElement>('.git-diff-focus[aria-pressed="true"]')
+      if (!control) return
+      event.preventDefault()
+      setDiffFocus(control, false)
+      control.focus({ preventScroll: true })
+    },
+    listOptions,
+  )
+  root.addEventListener(
     'click',
     event => {
       if (!(event.target instanceof Element)) return
       const control = event.target.closest('button')
-      if (!control) return
+      if (!(control instanceof HTMLButtonElement)) return
       const { gitView, gitCommit: commit, gitFile, gitHourTarget } = control.dataset
       const gitCommit = commit ?? gitHourTarget
-      if (gitView === 'today' || gitView === 'history') {
+      if (control.classList.contains('git-diff-focus')) {
+        setDiffFocus(control, control.getAttribute('aria-pressed') !== 'true')
+      } else if (gitView === 'today' || gitView === 'history') {
+        const expanded = preview.querySelector<HTMLButtonElement>('.git-diff-focus[aria-pressed="true"]')
+        if (expanded) setDiffFocus(expanded, false)
         if (view === gitView) return
         view = gitView
         ensureSelection()

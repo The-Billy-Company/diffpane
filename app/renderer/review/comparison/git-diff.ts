@@ -4,6 +4,7 @@ import type { Appearance } from '../../../electron/persistence/preferences/ui-pr
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import type { GitComparison, GitFile, GitFileContents } from '../../../shared/review/git.ts'
 import { diffAppearance } from '../../panels/appearance/appearance.ts'
+import { projectIcon } from '../../shell/layout/icons.ts'
 import { createReviewFocus } from './review-focus.js'
 
 import './git-diff.css'
@@ -101,9 +102,32 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
       panel.dataset.reviewScope = 'focus'
       const bar = document.createElement('div')
       bar.className = 'git-diff-header'
+      const identity = document.createElement('div')
+      identity.className = 'git-diff-file'
+      identity.title = file.path
+      const separator = file.path.lastIndexOf('/')
+      const name = file.path.slice(separator + 1)
+      const symbol = projectIcon({ name, kind: 'file' })
+      if (symbol) {
+        const icon = document.createElement('img')
+        icon.alt = ''
+        icon.src = symbol
+        identity.append(icon)
+      }
+      const description = document.createElement('div')
+      description.className = 'git-diff-file-description'
       const title = document.createElement('strong')
-      title.textContent = file.path.split('/').at(-1) ?? file.path
-      title.title = file.path
+      title.textContent = name
+      description.append(title)
+      if (separator !== -1) {
+        const directory = document.createElement('span')
+        directory.textContent = file.path.slice(0, separator)
+        description.append(directory)
+      }
+      identity.append(description)
+
+      const actions = document.createElement('div')
+      actions.className = 'git-diff-actions'
       const scope = document.createElement('button')
       scope.className = 'change-button git-diff-scope'
       scope.type = 'button'
@@ -121,7 +145,19 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
         },
       })
       scope.addEventListener('click', navigation.toggleScope)
-      bar.append(title, scope, navigation.bar)
+      const expand = document.createElement('button')
+      expand.className = 'git-diff-focus'
+      expand.type = 'button'
+      expand.title = 'Focus diff'
+      expand.setAttribute('aria-label', 'Focus diff')
+      expand.setAttribute('aria-pressed', 'false')
+      expand.innerHTML = `
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path class="git-diff-focus-expand" d="M2.5 6V2.5H6m4 0h3.5V6m0 4v3.5H10m-4 0H2.5V10"/>
+          <path class="git-diff-focus-restore" d="M2.5 6H6V2.5m4 0V6h3.5m0 4H10v3.5m-4 0V10H2.5"/>
+        </svg>`
+      actions.append(scope, navigation.bar, expand)
+      bar.append(identity, actions)
       const editorHost = document.createElement('div')
       editorHost.className = 'git-diff-editor'
       panel.prepend(bar, navigation.changeMap)

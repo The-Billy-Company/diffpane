@@ -347,6 +347,18 @@ async function run(fixture: ReturnType<typeof createFixture>) {
   await click(`${gitPanel} .review-hunk-prev`)
   await hunkAt(2)
 
+  const focusDiff = `${gitPanel} .git-diff-focus`
+  await button(gitPanel, 'Focus diff')
+  assert.equal(await attribute(focusDiff, 'aria-pressed'), 'true')
+  assert.equal(await visible(`${gitPanel} .git-activity`), false)
+  assert.equal(await visible(`${gitPanel} .git-file-list`), false)
+  await hunkAt(2)
+  await key(focusDiff, 'Escape')
+  assert.equal(await attribute(focusDiff, 'aria-pressed'), 'false')
+  assert.ok(await visible(gitFile(scattered)))
+  assert.ok(await visible(`${gitPanel} .git-activity`))
+  await hunkAt(2)
+
   const changed = readFileSync(path.join(repository, scattered), 'utf8')
   write(scattered, changed.replace('standalone inserted work', 'updated work at the same hunk'))
   await seesPatch('updated work at the same hunk')

@@ -21,7 +21,7 @@ interface Row {
 
 const laneSpacing = 14
 const start = 19
-const height = 52
+const height = 44
 const center = height / 2
 const alternateTone = (lane: number) => (lane % 2 === 1 ? 1 : 2)
 
@@ -98,7 +98,7 @@ export function renderCommitGraphRow(
           ? `M${a},0 V${center}`
           : from === to
             ? `M${a},${center} V${height}`
-            : `M${a},${center} C${a},${center + 12} ${b},${height - 13} ${b},${height}`
+            : `M${a},${center} C${a},${center + 10} ${b},${height - 10} ${b},${height}`
     const path = svg('path', { d, class: 'git-graph-edge', 'data-tone': tone, 'data-dashed': String(Boolean(dashed)) })
     if (parent) {
       path.dataset.gitEdgeFrom = id

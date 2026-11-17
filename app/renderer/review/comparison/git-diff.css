@@ -8,31 +8,109 @@
 
 .git-diff-header {
   display: flex;
+  flex: none;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  min-height: 39px;
-  padding: 5px 12px;
+  gap: 6px 14px;
+  min-height: 49px;
+  padding: 6px var(--git-gutter);
 }
 
-.git-diff-header > strong {
+.git-diff-file {
+  display: flex;
+  flex: 1 1 108px;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
-  margin-inline-end: auto;
+}
+
+.git-diff-file img {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.git-diff-file-description {
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.git-diff-file-description > * {
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git-diff-file strong {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+}
+
+.git-diff-file span {
+  color: var(--subtle);
+  font-size: var(--text-caption);
+}
+
+.git-diff-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+}
+
+.git-diff .git-diff-scope,
+.git-diff-focus {
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
   font-size: var(--text-label);
 }
 
 .git-diff .git-diff-scope {
   width: auto;
-  padding: 0 6px;
   white-space: nowrap;
+}
+
+.git-diff .review-hunk-position {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.git-diff .review-hunk-replay {
+  color: var(--muted);
+  background: transparent;
+}
+
+.git-diff :is(.git-diff-scope, .git-diff-focus, .review-hunk-replay):is(:hover:not(:disabled), :focus-visible),
+.git-diff-focus[aria-pressed='true'] {
+  background: var(--accent-surface);
+  color: var(--accent);
+}
+
+.git-diff-focus {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  padding: 0;
+}
+
+.git-diff-focus svg {
+  width: 15px;
+  height: 15px;
+}
+
+.git-diff-focus[aria-pressed='false'] .git-diff-focus-restore,
+.git-diff-focus[aria-pressed='true'] .git-diff-focus-expand {
+  display: none;
 }
 
 .git-diff-status {
   margin: 0;
-  padding: 8px 12px;
+  padding: 8px var(--git-gutter);
   font-size: var(--text-label);
   color: var(--muted);
 }
@@ -40,18 +118,68 @@
 .git-diff-editor {
   flex: 1;
   min-width: 0;
-  min-height: 160px;
-  border-top: 1px solid var(--line);
+  min-height: 150px;
+  border-top: 1px solid var(--editor-separator);
 }
 
 .git-diff .review-change-map {
-  margin: 0 10px 7px;
+  --map-viewport-ink: color-mix(in oklab, var(--focus-ring) 72%, var(--editor-chrome));
+  margin: 0 var(--git-gutter) 9px;
+}
+
+.git-diff .review-map-control {
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.git-diff .review-map-hint,
+.git-diff .review-map-viewport-key {
+  color: var(--subtle);
 }
 
 .git-diff .review-map-row-label {
   overflow: hidden;
+  color: var(--muted);
+  font-weight: var(--weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.git-diff .review-map-ribbon {
+  opacity: 0.17;
+}
+
+.git-diff .review-map-mark {
+  background: color-mix(in oklab, var(--map-ink) 72%, var(--surface));
+}
+
+.git-diff .review-map-control:is([data-map-target], :focus-visible) .review-map-mark {
+  background: var(--map-ink);
+}
+
+@container (max-width: 420px) {
+  .git-diff :is(.review-map-control, .review-map-preview-track) {
+    --map-label-width: 76px;
+  }
+}
+
+@container git-workspace (max-height: 490px) {
+  .git-diff-header {
+    min-height: 41px;
+    padding-block: 4px;
+  }
+
+  .git-diff .review-change-map {
+    margin-block-end: 6px;
+  }
+
+  .git-diff .review-map-control {
+    padding-block: 4px;
+  }
+
+  .git-diff .review-map-ribbon-track {
+    height: 8px;
+  }
 }
 
 .git-diff[data-review-scope][data-empty-original]
