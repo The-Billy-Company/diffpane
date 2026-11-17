@@ -59,6 +59,17 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
 const ROW_HEIGHT = 24
 const OVERSCAN = 4
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+/** @type {Readonly<Record<string, string>>} */
+const STATUS_LABELS = {
+  '!': 'Merge conflict',
+  A: 'Added',
+  C: 'Copied',
+  D: 'Deleted',
+  M: 'Modified',
+  R: 'Renamed',
+  T: 'Type changed',
+  U: 'Untracked',
+}
 let instance = 0
 
 const ICONS = {
@@ -499,7 +510,7 @@ export function createNavigator(
         row.dataset.kind = node.kind
         row.draggable = Boolean(onAttach && node.kind === 'file')
         row.innerHTML =
-          '<span class="navigator-chevron" aria-hidden="true"></span><span class="navigator-icon"></span><span class="navigator-name"></span><span class="navigator-directory"></span><span class="navigator-badge"></span>'
+          '<span class="navigator-chevron" aria-hidden="true"></span><span class="navigator-icon"></span><span class="navigator-name"></span><span class="navigator-directory"></span>'
         mounted.set(node.key, row)
         rows.appendChild(row)
       }
@@ -524,7 +535,16 @@ export function createNavigator(
       row.dataset.status = status
       row.dataset.changed = String(node.changedCount > 0)
       row.dataset.ignored = String(node.file?.ignored === true)
-      row.title = node.path || (snapshot?.scope ?? snapshot?.root ?? '')
+      const statusLabel =
+        node.kind === 'directory' && node.changedCount
+          ? `${node.changedCount} changed ${node.changedCount === 1 ? 'file' : 'files'}`
+          : status
+            ? (STATUS_LABELS[status] ?? 'Changed')
+            : ''
+      const titlePath = node.path || (snapshot?.scope ?? snapshot?.root ?? '')
+      row.title = statusLabel ? `${titlePath}\n${statusLabel}` : titlePath
+      if (statusLabel) row.setAttribute('aria-description', statusLabel)
+      else row.removeAttribute('aria-description')
       const glyph = iconFor?.(node, expanded.has(node.path))
       const icon = requireElement(row, '.navigator-icon', HTMLSpanElement)
       if (glyph && icon.dataset.glyph !== glyph) {
@@ -540,16 +560,6 @@ export function createNavigator(
       const match = query && queryPattern ? queryPattern.exec(node.path) : null
       renderSearchText(requireElement(row, '.navigator-name', HTMLSpanElement), name, directory.length, match)
       renderSearchText(requireElement(row, '.navigator-directory', HTMLSpanElement), directory, 0, match)
-      const badge = requireElement(row, '.navigator-badge', HTMLSpanElement)
-      badge.textContent = status
-      badge.title =
-        node.kind === 'directory' && node.changedCount
-          ? `${node.changedCount} changed ${node.changedCount === 1 ? 'file' : 'files'}`
-          : file?.conflicted
-            ? 'Merge conflict'
-            : status
-              ? `Git status: ${status}`
-              : ''
     }
     for (const [pathname, row] of mounted) {
       if (!retained.has(pathname)) {

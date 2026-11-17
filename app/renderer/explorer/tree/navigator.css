@@ -233,7 +233,6 @@
   content: '';
 }
 .navigator-row {
-  --navigator-status: var(--modified);
   height: var(--navigator-row-height);
   inset-inline: var(--navigator-row-gutter);
   position: absolute;
@@ -286,24 +285,19 @@
 .navigator-row[data-selected-ancestor] .navigator-chevron::after {
   border-color: var(--accent);
 }
-.navigator-row:is([data-status='A'], [data-status='U']) {
-  --navigator-status: var(--added);
-}
-.navigator-row[data-status='D'] {
-  --navigator-status: var(--removed);
+.navigator-row[data-changed='true'] .navigator-name {
+  color: var(--modified);
 }
 .navigator-row[data-status='D'] .navigator-name {
   color: var(--muted);
   text-decoration: line-through;
 }
-.navigator-row[data-status='!'] {
-  --navigator-status: var(--warning);
-}
 .navigator-row[data-status='!'] .navigator-name {
-  color: var(--navigator-status);
+  color: var(--warning);
   font-weight: var(--weight-semibold);
 }
-.navigator-row[data-ignored='true']:not([aria-selected='true'], [data-selected-ancestor]) .navigator-name {
+.navigator-row[data-ignored='true']:not([aria-selected='true'], [data-selected-ancestor], [data-changed='true'])
+  .navigator-name {
   color: var(--subtle);
 }
 .navigator-row[data-ignored='true']:not([aria-selected='true'], [data-selected-ancestor]) .navigator-icon {
@@ -380,42 +374,6 @@
 }
 .navigator-directory:empty {
   display: none;
-}
-.navigator-badge {
-  display: grid;
-  place-items: center;
-  margin-inline-start: auto;
-  flex-shrink: 0;
-  min-width: 17px;
-  height: 16px;
-  padding-inline: 2px;
-  border-radius: 4px;
-  background: color-mix(in oklab, var(--navigator-status) 10%, transparent);
-  color: var(--navigator-status);
-  font: var(--weight-semibold) var(--text-caption)/1 var(--font-mono);
-}
-.navigator-badge:empty {
-  display: none;
-}
-.navigator-row[data-kind='directory'][data-changed='true'] .navigator-badge {
-  display: grid;
-  background: transparent;
-  color: var(--subtle);
-}
-.navigator-row[data-kind='directory'][data-changed='true'] .navigator-badge::before {
-  content: '';
-  box-sizing: border-box;
-  width: 6px;
-  height: 6px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-}
-.navigator-row[data-kind='directory']:hover .navigator-badge,
-.navigator-tree:focus-visible .navigator-row[data-kind='directory'][data-active='true'] .navigator-badge {
-  color: var(--navigator-status);
-}
-.navigator-row[data-status='!'] .navigator-badge {
-  background: var(--warning-surface);
 }
 .navigator-footer {
   display: none;

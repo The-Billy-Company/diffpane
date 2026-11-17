@@ -122,7 +122,7 @@ test('large collapsed inventories do not enter the visible projection', () => {
   assert.equal(flattenNavigationTree(tree, new Set(['', 'src'])).length, 102)
 })
 
-test('Git badges prioritize conflicts, then working changes, then index changes', () => {
+test('Git status prioritizes conflicts, then working changes, then index changes', () => {
   assert.equal(navigationStatus(file('a')), '')
   assert.equal(navigationStatus(file('a', { index: '.', worktree: '.' })), '')
   assert.equal(navigationStatus(file('a', { index: 'M' })), 'M')
