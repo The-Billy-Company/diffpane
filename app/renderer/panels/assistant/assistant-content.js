@@ -21,6 +21,8 @@ const MARKDOWN = new Marked({
 })
 
 const CHEVRON = '<path d="m6 4 4 4-4 4"/>'
+const PROPOSAL_GLYPH =
+  '<path d="M9.25 2.75H4.5A1.25 1.25 0 0 0 3.25 4v8A1.25 1.25 0 0 0 4.5 13.25h7A1.25 1.25 0 0 0 12.75 12V6.25l-3.5-3.5ZM9.25 2.75v3.5h3.5M5.5 9h5m-5 2h3"/>'
 const CLIPBOARD =
   '<rect x="6" y="5.5" width="7" height="8" rx="1.5"/><path d="M10 5.5V4a1.5 1.5 0 0 0-1.5-1.5h-4A1.5 1.5 0 0 0 3 4v5A1.5 1.5 0 0 0 4.5 10.5H6"/>'
 const ACTIVITY_GLYPH = {
@@ -501,16 +503,18 @@ export function createEditProposal(proposal, { onApply, onDiscard, onOpenFile, o
     : `${proposal.files.length} ${proposal.files.length === 1 ? 'file' : 'files'} to change`
   const card = node('section', 'claude-proposal')
   card.dataset.kind = proposal.kind
-  card.setAttribute('aria-label', label)
   const heading = node('header', 'claude-proposal-heading')
-  heading.append(node('h3', 'claude-proposal-title', label))
+  const title = node('h3', 'claude-proposal-title', idea ? proposal.title : label)
+  title.id = `claude-proposal-title-${proposal.id}`
+  card.setAttribute('aria-labelledby', title.id)
+  const headingText = node('div', 'claude-proposal-heading-text')
+  if (idea) headingText.append(node('p', 'claude-proposal-kind', label))
+  headingText.append(title)
+  heading.append(icon('claude-proposal-icon', PROPOSAL_GLYPH), headingText)
   card.append(heading)
   if (proposal.kind === 'files') {
     for (const file of proposal.files) card.append(fileProposalPreview(file, proposal.files.length === 1, onOpenFile))
   } else {
-    const title = node('p', 'claude-proposal-path', proposal.title)
-    title.title = proposal.title
-    heading.append(title)
     if (proposal.beforeTitle !== undefined && proposal.beforeTitle !== proposal.title) {
       card.append(node('p', 'claude-proposal-previous', `Current title is “${proposal.beforeTitle}”`))
     }

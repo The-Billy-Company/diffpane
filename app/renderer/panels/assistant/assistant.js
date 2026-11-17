@@ -31,6 +31,9 @@ const ICONS = {
   stop: '<rect x="4.5" y="4.5" width="7" height="7" rx="1.1" fill="currentColor" stroke="none"/>',
   file: '<path d="M9 2.5H4.75A1.25 1.25 0 0 0 3.5 3.75v8.5a1.25 1.25 0 0 0 1.25 1.25h6.5a1.25 1.25 0 0 0 1.25-1.25V6L9 2.5Z"/><path d="M9 2.5V6h3.5"/>',
   idea: '<path d="M5.75 10.25c0-1.3-1.5-1.9-1.5-3.9a3.75 3.75 0 0 1 7.5 0c0 2-1.5 2.6-1.5 3.9m-4.5 0h4.5m-3.8 2.25h3.1m-2.1 1.75h1.1"/>',
+  compass: '<circle cx="8" cy="8" r="5.75"/><path d="m10.5 5.5-1.25 3.75L5.5 10.5l1.25-3.75 3.75-1.25Z"/>',
+  list: '<path d="M6 4.5h6.5M6 8h6.5M6 11.5h6.5M3.5 4.5h.01M3.5 8h.01M3.5 11.5h.01"/>',
+  search: '<circle cx="7" cy="7" r="3.75"/><path d="m9.75 9.75 3 3"/>',
   check: '<path d="m3.75 8.25 2.6 2.6 5.9-5.9"/>',
 }
 
@@ -101,11 +104,15 @@ export function createAssistant(
     <div class="claude-transcript">
       <div class="claude-conversation" role="log" aria-live="off" aria-label="Conversation" tabindex="0">
         <div class="claude-empty">
-          <svg class="claude-empty-scene" viewBox="0 0 148 82" aria-hidden="true" stroke-linecap="round" stroke-linejoin="round"></svg>
-          <h3><span class="claude-empty-mark" aria-hidden="true">${creatureGlyph}</span><span class="claude-empty-title"></span></h3>
-          <p></p>
-          <div class="claude-starters"></div>
-          <button type="button" class="claude-button claude-primary" data-action="connect" hidden>Set up API key ${icon('next')}</button>
+          <div class="claude-empty-hero">
+            <div class="claude-empty-art" aria-hidden="true"><svg class="claude-empty-scene" viewBox="0 0 148 82" stroke-linecap="round" stroke-linejoin="round"></svg></div>
+            <div class="claude-empty-copy">
+              <h3><span class="claude-empty-mark" aria-hidden="true">${creatureGlyph}</span><span class="claude-empty-title"></span></h3>
+              <p></p>
+              <button type="button" class="claude-button claude-primary" data-action="connect" hidden>Set up API key ${icon('next')}</button>
+            </div>
+          </div>
+          <div class="claude-starters" role="group" aria-label="Suggested prompts"></div>
         </div>
         <div class="claude-turns"></div>
       </div>
@@ -127,8 +134,12 @@ export function createAssistant(
               <button type="button" data-mode="edit" aria-pressed="false" title="Propose file or idea changes for review">Edit</button>
             </div>
             <button class="claude-send" type="submit" aria-label="Send message" title="Send message">${icon('up')}</button>
-            <button class="claude-send claude-stop" type="button" data-action="stop" aria-label="Stop response" title="Stop response" hidden>${icon('stop')}</button>
           </div>
+        </div>
+        <div class="claude-composer-status" hidden>
+          <span class="claude-composer-label"></span>
+          <button class="claude-button claude-stop" type="button" data-action="stop" aria-label="Stop response" hidden>${icon('stop')} Stop</button>
+          <button class="claude-button claude-review" type="button" data-action="review" aria-label="Review proposal" hidden>Review ${icon('next')}</button>
         </div>
       </div>
     </form>`
@@ -181,9 +192,12 @@ export function createAssistant(
   const announcement = select('.claude-sr-only')
   const composer = requireElement(container, '.claude-composer', HTMLFormElement)
   const composerInput = requireElement(composer, '.claude-input', HTMLDivElement)
+  const composerStatus = select('.claude-composer-status')
+  const composerLabel = select('.claude-composer-label')
   const promptInput = requireElement(composer, 'textarea', HTMLTextAreaElement)
   const send = requireElement(composer, '[type="submit"]', HTMLButtonElement)
   const stop = action('stop')
+  const review = action('review')
   const jump = action('jump')
   const modes = [...composer.querySelectorAll('button')].filter(button => button.dataset.mode)
   const keyInput = requireElement(settings, 'input', HTMLInputElement)
@@ -220,30 +234,37 @@ export function createAssistant(
   /** @type {HTMLElement | null} */
   let settingsOpener = null
 
-  /** @param {string} status */
+  /** @param {'' | 'idea' | 'file' | 'project'} status */
   function renderStarters(status) {
     if (starterContext === status) return
     starterContext = status
+    /** @type {Record<Exclude<typeof status, ''>, [keyof typeof ICONS, string, string][]>} */
     const prompts = {
       idea: [
-        ['Review this idea', 'Review this idea. What is clear, and what still needs a decision?'],
-        ['Outline a plan', 'Turn this idea into a short implementation plan.'],
+        ['idea', 'Review this idea', 'Review this idea. What is clear, and what still needs a decision?'],
+        ['list', 'Outline a plan', 'Turn this idea into a short implementation plan.'],
       ],
       file: [
-        ['Explain this file', 'Explain how the open file works. Point me to the relevant code.'],
-        ['Review this file', 'Review the open file for correctness and point out anything that needs attention.'],
+        ['file', 'Explain this file', 'Explain how the open file works. Point me to the relevant code.'],
+        [
+          'search',
+          'Review this file',
+          'Review the open file for correctness and point out anything that needs attention.',
+        ],
       ],
       project: [
-        ['Get oriented', 'Give me a short tour of this project and tell me where to start reading.'],
-        ['Find my ideas', 'What ideas are in this workspace?'],
+        ['compass', 'Get oriented', 'Give me a short tour of this project and tell me where to start reading.'],
+        ['idea', 'Find my ideas', 'What ideas are in this workspace?'],
       ],
     }
-    const choices = status === 'idea' || status === 'file' || status === 'project' ? prompts[status] : []
+    const choices = status ? prompts[status] : []
     starters.replaceChildren(
-      ...choices.map(([label, prompt]) => {
-        const button = node('button', 'claude-starter', label)
+      ...choices.map(([glyph, label, prompt]) => {
+        const button = node('button', 'claude-starter')
         button.type = 'button'
         button.dataset.prompt = prompt
+        button.insertAdjacentHTML('afterbegin', icon(glyph))
+        button.append(node('span', '', label))
         button.insertAdjacentHTML('beforeend', icon('next'))
         return button
       }),
@@ -257,10 +278,12 @@ export function createAssistant(
     const hasTurns = turns.childElementCount > 0
     const canDraft = workspace && connected
     const locked = Boolean(busy || changingKey || pending)
+    const showingStatus = Boolean(activeSend ?? pending)
     const currentFile = getFileContext()
     const context = attachedIdea ? 'idea' : currentFile && includeFile ? 'file' : 'project'
     empty.hidden = hasTurns
-    empty.toggleAttribute('data-checking', checkingConnection)
+    empty.dataset.state = checkingConnection ? 'checking' : connected ? 'ready' : 'setup'
+    emptyTitle.toggleAttribute('data-loading-status', checkingConnection)
     emptyTitle.textContent = checkingConnection
       ? 'Checking connection…'
       : !connected
@@ -269,16 +292,16 @@ export function createAssistant(
           ? 'Open a project to start'
           : context === 'idea'
             ? 'Let’s work through this idea'
-            : 'What are we figuring out?'
+            : context === 'file'
+              ? 'Let’s read this file'
+              : 'What are we figuring out?'
     emptyText.textContent = checkingConnection
       ? ''
       : !connected
-        ? 'I live in your code. Set up a Claude API key so we can talk about it.'
-        : !workspace
-          ? 'Open a project so I can look around.'
-          : context === 'idea'
-            ? ''
-            : 'I live in your code and help you figure things out.'
+        ? 'Connect a Claude API key to ask about your code, work through ideas, or propose edits.'
+        : workspace && context === 'project'
+          ? 'Explore your code or pick up an idea together.'
+          : ''
     emptyText.hidden = !emptyText.textContent
     action('connect').hidden = connected || checking
     renderStarters(canDraft && !hasTurns ? context : '')
@@ -296,13 +319,20 @@ export function createAssistant(
     ideaLabel.title = ideaLabel.textContent
     action('remove-idea').disabled = locked
     composer.hidden = !canDraft && !attachedIdea
-    composerInput.hidden = !canDraft
+    composer.dataset.mode = mode
+    composer.dataset.state = activeSend ? 'working' : pending ? 'review' : 'draft'
+    composerInput.hidden = !canDraft || showingStatus
+    composerStatus.hidden = !showingStatus
+    composerLabel.textContent = activeSend?.stopping
+      ? 'Stopping response…'
+      : activeSend
+        ? 'Responding…'
+        : 'Proposal ready'
     promptInput.readOnly = locked
     promptInput.disabled = !canDraft
-    promptInput.placeholder = pending
-      ? 'Review the proposal to continue'
-      : mode === 'edit'
-        ? 'Describe what should change'
+    promptInput.placeholder =
+      mode === 'edit'
+        ? 'Describe a change to propose'
         : attachedIdea
           ? 'What should I look for in this idea?'
           : 'What should I look into?'
@@ -311,9 +341,9 @@ export function createAssistant(
       button.setAttribute('aria-pressed', String(button.dataset.mode === mode))
     }
     send.disabled = !canDraft || locked || !promptInput.value.trim()
-    send.hidden = Boolean(activeSend)
     stop.hidden = !activeSend
     stop.disabled = activeSend?.stopping ?? false
+    review.hidden = !pending
     if (pending) {
       for (const button of pending.controls.querySelectorAll('button')) {
         button.disabled = Boolean(busy) || changingKey
@@ -353,13 +383,13 @@ export function createAssistant(
 
   function syncScroll() {
     const distance = conversation.scrollHeight - conversation.clientHeight - conversation.scrollTop
-    following = distance < 32
-    jump.hidden = following || !turns.childElementCount
+    following = !turns.childElementCount || distance < 32
+    jump.hidden = following
   }
 
   function updateScroll() {
     if (container.hidden) return
-    if (following) conversation.scrollTop = conversation.scrollHeight
+    if (following && turns.childElementCount) conversation.scrollTop = conversation.scrollHeight
     syncScroll()
   }
 
@@ -368,12 +398,25 @@ export function createAssistant(
 
   function scrollToLatest() {
     following = true
+    if (!turns.childElementCount) conversation.scrollTop = 0
     updateScroll()
   }
 
   function focusDraft() {
-    if (!listeners.signal.aborted && !container.hidden && !document.querySelector('dialog[open]'))
-      (promptInput.disabled ? action('settings') : promptInput).focus()
+    if (listeners.signal.aborted || container.hidden || document.querySelector('dialog[open]')) return
+    const control = pending ? review : activeSend ? stop : promptInput.disabled ? action('settings') : promptInput
+    control.focus({ preventScroll: true })
+  }
+
+  function focusProposal() {
+    if (!pending) return
+    const { card } = pending
+    card.focus({ preventScroll: true })
+    const offset = card.getBoundingClientRect().top - conversation.getBoundingClientRect().top
+    if (offset < 0 || offset + card.offsetHeight > conversation.clientHeight) {
+      conversation.scrollTop += offset - 8
+      syncScroll()
+    }
   }
 
   /** @param {string} prompt @param {FileContext | undefined} file @param {IdeaAttachment | null} idea */
@@ -651,6 +694,7 @@ export function createAssistant(
 
   async function sendMessage() {
     if (send.disabled || busy) return
+    const fromComposer = composer.contains(document.activeElement)
     const prompt = promptInput.value.trim()
     const idea = attachedIdea
     const file = includeFile ? (getFileContext() ?? undefined) : undefined
@@ -681,6 +725,7 @@ export function createAssistant(
     render()
     resizeDraft()
     scrollToLatest()
+    if (fromComposer) focusDraft()
     try {
       const result = await attemptAsync(
         async () => {
@@ -702,7 +747,7 @@ export function createAssistant(
           addReplyText(state, step, text, false)
         }
         if (response.proposal) showProposal(response.proposal, state.sections)
-        state.sections.append(node('div', 'claude-turn-content', CREATURE_SIGN_OFF))
+        state.sections.append(node('p', 'claude-sign-off', CREATURE_SIGN_OFF))
         attachedIdea = null
         announcement.textContent = response.proposal ? 'Proposal ready to review.' : 'The Creature replied.'
       } else {
@@ -727,8 +772,8 @@ export function createAssistant(
         resizeDraft()
         updateScroll()
         if (!listeners.signal.aborted && focused && !container.hidden && !settings.open) {
-          if (pending && following) pending.card.focus({ preventScroll: true })
-          else if (!pending) focusDraft()
+          if (pending && following) focusProposal()
+          else focusDraft()
         }
       }
     }
@@ -814,6 +859,7 @@ export function createAssistant(
   for (const name of ['settings', 'connect']) action(name).addEventListener('click', openSettings, listenerOptions)
   action('reset').addEventListener('click', () => runTask('Reset conversation', resetConversation), listenerOptions)
   stop.addEventListener('click', () => runTask('Stop response', stopResponse), listenerOptions)
+  review.addEventListener('click', focusProposal, listenerOptions)
   container.addEventListener(
     'keydown',
     event => {
