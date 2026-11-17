@@ -9,6 +9,12 @@
   user-select: none;
 }
 
+.review-hunk-navigation {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .review-hunk-position {
   font-variant-numeric: tabular-nums;
 }
@@ -521,6 +527,178 @@
   }
 }
 
+.workspace:has(> #sidebar > #change-review:not([hidden])) .file-card[data-review-scope] {
+  --comparison-inset: clamp(12px, 2.7cqi, 24px);
+
+  .file-header {
+    min-height: 58px;
+    gap: 6px 10px;
+    padding: 10px var(--comparison-inset);
+  }
+
+  .file-icon {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--editor-separator);
+    border-radius: 7px;
+    background: var(--surface);
+  }
+
+  .file-path {
+    gap: 3px;
+  }
+
+  .file-directory {
+    color: var(--editor-chrome);
+    font-family: var(--font-mono);
+  }
+
+  .file-name {
+    font-size: clamp(var(--text-subheading), 3.6cqi, var(--text-heading));
+    letter-spacing: -0.025em;
+  }
+
+  .review-hunk-bar {
+    gap: 4px;
+    margin-inline-start: 2px;
+    padding-inline-start: 0;
+    border: 0;
+  }
+
+  .review-hunk-bar[data-has-hunks] .review-hunk-navigation {
+    padding: 1px;
+    border: 1px solid var(--editor-separator);
+    border-radius: 6px;
+    background: var(--surface-inset);
+  }
+
+  .review-hunk-navigation button {
+    height: 24px;
+  }
+
+  .review-hunk-position {
+    color: var(--muted);
+  }
+
+  .review-hunk-bar[data-has-hunks] .review-hunk-position {
+    min-inline-size: 4ch;
+    font-family: var(--font-mono);
+    text-align: center;
+  }
+
+  .review-hunk-position > number-flow {
+    color: var(--accent);
+    font-size: var(--text-body);
+    font-weight: var(--weight-semibold);
+  }
+
+  .review-change-map {
+    --map-padding: 10px;
+    margin: 0 var(--comparison-inset) 10px;
+  }
+
+  .review-map-control,
+  .review-map-preview-track {
+    --map-label-width: 85px;
+  }
+
+  .review-map-control {
+    padding-block: 6px;
+    border: 1px solid var(--editor-separator);
+    border-radius: 7px;
+    background: color-mix(in oklab, var(--surface-inset) 75%, var(--workbench-background));
+  }
+
+  .review-map-heading {
+    gap: 8px;
+    min-height: 19px;
+    margin-block-end: 4px;
+  }
+
+  .review-map-title {
+    font-size: var(--text-label);
+  }
+
+  .review-map-summary {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--modified-surface);
+    color: var(--modified);
+  }
+
+  .review-map-summary[data-kind='insertion'] {
+    background: var(--added-gutter);
+    color: var(--added);
+  }
+
+  .review-map-summary[data-kind='deletion'] {
+    background: var(--removed-gutter);
+    color: var(--removed);
+  }
+
+  .review-change-map:not(:has(.review-map-preview:not([hidden]))) .review-map-summary-position {
+    display: none;
+  }
+
+  .review-map-row-range {
+    font-family: var(--font-mono);
+  }
+
+  .review-map-mark {
+    background: color-mix(in oklab, var(--map-ink) 55%, var(--workbench-background));
+  }
+
+  .review-map-active {
+    inset-block: 3px;
+    outline-color: var(--map-label);
+  }
+
+  .review-map-ribbon-active {
+    opacity: 0.75;
+  }
+
+  .comparison-labels {
+    border-block: 1px solid var(--editor-separator);
+  }
+
+  .comparison-labels > div {
+    min-height: 24px;
+    padding-inline: var(--comparison-inset);
+  }
+
+  .review-hunk-bracket {
+    --hunk-max-width: 16px;
+    border-inline-start-width: 3px;
+  }
+
+  @container (max-width: 470px) {
+    .file-header {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 2px 8px;
+      padding-block: 7px;
+    }
+
+    .file-actions {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @container (max-width: 420px) {
+    .review-map-control,
+    .review-map-preview-track {
+      --map-label-width: min(66px, 25cqi);
+      --map-range-width: min(108px, 32cqi);
+    }
+  }
+
+  @container (max-width: 270px) {
+    .review-map-viewport-key {
+      display: none;
+    }
+  }
+}
+
 @container (max-width: 420px) {
   .review-map-control,
   .review-map-preview-track {
@@ -562,6 +740,7 @@
 
 .review-hunk-bracket {
   --hunk-ink: var(--removed-edge);
+  width: min(var(--hunk-max-width, 11px), var(--hunk-width, 0px));
   inset: 0 auto auto 5px;
   border: solid var(--hunk-ink);
   border-width: 1px 0 1px 2px;

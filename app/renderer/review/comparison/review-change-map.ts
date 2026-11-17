@@ -66,7 +66,7 @@ export function createReviewChangeMap(
         <span class="review-map-title">Change map</span>
         <span class="review-map-hint">Select a mark to jump</span>
         <span class="review-map-viewport-key" hidden>In view</span>
-        <span class="review-map-summary"></span>
+        <span class="review-map-summary"><span class="review-map-kind"></span><span class="review-map-summary-position"></span></span>
       </div>
       <div class="review-map-row is-original" aria-hidden="true">
         <span class="review-map-row-label">Git HEAD</span>
@@ -111,6 +111,8 @@ export function createReviewChangeMap(
   const control = requireElement(element, '.review-map-control', HTMLDivElement)
   const viewportKey = requireElement(control, '.review-map-viewport-key', HTMLSpanElement)
   const summary = requireElement(control, '.review-map-summary', HTMLSpanElement)
+  const summaryKind = requireElement(summary, '.review-map-kind', HTMLSpanElement)
+  const summaryPosition = requireElement(summary, '.review-map-summary-position', HTMLSpanElement)
   const ribbonTrack = requireElement(control, '.review-map-ribbon-track', HTMLDivElement)
   ribbonTrack.style.setProperty('--review-map-gradient', `url(#${gradientId})`)
   const backgroundRibbons = requireElement(ribbonTrack, '.review-map-ribbons', SVGGElement)
@@ -288,7 +290,8 @@ export function createReviewChangeMap(
     if (!hunk) return
     const kind = changeKind(hunk)
     const position = `${(index + 1).toLocaleString()} of ${hunks.length.toLocaleString()}`
-    summary.textContent = `${kindLabels[kind]} · ${position}`
+    summaryKind.textContent = kindLabels[kind]
+    summaryPosition.textContent = ` · ${position}`
     summary.dataset.kind = kind
     for (const lane of lanes) lane.selectedRange.textContent = lineLabel(changedLines(hunk, lane.side))
   }

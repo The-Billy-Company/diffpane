@@ -44,7 +44,7 @@ function createHunkBracket(pane, side) {
       if (element.hidden) return
       element.style.setProperty('--hunk-top', `${first}px`)
       element.style.height = `${last - first}px`
-      element.style.width = `${Math.min(11, contentLeft - 5)}px`
+      element.style.setProperty('--hunk-width', `${contentLeft - 5}px`)
     },
     dispose: () => pane.removeOverlayWidget(widget),
   }
@@ -71,11 +71,13 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
   bar.setAttribute('aria-label', 'Changes in this file')
   bar.hidden = true
   bar.innerHTML = `
-    <button type="button" class="review-hunk-prev" aria-label="Previous change in file" title="Previous change in file">${chevron('up')}</button>
-    <svg class="review-hunk-aligned" viewBox="0 0 20 20" aria-hidden="true" stroke-linecap="round" hidden></svg>
-    <span class="review-hunk-position" aria-hidden="true"></span>
+    <span class="review-hunk-navigation">
+      <button type="button" class="review-hunk-prev" aria-label="Previous change in file" title="Previous change in file">${chevron('up')}</button>
+      <svg class="review-hunk-aligned" viewBox="0 0 20 20" aria-hidden="true" stroke-linecap="round" hidden></svg>
+      <span class="review-hunk-position" aria-hidden="true"></span>
+      <button type="button" class="review-hunk-next" aria-label="Next change in file" title="Next change in file">${chevron('down')}</button>
+    </span>
     <span class="review-hunk-announcement" role="status"></span>
-    <button type="button" class="review-hunk-next" aria-label="Next change in file" title="Next change in file">${chevron('down')}</button>
     <button type="button" class="review-hunk-replay" aria-label="Replay change" aria-haspopup="dialog" title="Replay change" hidden>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.75a.5.5 0 0 1 .77-.42l6.5 4.25a.5.5 0 0 1 0 .84l-6.5 4.25a.5.5 0 0 1-.77-.42z" fill="currentColor"/></svg>
       <span aria-hidden="true">Replay</span>
@@ -123,6 +125,7 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
     const total = positionFormat.format(hunks.length)
     const tail = message || `/${total}`
     const spoken = message || `Change ${positionFormat.format(current)} of ${total}`
+    bar.toggleAttribute('data-has-hunks', !message)
     positionNumber.hidden = Boolean(message)
     if (positionEnd.data !== tail) positionEnd.data = tail
     if (message) positionNumber.animated = false

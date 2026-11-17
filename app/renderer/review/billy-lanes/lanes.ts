@@ -183,7 +183,7 @@ export function createBillyLanes(
     if (details.hidden) return
     const failureCount = checks.kind === 'saved' ? checks.counts.failed : 0
     checksFailed.hidden = failureCount === 0
-    checksFailed.textContent = failureCount ? `· ${failureCount} failed` : ''
+    checksFailed.textContent = failureCount ? `${failureCount} failed` : ''
     details.dataset.state = checks.kind === 'saved' ? (checks.conclusive ? 'saved' : 'incomplete') : checks.kind
     switch (checks.kind) {
       case 'loading':
@@ -199,32 +199,49 @@ export function createBillyLanes(
         const { capture, capturedAt, conclusive, counts, failedChecks, findings, findingsComplete, findingsTotal } =
           checks
         checksLabel.textContent = conclusive ? 'Saved checks' : 'Checks incomplete'
-        const info = document.createElement('p')
-        const outcome = [
-          `${counts.passed} passed`,
-          `${counts.failed} failed`,
-          counts.advisory ? `${counts.advisory} advisory failures` : '',
-          counts.skipped ? `${counts.skipped} skipped` : '',
+        const outcomes = document.createElement('ul')
+        outcomes.className = 'billy-lanes-outcomes'
+        outcomes.setAttribute('aria-label', 'Saved check outcomes')
+        const countsByOutcome = [
+          { label: 'Passed', count: counts.passed },
+          { label: 'Failed', count: counts.failed, warning: true },
         ]
-          .filter(Boolean)
-          .join(' · ')
-        const captured =
-          capturedAt === undefined
-            ? 'Capture time unavailable'
-            : new Date(capturedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-        info.textContent = `${captured} · ${outcome}`
+        if (counts.advisory) countsByOutcome.push({ label: 'Advisory failures', count: counts.advisory, warning: true })
+        if (counts.skipped) countsByOutcome.push({ label: 'Skipped', count: counts.skipped })
+        for (const { label, count, warning } of countsByOutcome) {
+          const item = document.createElement('li')
+          const value = document.createElement('strong')
+          value.textContent = count.toLocaleString()
+          item.toggleAttribute('data-warning', Boolean(count && warning))
+          item.append(value, ` ${label}`)
+          outcomes.append(item)
+        }
+        evidence.append(outcomes)
+        const metadata = document.createElement('div')
+        metadata.className = 'billy-lanes-evidence-meta'
+        const captured = document.createElement('p')
+        if (capturedAt === undefined) captured.textContent = 'Capture time unavailable'
+        else {
+          const date = new Date(capturedAt)
+          const time = document.createElement('time')
+          time.dateTime = date.toISOString()
+          time.textContent = date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+          captured.append('Saved ', time)
+        }
         const freshness = document.createElement('p')
         freshness.textContent = 'Current edit coverage is unknown.'
-        evidence.append(info, freshness)
-        appendRetainedLogs(capture, failedChecks)
+        metadata.append(captured, freshness)
         if (findings.length) {
           const items = document.createElement('ul')
+          items.className = 'billy-lanes-findings'
+          items.setAttribute('aria-label', 'Saved findings')
           for (const finding of findings) {
             const item = document.createElement('li')
             const { line, path } = finding
             if (path && onOpen) {
               const link = document.createElement('button')
               link.type = 'button'
+              link.className = 'billy-lanes-finding-path'
               link.textContent = line ? `${path}:${line}` : path
               link.addEventListener('click', () => runTask('Open saved check finding', () => onOpen(path, line)))
               item.append(link)
@@ -253,11 +270,14 @@ export function createBillyLanes(
         }
         if ((counts.failed || counts.advisory) && !findingsComplete) {
           const coverage = document.createElement('p')
+          coverage.className = 'billy-lanes-evidence-meta'
           coverage.textContent = findingsTotal
             ? `Showing ${findings.length} of ${findingsTotal} saved findings.`
             : 'Finding coverage is unavailable.'
           evidence.append(coverage)
         }
+        evidence.append(metadata)
+        appendRetainedLogs(capture, failedChecks)
         break
       }
     }

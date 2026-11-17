@@ -46,7 +46,7 @@ import './change-review.css'
  * }} ReviewRow
  */
 
-const ROW_HEIGHT = 40
+const ROW_HEIGHT = 44
 const OVERSCAN = 4
 const MAX_PROGRESS_SEGMENTS = 40
 const CHECKPOINT_TIME = new Intl.DateTimeFormat(undefined, {
@@ -106,12 +106,15 @@ export function createChangeReview(
   container.style.setProperty('--change-review-row-height', `${ROW_HEIGHT}px`)
   container.innerHTML = `
     <header class="change-review-heading">
-      <h2 id="${id}-title">Review queue</h2>
+      <h2 id="${id}-title">Changes</h2>
       <button type="button" class="change-review-back" aria-label="Back to files" title="Back to files">${icon(GLYPHS.back)}<span>Files</span></button>
     </header>
     <div class="change-review-progress" hidden>
+      <div class="change-review-progress-readout" aria-hidden="true">
+        <span class="change-review-count"><span class="change-review-total"></span></span>
+        <span class="change-review-progress-label">Files reviewed</span>
+      </div>
       <div class="change-review-progress-strip" aria-hidden="true"></div>
-      <span class="change-review-count" aria-hidden="true"><span></span></span>
       <span class="change-review-progress-announcement" role="status"></span>
       <progress aria-label="Review progress" max="1" value="0"></progress>
     </div>
@@ -140,10 +143,12 @@ export function createChangeReview(
         <div class="change-review-rows" role="presentation"></div>
       </div>
       <div class="change-review-empty" hidden>
-        <svg class="change-review-empty-art" viewBox="8 0 84 56" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
-        <h3 tabindex="-1"></h3>
-        <p></p>
-        <button type="button" class="change-review-empty-action"></button>
+        <div class="change-review-empty-content">
+          <svg class="change-review-empty-art" viewBox="8 0 84 56" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+          <h3 tabindex="-1"></h3>
+          <p></p>
+          <button type="button" class="change-review-empty-action"></button>
+        </div>
       </div>
     </div>
     <footer class="change-review-footer" hidden>
@@ -169,7 +174,7 @@ export function createChangeReview(
   const capturedTime = requireElement(container, 'time', HTMLTimeElement)
   const checkpointError = requireElement(container, '.change-review-checkpoint-error', HTMLParagraphElement)
   const count = requireElement(container, '.change-review-count', HTMLSpanElement)
-  const countTotal = requireElement(count, 'span', HTMLSpanElement)
+  const countTotal = requireElement(count, '.change-review-total', HTMLSpanElement)
   const reviewedCount = createRollingNumber()
   count.prepend(reviewedCount)
   const progress = requireElement(container, 'progress', HTMLProgressElement)
@@ -480,7 +485,7 @@ export function createChangeReview(
     }
     mark.setAttribute('aria-disabled', String(disabled))
     if (markLabel.textContent !== action) markLabel.textContent = action
-    markIcon.toggleAttribute('data-loading-status', state === 'saving')
+    markIcon.toggleAttribute('data-loading-status', state === 'loading' || state === 'saving')
     if (markIcon.dataset.icon !== symbol) {
       markIcon.dataset.icon = symbol
       markIcon.innerHTML = icon(GLYPHS[symbol])
@@ -522,11 +527,12 @@ export function createChangeReview(
   /** @param {number} total @param {number[]} reviewedPositions @param {boolean} animate */
   function updateProgress(total, reviewedPositions, animate) {
     const done = reviewedPositions.length
-    const suffix = ` of ${total.toLocaleString()} reviewed`
-    if (countTotal.textContent !== suffix) countTotal.textContent = suffix
+    const totalLabel = total.toLocaleString()
+    const readout = ` / ${totalLabel}`
+    if (countTotal.textContent !== readout) countTotal.textContent = readout
     reviewedCount.animated = animate && !progressGroup.hidden && total > 0
     if (reviewedCount.value !== done) reviewedCount.update(done)
-    const summary = `${done.toLocaleString()}${suffix}`
+    const summary = `${done.toLocaleString()} of ${totalLabel} reviewed`
     if (progressAnnouncement.textContent !== summary) progressAnnouncement.textContent = summary
     progress.max = total || 1
     progress.value = done
