@@ -21,7 +21,7 @@ import './change-review.css'
  */
 /** @typedef {{ id: number, capturedAt: number | string, error?: string }} ReviewCheckpoint */
 /** @typedef {'head' | 'checkpoint'} ReviewBaseline */
-/** @typedef {'pending' | 'reviewed'} ReviewFilter */
+/** @typedef {'modified' | 'added'} ReviewFilter */
 /** @typedef {'loading' | 'saving' | 'save-failed' | 'closing' | 'ready' | 'failed'} ReviewState */
 /**
  * @typedef {{
@@ -89,9 +89,15 @@ const STATUS_LABELS = {
 function changeStatus(file) {
   if (file.conflicted) return '!'
   if (file.worktree === 'D') return 'D'
-  if (file.index === 'R' || file.index === 'C') return file.index
-  if (file.worktree === '?') return 'U'
+  if (file.index === 'A' || file.index === 'R' || file.index === 'C') return file.index
+  if (file.worktree === '?') return file.index === 'D' ? 'M' : 'U'
   return file.worktree && Object.hasOwn(STATUS_LABELS, file.worktree) ? file.worktree : (file.index ?? '').trim() || 'M'
+}
+
+/** @param {ReviewFile} file @returns {ReviewFilter} */
+function fileFilter(file) {
+  const status = changeStatus(file)
+  return status === 'A' || status === 'U' ? 'added' : 'modified'
 }
 
 /** @param {HTMLElement} container @param {ChangeReviewOptions} options */
@@ -136,9 +142,9 @@ export function createChangeReview(
       </div>
       <div class="change-review-lane" hidden></div>
     </div>
-    <div class="change-review-filters" role="group" aria-label="Review filter" hidden>
-      <button type="button" data-filter="pending" aria-label="Pending" aria-describedby="${id}-pending" aria-pressed="true">Pending <span id="${id}-pending"></span></button>
-      <button type="button" data-filter="reviewed" aria-label="Reviewed" aria-describedby="${id}-reviewed" aria-pressed="false">Reviewed <span id="${id}-reviewed"></span></button>
+    <div class="change-review-filters" role="group" aria-label="File change filter" hidden>
+      <button type="button" data-filter="modified" aria-label="Modified" aria-describedby="${id}-modified" aria-pressed="true">Modified <span id="${id}-modified"></span></button>
+      <button type="button" data-filter="added" aria-label="Added" aria-describedby="${id}-added" aria-pressed="false">Added <span id="${id}-added"></span></button>
     </div>
     <div class="change-review-body">
       <div class="change-review-list" role="listbox" aria-label="Changed files" tabindex="0">
@@ -149,7 +155,6 @@ export function createChangeReview(
           <svg class="change-review-empty-art" viewBox="8 0 84 56" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
           <h3 tabindex="-1"></h3>
           <p></p>
-          <button type="button" class="change-review-empty-action"></button>
         </div>
       </div>
     </div>
@@ -194,7 +199,6 @@ export function createChangeReview(
   const emptyArt = requireElement(empty, '.change-review-empty-art', SVGSVGElement)
   const emptyTitle = requireElement(empty, 'h3', HTMLHeadingElement)
   const emptyDescription = requireElement(empty, 'p', HTMLParagraphElement)
-  const emptyAction = requireElement(empty, 'button', HTMLButtonElement)
   const footer = requireElement(container, '.change-review-footer', HTMLElement)
   const position = requireElement(container, '.change-review-position', HTMLParagraphElement)
   const error = requireElement(footer, '.change-review-error', HTMLParagraphElement)
@@ -229,8 +233,9 @@ export function createChangeReview(
   const entries = []
   /** @type {number[]} */
   const entryIndexes = []
-  /** @type {ReviewFilter} */
-  let filter = 'pending'
+  /** @type {ReviewFilter | null} */
+  let filter = null
+  let unreviewedEntries = 0
   /** @type {string | null} */
   let currentPath = null
   /** @type {number | null} */
@@ -292,7 +297,7 @@ export function createChangeReview(
   }
 
   function focusQueue() {
-    const target = !list.hidden ? list : !emptyAction.hidden ? emptyAction : checkpoint ? emptyTitle : captureButton
+    const target = !list.hidden ? list : !filterGroup.hidden || checkpoint ? emptyTitle : captureButton
     target.focus({ preventScroll: true })
   }
 
@@ -331,7 +336,7 @@ export function createChangeReview(
         element.className = 'change-review-row'
         element.dataset.path = file.path
         element.setAttribute('role', 'option')
-        element.innerHTML = `<img class="change-review-file-icon" alt=""><div class="change-review-label"><span class="change-review-name"></span><span class="change-review-location"></span></div><span class="change-review-status" aria-hidden="true"><span class="change-review-status-symbol"></span><span class="change-review-status-label"></span></span>`
+        element.innerHTML = `<img class="change-review-file-icon" alt=""><div class="change-review-label"><span class="change-review-name"></span><span class="change-review-location"></span></div><span class="change-review-reviewed" aria-hidden="true">${icon(GLYPHS.check)}</span><span class="change-review-status" aria-hidden="true"><span class="change-review-status-symbol"></span><span class="change-review-status-label"></span></span>`
         const name = file.path.slice(file.path.lastIndexOf('/') + 1)
         const image = requireElement(element, 'img', HTMLImageElement)
         const source = projectIcon({ kind: 'file', name })
@@ -367,8 +372,10 @@ export function createChangeReview(
         const oldPath = file.originalPath
         const directory = file.path.slice(0, Math.max(0, file.path.lastIndexOf('/')))
         const location = [laneLabel, directory, oldPath ? `From ${oldPath}` : ''].filter(Boolean).join(' · ')
-        row.description = `${label}, ${file.path}${oldPath ? `, from ${oldPath}` : ''}${laneLabel ? `, ${laneLabel}` : ''}`
-        const title = oldPath ? `${label} · ${oldPath} → ${file.path}` : `${label} · ${file.path}`
+        const done = reviewed.has(file.path)
+        element.dataset.reviewed = String(done)
+        row.description = `${label}, ${file.path}${oldPath ? `, from ${oldPath}` : ''}${laneLabel ? `, ${laneLabel}` : ''}${done ? ', reviewed' : ''}`
+        const title = `${label} · ${oldPath ? `${oldPath} → ` : ''}${file.path}${done ? ' · Reviewed' : ''}`
         if (element.title !== title) element.title = title
         if (row.location.textContent !== location) row.location.textContent = location
         if (element.dataset.status !== status) {
@@ -461,7 +468,7 @@ export function createChangeReview(
     position.hidden = !positionText
 
     const reviewable = canMark()
-    const advance = reviewable && filter === 'pending' && entries.length > 1
+    const done = currentPath !== null && reviewed.has(currentPath)
     let action = 'Open comparison'
     /** @type {keyof typeof GLYPHS} */
     let symbol = 'compare'
@@ -470,8 +477,8 @@ export function createChangeReview(
       action = 'Checkpoint unavailable'
       disabled = true
     } else if (reviewable) {
-      action = filter === 'reviewed' ? 'Return to pending' : advance ? 'Mark reviewed & next' : 'Mark reviewed'
-      symbol = filter === 'reviewed' ? 'undo' : 'check'
+      action = done ? 'Undo review' : unreviewedEntries > 1 ? 'Mark reviewed & next' : 'Mark reviewed'
+      symbol = done ? 'undo' : 'check'
     } else if (state === 'failed') {
       action = 'Retry comparison'
       symbol = 'undo'
@@ -553,26 +560,24 @@ export function createChangeReview(
     }
   }
 
-  function renderEmpty(scopedTotal = 0) {
-    const state = !changes.size ? 'clean' : !scopedTotal ? 'scope' : filter === 'reviewed' ? 'reviewed' : 'complete'
+  /** @param {number} scopedTotal @param {ReviewFilter} selectedFilter */
+  function renderEmpty(scopedTotal, selectedFilter) {
     const cleanState = baseline === 'head' ? 'head' : checkpoint?.error ? 'error' : 'checkpoint'
-    const key = state === 'clean' ? cleanState : state
+    const key = !changes.size ? cleanState : !scopedTotal ? 'scope' : selectedFilter
     if (empty.dataset.state === key) return
     empty.dataset.state = key
-    drawReviewArt(emptyArt, key)
-    const [title, description, action] = {
+    drawReviewArt(emptyArt, key === 'modified' || key === 'added' ? 'scope' : key)
+    const [title, description] = {
       head: ['Working tree is clean', 'New changes will appear here as they happen.'],
       checkpoint: ['No changes since checkpoint', 'New changes will appear here as they happen.'],
       error: ['Checkpoint comparison unavailable'],
       scope: ['No changes in this lane', 'Choose All changes to see the full comparison.'],
-      reviewed: ['No files reviewed yet', 'Mark a file reviewed to find it here.', 'Show pending files'],
-      complete: ['Review complete', 'New edits move files back to Pending.', 'View reviewed files'],
+      modified: ['No modified files'],
+      added: ['No added files'],
     }[key]
     emptyTitle.textContent = title ?? ''
     emptyDescription.textContent = description ?? ''
     emptyDescription.hidden = !description
-    emptyAction.hidden = !action
-    emptyAction.textContent = action ?? ''
   }
 
   function project({ resetScroll = false, animateProgress = true } = {}) {
@@ -583,20 +588,35 @@ export function createChangeReview(
     entryIndexes.length = 0
     progressIndexes.clear()
     projection++
-    const showReviewed = filter === 'reviewed'
+    if (filter === null) {
+      for (const file of changes.values()) {
+        if (includeFile(file) && fileFilter(file) === 'modified') {
+          filter = 'modified'
+          break
+        }
+      }
+    }
+    const selectedFilter = filter ?? 'added'
+    const counts = { modified: 0, added: 0 }
     const reviewedPositions = []
+    unreviewedEntries = 0
     for (const file of changes.values()) {
       if (!includeFile(file)) continue
       const index = progressIndexes.size
       progressIndexes.set(file.path, index)
       const isReviewed = reviewed.has(file.path)
       if (isReviewed) reviewedPositions.push(index)
-      const matches = isReviewed === showReviewed
+      const category = fileFilter(file)
+      counts[category]++
+      const matches = category === selectedFilter
       entryIndexes.push(matches ? entries.length : -1)
-      if (matches) entries.push(file)
+      if (matches) {
+        entries.push(file)
+        if (!isReviewed) unreviewedEntries++
+      }
     }
     const scopedTotal = progressIndexes.size
-    const done = reviewedPositions.length
+    if (scopedTotal) filter = selectedFilter
     updateProgress(scopedTotal, reviewedPositions, animateProgress)
     const activeRemoved = activePath !== null && entryIndex(activePath) === undefined
     if (activePath === null || activeRemoved)
@@ -608,14 +628,14 @@ export function createChangeReview(
       if (index !== undefined) list.scrollTop = index * ROW_HEIGHT + offset
     }
     for (const { button, label } of filters) {
-      const total = button.dataset.filter === 'reviewed' ? done : scopedTotal - done
-      button.setAttribute('aria-pressed', String(button.dataset.filter === filter))
+      const total = button.dataset.filter === 'added' ? counts.added : counts.modified
+      button.setAttribute('aria-pressed', String(button.dataset.filter === selectedFilter))
       const value = total.toLocaleString()
       if (label.textContent !== value) label.textContent = value
     }
     const focused = document.activeElement
     const isEmpty = entries.length === 0
-    if (isEmpty) renderEmpty(scopedTotal)
+    if (isEmpty) renderEmpty(scopedTotal, selectedFilter)
     progressGroup.hidden = filterGroup.hidden = scopedTotal === 0
     empty.hidden = !isEmpty
     list.hidden = footer.hidden = isEmpty
@@ -625,7 +645,6 @@ export function createChangeReview(
     const focusHidden =
       (filterGroup.hidden && filterGroup.contains(focused)) ||
       (isEmpty && (focused === list || footer.contains(focused))) ||
-      (focused === emptyAction && emptyAction.hidden) ||
       (!isEmpty && empty.contains(focused))
     if (focusHidden) focusQueue()
   }
@@ -671,23 +690,25 @@ export function createChangeReview(
   }
 
   function markCurrent() {
-    if (!canMark() || currentPath === null || currentVersion === null) return
-    if (filter === 'reviewed') {
+    const index = entryIndex(currentPath)
+    if (!canMark() || currentPath === null || currentVersion === null || index === undefined) return
+    if (reviewed.has(currentPath)) {
       reviewed.delete(currentPath)
-      selectFilter('pending')
+      project()
       return
     }
-    const following = adjacent(1)
     reviewed.set(currentPath, currentVersion)
     project()
     if (container.dataset.complete === 'true')
-      celebrate(
-        'review',
-        progressStrip,
-        container,
-        () => !disposed && filter === 'pending' && container.dataset.complete === 'true',
-      )
-    if (following && following.path !== currentPath) openComparison(following)
+      celebrate('review', progressStrip, container, () => !disposed && container.dataset.complete === 'true')
+    if (!unreviewedEntries) return
+    for (let offset = 1; offset < entries.length; offset++) {
+      const following = entries[(index + offset) % entries.length]
+      if (following && !reviewed.has(following.path)) {
+        openComparison(following)
+        break
+      }
+    }
   }
 
   /** @param {KeyboardEvent} event */
@@ -730,7 +751,7 @@ export function createChangeReview(
   for (const { button } of filters)
     button.addEventListener('click', () => {
       const selected = button.dataset.filter
-      if (selected === 'pending' || selected === 'reviewed') selectFilter(selected)
+      if (selected === 'modified' || selected === 'added') selectFilter(selected)
     })
   captureButton.addEventListener('click', () => runTask('Capture review checkpoint', capture))
   baselineSelect.addEventListener('change', () => {
@@ -738,10 +759,6 @@ export function createChangeReview(
     if (value === 'head' || value === 'checkpoint') onBaseline(value)
   })
   requireElement(container, '.change-review-back', HTMLButtonElement).addEventListener('click', onBack)
-  emptyAction.addEventListener('click', () => {
-    selectFilter(filter === 'pending' ? 'reviewed' : 'pending')
-    focusQueue()
-  })
   list.addEventListener('scroll', scheduleRows, { passive: true })
   list.addEventListener('focus', () => {
     if (!list.matches(':focus-visible')) return
@@ -788,7 +805,7 @@ export function createChangeReview(
         currentState = null
         currentVersion = null
         activePath = currentPath
-        filter = 'pending'
+        filter = null
         error.hidden = true
         resetScrollOnUpdate = true
       }

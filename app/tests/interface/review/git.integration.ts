@@ -24,6 +24,7 @@ const mainFile = 'src/main-note.txt'
 const gitPanel = '#git-workspace'
 const gitToggle = '#git-workspace-toggle'
 const slider = `${gitPanel} [role="slider"][aria-label="Change map"]`
+const reviewQueue = '#change-review'
 
 const gitEnv = {
   ...process.env,
@@ -186,6 +187,8 @@ const attribute = (selector: string, name: string) =>
 const gitFile = (name: string) => `${gitPanel} [data-git-file="${name}"]`
 const gitCommit = (sha: string) => `${gitPanel} [data-git-commit="${sha}"]`
 const gitHour = (sha: string) => `${gitPanel} button[data-git-hour-target="${sha}"]`
+const reviewFile = (name: string) => `${reviewQueue} .change-review-row[data-path="${name}"]`
+const reviewFilter = (filter: 'modified' | 'added') => `${reviewQueue} [data-filter="${filter}"]`
 
 async function click(selector: string) {
   await until(selector, () => visible(selector))
@@ -216,6 +219,15 @@ async function counts(added: number, removed: number) {
   await until(`${added} added and ${removed} removed`, async () => {
     const result = await content(`${gitPanel} .git-line-totals`)
     return result.match(new RegExp(`\\+${added}(?!\\d)\\D*[−-]${removed}(?!\\d)`))
+  })
+}
+
+async function reviewCounts(modified: number, added: number) {
+  await until(`${modified} modified and ${added} added files in the review queue`, async () => {
+    return (
+      (await content(`${reviewFilter('modified')} span`)) === String(modified) &&
+      (await content(`${reviewFilter('added')} span`)) === String(added)
+    )
   })
 }
 
@@ -456,13 +468,47 @@ async function run(fixture: ReturnType<typeof createFixture>) {
   await click(gitToggle)
   await counts(7, 2)
   await button(gitPanel, 'Review changes')
-  await until('the existing Changes queue', () => visible('#change-review'))
+  await until('the existing Changes queue', () => visible(reviewQueue))
   assert.equal(await visible(gitPanel), false)
-  const reviewRow = `#change-review .change-review-row[data-path="${scattered}"]`
-  await click(reviewRow)
+  await reviewCounts(2, 2)
+  assert.equal(await attribute(reviewFilter('modified'), 'aria-pressed'), 'true')
+  assert.equal(await exists(reviewFile(staged)), false)
+  assert.equal(await exists(reviewFile(untracked)), false)
+  await click(reviewFile(scattered))
   await until('the existing review editor', () => visible('.workbench .monaco-diff-editor'))
-  await button('#change-review', 'Mark reviewed & next')
-  await until('the reviewed file leaves the pending queue', async () => !(await visible(reviewRow)))
+  await button(reviewQueue, 'Mark reviewed & next')
+  await until('the reviewed file remains in Modified', () => visible(`${reviewFile(scattered)}[data-reviewed="true"]`))
+  await until('the next Modified file opens', () => visible(`${reviewFile(cancelled)}[aria-selected="true"]`))
+  const reviewProgress = `${reviewQueue} .change-review-progress-announcement`
+  assert.equal(await content(reviewProgress), '1 of 4 reviewed')
+
+  await button(reviewQueue, 'Added')
+  assert.equal(await attribute(reviewFilter('added'), 'aria-pressed'), 'true')
+  await until('the staged and untracked additions', async () => {
+    return (await visible(reviewFile(staged))) && (await visible(reviewFile(untracked)))
+  })
+  assert.equal(await exists(reviewFile(scattered)), false)
+  assert.equal(await content(reviewProgress), '1 of 4 reviewed')
+
+  await button(reviewQueue, 'Modified')
+  await click(reviewFile(scattered))
+  await button(reviewQueue, 'Undo review')
+  assert.equal(await attribute(reviewFile(scattered), 'data-reviewed'), 'false')
+  assert.equal(await content(reviewProgress), '0 of 4 reviewed')
+  await reviewCounts(2, 2)
+
+  await button(reviewQueue, 'Capture checkpoint')
+  await until('an unchanged checkpoint', async () => {
+    return (await content(`${reviewQueue} .change-review-empty h3`)) === 'No changes since checkpoint'
+  })
+  const checkpointAddition = 'src/checkpoint-addition.txt'
+  write(checkpointAddition, 'added after the checkpoint\n')
+  await reviewCounts(0, 1)
+  assert.equal(await attribute(reviewFilter('added'), 'aria-pressed'), 'true')
+  await until('the new checkpoint file', () => visible(reviewFile(checkpointAddition)))
+  assert.equal(await exists(reviewFile(staged)), false)
+  await button(reviewQueue, 'Modified')
+  assert.equal(await content(`${reviewQueue} .change-review-empty h3`), 'No modified files')
 
   assert.equal(head(), fixture.current, 'Inspection leaves HEAD in place')
   assert.equal(git('ls-files', '-s'), originalIndex, 'Inspection leaves the Git index in place')

@@ -4,8 +4,6 @@ const MARKS = {
   head: 'M67 37h8 M67 42h8',
   checkpoint: 'M68 45V34h8l-2 3 2 3h-8',
   scope: 'M71.5 40.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 1 1 0 7 M74 40l3.5 4',
-  reviewed: 'M66 40h1 M70.5 40h1 M75 40h1',
-  complete: 'M66 39l3.5 4 7-8',
   error: 'M71 34v6 M71 43v1',
 }
 
