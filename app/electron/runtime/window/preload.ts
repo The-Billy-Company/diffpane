@@ -59,6 +59,7 @@ import type {
   GitRef,
 } from '../../../shared/review/git.ts'
 import type { ReviewAnchor, ReviewNote, ReviewNoteChange } from '../../../shared/review/review-notes.ts'
+import type { OnboardingAppearance, OnboardingState } from '../../persistence/preferences/onboarding.ts'
 import type { RecentTarget } from '../../persistence/preferences/recent-targets.ts'
 import type {
   Appearance,
@@ -297,6 +298,27 @@ function isUiPreferenceUpdate(value: unknown): value is UiPreferenceUpdate {
   if (value.key === 'layout') return isUiLayout(value.value)
   return value.key === 'ideasVisible' && isBoolean(value.value)
 }
+
+function isOnboardingState(value: unknown): value is OnboardingState {
+  if (!isRecord(value)) return false
+  const { stage, draft } = value
+  if (
+    !isString(stage) ||
+    !['intro', 'welcome', 'appearance', 'ready', 'home-tour', 'workspace-tour', 'done'].includes(stage)
+  )
+    return false
+  return (
+    draft === undefined ||
+    (isRecord(draft) &&
+      (draft.theme === undefined || draft.theme === 'system' || draft.theme === 'light' || draft.theme === 'dark') &&
+      (draft.layout === undefined ||
+        draft.layout === 'automatic' ||
+        draft.layout === 'inline' ||
+        draft.layout === 'split'))
+  )
+}
+
+const isOnboardingExperience = (value: unknown): value is 'setup' | 'tour' => value === 'setup' || value === 'tour'
 
 function isShortcutOverrides(value: unknown): value is ShortcutOverrides {
   return isRecord(value) && Object.values(value).every(isString)
@@ -1134,6 +1156,15 @@ const API = {
     set: (key, value) => invoke('preferences-set', isUiPreferenceUpdate, key, value),
     onChange: callback => listen('preferences-updated', isUiPreferenceUpdate, callback),
   } satisfies UiPreferencesBridge,
+  onboarding: {
+    enter: (surface: 'home' | 'workspace', replay: boolean) =>
+      invoke('onboarding-enter', nullable(isOnboardingState), surface, replay),
+    save: (state: OnboardingState, appearance?: OnboardingAppearance) =>
+      invoke('onboarding-save', isVoid, state, appearance),
+    release: () => ipcRenderer.send('onboarding-release'),
+    onShow: (callback: (experience: 'setup' | 'tour') => void) =>
+      listen('show-onboarding', isOnboardingExperience, callback),
+  },
   shortcuts: {
     platform: process.platform,
     get: () => invoke('shortcuts-get', isShortcutOverrides),

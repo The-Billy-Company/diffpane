@@ -181,6 +181,25 @@ function isUiPreferenceUpdate(value) {
   if (value.key === 'layout') return isUiLayout(value.value)
   return value.key === 'ideasVisible' && isBoolean(value.value)
 }
+function isOnboardingState(value) {
+  if (!isRecord(value)) return false
+  const { stage, draft } = value
+  if (
+    !isString(stage) ||
+    !['intro', 'welcome', 'appearance', 'ready', 'home-tour', 'workspace-tour', 'done'].includes(stage)
+  )
+    return false
+  return (
+    draft === undefined ||
+    (isRecord(draft) &&
+      (draft.theme === undefined || draft.theme === 'system' || draft.theme === 'light' || draft.theme === 'dark') &&
+      (draft.layout === undefined ||
+        draft.layout === 'automatic' ||
+        draft.layout === 'inline' ||
+        draft.layout === 'split'))
+  )
+}
+const isOnboardingExperience = value => value === 'setup' || value === 'tour'
 function isShortcutOverrides(value) {
   return isRecord(value) && Object.values(value).every(isString)
 }
@@ -937,6 +956,12 @@ const API = {
     get: legacy => invoke('preferences-get', isUiPreferences, legacy),
     set: (key, value) => invoke('preferences-set', isUiPreferenceUpdate, key, value),
     onChange: callback => listen('preferences-updated', isUiPreferenceUpdate, callback),
+  },
+  onboarding: {
+    enter: (surface, replay) => invoke('onboarding-enter', nullable(isOnboardingState), surface, replay),
+    save: (state, appearance) => invoke('onboarding-save', isVoid, state, appearance),
+    release: () => electron_1.ipcRenderer.send('onboarding-release'),
+    onShow: callback => listen('show-onboarding', isOnboardingExperience, callback),
   },
   shortcuts: {
     platform: process.platform,

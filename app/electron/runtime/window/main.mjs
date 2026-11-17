@@ -1,5 +1,6 @@
 // MONOLITHIC: Electron window registration, worker ownership, save flushing and application shutdown share the session registry. Extract IPC families once their session and shutdown boundaries can be tested independently.
 import { randomUUID } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -34,6 +35,13 @@ import { appError, attempt, attemptAsync, serializeAppError } from '../../../sha
 import { formatReviewHandoff } from '../../../shared/review/review-notes.ts'
 import { LocalState } from '../../persistence/database/local-state.ts'
 import { localStateKeys } from '../../persistence/database/secure-storage.mjs'
+import {
+  isSetupStep,
+  parseOnboardingAppearance,
+  parseOnboardingState,
+  readOnboarding,
+  writeOnboarding,
+} from '../../persistence/preferences/onboarding.ts'
 import { RecentTargets } from '../../persistence/preferences/recent-targets.ts'
 import { SavedWorkspaces } from '../../persistence/preferences/saved-workspaces.ts'
 import { ShortcutPreferences } from '../../persistence/preferences/shortcut-preferences.ts'
@@ -131,7 +139,11 @@ app.on('child-process-gone', (_event, details) => {
   diagnostics.event(`electron-child-gone.${group}.${reason}`, reason === 'clean-exit' ? 'info' : 'error')
 })
 const userData = app.getPath('userData')
-const localState = new LocalState(path.join(userData, 'state', 'local.sqlite'), localStateKeys)
+const localStatePath = path.join(userData, 'state', 'local.sqlite')
+const existingProfile = existsSync(localStatePath) || existsSync(path.join(userData, 'recent-targets.json'))
+const localState = new LocalState(localStatePath, localStateKeys)
+/** @type {WindowSession | undefined} */
+let onboardingOwner
 const shortcutPreferences = new ShortcutPreferences(localState, path.join(userData, 'shortcuts.sqlite'))
 /** @type {ShortcutOverrides} */
 let shortcutOverrides = {}
@@ -1485,6 +1497,23 @@ function queuePreferenceUpdate(update) {
 }
 
 const uiPreferenceCollection = 'ui-preferences'
+/** @param {import('../../persistence/database/local-state.ts').StateRecords} records
+ * @param {import('../../persistence/preferences/ui-preferences.ts').UiPreferencePatch} patch */
+function writeUiPreference(records, patch) {
+  const current = records.get(uiPreferenceCollection, '', patch.key)
+  const next = applyUiPreferencePatch(patch, current)
+  if (JSON.stringify(current) !== JSON.stringify(next.value))
+    records.put(uiPreferenceCollection, '', next.key, next.value)
+  return next
+}
+
+/** @param {import('../../persistence/preferences/ui-preferences.ts').UiPreferenceUpdate} updated */
+function broadcastUiPreference(updated) {
+  const event = { ...updated, revision: ++preferenceRevision }
+  for (const session of sessions.values()) send(session.contents, 'preferences-updated', event)
+  return event
+}
+
 /** @param {import('../../persistence/database/local-state.ts').StateRecords} records */
 function readUiPreferences(records) {
   /** @type {Partial<import('../../persistence/preferences/ui-preferences.ts').UiPreferences>} */
@@ -1517,18 +1546,52 @@ handle('preferences-get', (_session, _event, legacy) =>
 handle('preferences-set', (_session, _event, key, input) =>
   queuePreferenceUpdate(async () => {
     const patch = parseUiPreferencePatch(key, input)
-    const updated = await localState.write(records => {
-      const current = records.get(uiPreferenceCollection, '', patch.key)
-      const next = applyUiPreferencePatch(patch, current)
-      if (JSON.stringify(current) !== JSON.stringify(next.value))
-        records.put(uiPreferenceCollection, '', next.key, next.value)
-      return next
-    })
-    const event = { ...updated, revision: ++preferenceRevision }
-    for (const session of sessions.values()) send(session.contents, 'preferences-updated', event)
-    return event
+    return broadcastUiPreference(await localState.write(records => writeUiPreference(records, patch)))
   }),
 )
+
+handle('onboarding-enter', (session, _event, surface, replay) =>
+  queuePreferenceUpdate(async () => {
+    const state = await localState.write(records => readOnboarding(records, existingProfile))
+    const { stage } = state
+    const show =
+      replay === true ||
+      (surface === 'home' && (isSetupStep(stage) || stage === 'home-tour')) ||
+      (surface === 'workspace' && (stage === 'home-tour' || stage === 'workspace-tour'))
+    if (!show || session.contents.isDestroyed()) return null
+    if (
+      onboardingOwner &&
+      onboardingOwner !== session &&
+      !onboardingOwner.contents.isDestroyed() &&
+      sessions.get(onboardingOwner.contents.id) === onboardingOwner
+    )
+      return null
+    onboardingOwner = session
+    return state
+  }),
+)
+
+handle('onboarding-save', (session, _event, input, appearance) =>
+  queuePreferenceUpdate(async () => {
+    if (onboardingOwner !== session) throw new Error('This window is no longer showing onboarding.')
+    const state = parseOnboardingState(input)
+    const look = parseOnboardingAppearance(appearance)
+    const updated = await localState.write(records => {
+      writeOnboarding(records, state)
+      return Object.keys(look).length ? writeUiPreference(records, { key: 'appearance', value: look }) : undefined
+    })
+    if (updated) broadcastUiPreference(updated)
+  }),
+)
+
+onRenderer('onboarding-release', session => {
+  runBackground('release-onboarding', () =>
+    queuePreferenceUpdate(() => {
+      if (onboardingOwner === session) onboardingOwner = undefined
+      return Promise.resolve()
+    }),
+  )
+})
 
 for (const kind of /** @type {const} */ (['folder', 'file']))
   handle(`open-${kind}`, (_session, event) => chooseTarget(BrowserWindow.fromWebContents(event.sender), kind))
@@ -1717,12 +1780,28 @@ function setApplicationMenu() {
       ],
     },
     { label: 'Window', submenu: [{ role: 'minimize' }, { role: 'zoom' }] },
+    {
+      role: 'help',
+      submenu: [
+        { label: 'Show Setup…', click: () => showOnboarding('setup') },
+        { label: 'Take a Tour', click: () => showOnboarding('tour') },
+      ],
+    },
   ])
   Menu.setApplicationMenu(applicationMenu)
   if (applicationMenu) {
     const window = BrowserWindow.getFocusedWindow()
     syncFileMenu(window ? sessions.get(window.webContents.id) : undefined)
   }
+}
+
+/** @param {'setup' | 'tour'} experience */
+function showOnboarding(experience) {
+  if (quitPhase !== 'running') return
+  const window = BrowserWindow.getFocusedWindow()
+  const session = window && sessions.get(window.webContents.id)
+  if (session?.rendererReady && !modalWindows.has(session.contents))
+    send(session.contents, 'show-onboarding', experience)
 }
 
 app.on('browser-window-focus', (_event, window) => syncFileMenu(sessions.get(window.webContents.id)))
@@ -1761,6 +1840,9 @@ runBackground(
     if (process.platform === 'darwin' && !app.isPackaged)
       app.dock?.setIcon(path.join(app.getAppPath(), 'dist/img/diffpane.png'))
     setApplicationMenu()
+    runBackground('initialize-onboarding', () =>
+      queuePreferenceUpdate(() => localState.write(records => readOnboarding(records, existingProfile))),
+    )
     runBackground('load-shortcuts', refreshShortcuts)
     runBackground('migrate-local-state', () =>
       trackOperation(

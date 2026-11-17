@@ -1,0 +1,298 @@
+import type { OnboardingStep } from '../../../electron/persistence/preferences/onboarding.ts'
+import type { Appearance } from '../../../electron/persistence/preferences/ui-preferences.ts'
+import { bindingLabel, effectiveBinding } from '../../../shared/preferences/shortcuts.ts'
+import { runTask } from '../recovery/errors.ts'
+import { requireElement } from '../workspace/dom.js'
+import { appIcon, comparisonArt, introArt, postcardArt } from './setup-art.ts'
+import './setup.css'
+
+const steps = ['intro', 'welcome', 'appearance', 'ready'] as const
+export type { OnboardingStep }
+type SetupAppearance = Pick<Appearance, 'theme' | 'layout'>
+type SetupShortcut = 'searchFiles' | 'reviewChanges' | 'reviewNotes'
+
+interface SetupOptions {
+  appearance: SetupAppearance
+  startStep: OnboardingStep
+  onStep: (step: OnboardingStep, appearance: Partial<SetupAppearance>) => void
+  onFinish: (result: { tour: boolean; appearance: Partial<SetupAppearance> }) => Promise<void>
+  onClosed?: () => void
+  shortcutLabel?: (action: SetupShortcut) => string
+  inWorkspace?: boolean
+}
+
+const themeChoices = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+] as const
+const layoutChoices = [
+  { value: 'automatic', label: 'Automatic' },
+  { value: 'split', label: 'Side by side' },
+  { value: 'inline', label: 'Inline' },
+] as const
+
+const shortcutExamples: ReadonlyArray<{ action: SetupShortcut; label: string }> = [
+  { action: 'searchFiles', label: 'Find a file' },
+  { action: 'reviewChanges', label: 'Review changes' },
+  { action: 'reviewNotes', label: 'Open review notes' },
+]
+const introHold = 2200
+
+function introMarkup() {
+  return `<div class="onboarding-intro">
+    ${introArt()}
+    <div class="onboarding-intro-mark">
+      <img src="${appIcon}" alt="" width="96" height="96">
+      <h1 id="onboarding-setup-title" tabindex="-1" aria-label="DiffPane">${Array.from(
+        'DiffPane',
+        (letter, index) => `<span aria-hidden="true" style="--onboarding-letter: ${index}">${letter}</span>`,
+      ).join('')}</h1>
+      <p>A quiet, live view of your working tree</p>
+    </div>
+    <button class="onboarding-quiet onboarding-intro-skip" type="button" data-action="next" aria-label="Skip intro animation">Skip</button>
+  </div>`
+}
+
+function progressMarkup(index: number) {
+  const count = steps.length - 1
+  return `<div class="onboarding-progress">
+    <div aria-hidden="true">${Array.from({ length: count }, (_, dot) => `<i${dot < index ? ' class="is-filled"' : ''}></i>`).join('')}</div>
+    <span>Step ${index} of ${count}</span>
+  </div>`
+}
+
+function choicesMarkup(key: keyof SetupAppearance, label: string, draft: SetupAppearance) {
+  const choices = key === 'theme' ? themeChoices : layoutChoices
+  return `<fieldset class="onboarding-choices">
+    <legend>${label}</legend>
+    <div>${choices
+      .map(
+        choice =>
+          `<label><input type="radio" name="${key}" value="${choice.value}"${
+            choice.value === draft[key] ? ' checked' : ''
+          }><span>${choice.label}</span></label>`,
+      )
+      .join('')}</div>
+  </fieldset>`
+}
+
+function shortcutMarkup() {
+  return `<dl class="onboarding-shortcuts">${shortcutExamples.map(({ action, label }) => `<div><dt>${label}</dt><dd><kbd data-shortcut="${action}"></kbd></dd></div>`).join('')}</dl>`
+}
+
+function contentFor(step: Exclude<OnboardingStep, 'intro'>, draft: SetupAppearance, inWorkspace?: boolean) {
+  const continueButton = '<button class="onboarding-primary" type="button" data-action="next">Continue</button>'
+  switch (step) {
+    case 'welcome':
+      return {
+        title: 'Welcome to DiffPane',
+        subtitle: 'Open a project to see what’s changing as you and your tools work.',
+        body: `<ul class="onboarding-features">
+          <li><span class="onboarding-feature-live" aria-hidden="true"></span><div><strong>Watch a folder live</strong><p>See saves and edits as they happen.</p></div></li>
+          <li><span class="onboarding-feature-diff" aria-hidden="true">±</span><div><strong>Review changes in context</strong><p>Compare edits and see what’s left to review.</p></div></li>
+        </ul>`,
+        preview: comparisonArt(),
+        actions: `${continueButton}<button class="onboarding-quiet" type="button" data-action="skip">Skip Setup</button>`,
+      }
+    case 'appearance':
+      return {
+        title: 'Make it yours',
+        subtitle: 'Choose a theme and how you want to read changes.',
+        body: `<div class="onboarding-preferences">${choicesMarkup('theme', 'Theme', draft)}${choicesMarkup('layout', 'Diff layout', draft)}<p>Automatic uses inline diffs in narrow panes.</p></div>`,
+        preview: comparisonArt(),
+        actions: continueButton,
+      }
+    case 'ready':
+      return {
+        title: 'Ready to review',
+        subtitle: inWorkspace
+          ? 'Your workspace is ready. You can change its appearance any time in Settings.'
+          : 'Open a folder to get started. You can change the look of your workspace in Settings.',
+        body: shortcutMarkup(),
+        preview: postcardArt(),
+        actions: `<button class="onboarding-primary" type="button" data-action="finish">Get Started <span aria-hidden="true">→</span></button>
+          <button class="onboarding-quiet" type="button" data-action="tour">Take the Tour</button>`,
+      }
+    default:
+      throw new Error(`Unknown onboarding step: ${String(step)}`)
+  }
+}
+
+export function createOnboardingSetup(options: SetupOptions) {
+  const dialog = document.createElement('dialog')
+  dialog.className = 'onboarding-setup'
+  dialog.setAttribute('aria-labelledby', 'onboarding-setup-title')
+  const system = matchMedia('(prefers-color-scheme: dark)')
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
+  const draft = { ...options.appearance }
+  const previousFocus = document.activeElement
+  let step = options.startStep
+  let introTimer: ReturnType<typeof setTimeout> | undefined
+  let leavingIntro = false
+  let finishing = false
+  let closed = false
+
+  function paintPreview() {
+    const window = dialog.querySelector<HTMLElement>('.onboarding-preview-window')
+    if (!window) return
+    window.dataset.scheme = draft.theme === 'system' ? (system.matches ? 'dark' : 'light') : draft.theme
+    window.dataset.layout = draft.layout
+  }
+
+  function render() {
+    dialog.dataset.step = step
+    if (step === 'intro') {
+      dialog.innerHTML = introMarkup()
+    } else {
+      const content = contentFor(step, draft, options.inWorkspace)
+      dialog.innerHTML = `<div class="onboarding-card">
+        <section class="onboarding-copy">
+          ${progressMarkup(steps.indexOf(step))}
+          <div class="onboarding-step-content">
+            <header class="onboarding-step-heading">
+              <h1 id="onboarding-setup-title" tabindex="-1">${content.title}</h1>
+              <p>${content.subtitle}</p>
+            </header>
+            <div class="onboarding-step-options">${content.body}</div>
+          </div>
+          <p class="onboarding-setup-error" role="alert" hidden></p>
+          <footer class="onboarding-actions">
+            ${step === 'welcome' ? '' : '<button class="onboarding-back" type="button" data-action="back" aria-label="Back" title="Back">←</button>'}
+            ${content.actions}
+          </footer>
+        </section>
+        <div class="onboarding-art" aria-hidden="true">${content.preview}</div>
+      </div>`
+      paintPreview()
+      if (step === 'ready') {
+        const isMac = /Mac/i.test(navigator.platform)
+        for (const { action } of shortcutExamples) {
+          const key = requireElement(dialog, `[data-shortcut="${action}"]`, HTMLElement)
+          key.textContent = options.shortcutLabel?.(action) ?? bindingLabel(effectiveBinding(action, {}, isMac), isMac)
+        }
+      }
+    }
+    dialog.append(Object.assign(document.createElement('div'), { className: 'onboarding-drag-region' }))
+    if (dialog.open) requireElement(dialog, '#onboarding-setup-title', HTMLElement).focus({ preventScroll: true })
+  }
+
+  function goTo(next: OnboardingStep) {
+    if (closed) return
+    step = next
+    render()
+    options.onStep(step, { ...draft })
+  }
+
+  async function exitIntro() {
+    if (leavingIntro || step !== 'intro') return
+    leavingIntro = true
+    clearTimeout(introTimer)
+    dialog.dataset.introLeaving = ''
+    const intro = requireElement(dialog, '.onboarding-intro', HTMLElement)
+    await Promise.allSettled(intro.getAnimations().map(animation => animation.finished))
+    delete dialog.dataset.introLeaving
+    goTo('welcome')
+  }
+
+  function move(direction: -1 | 1) {
+    if (step === 'intro') {
+      runTask('Leave the onboarding intro', exitIntro)
+      return
+    }
+    const next = steps[steps.indexOf(step) + direction]
+    if (next && next !== 'intro') goTo(next)
+  }
+
+  function close() {
+    if (closed) return
+    closed = true
+    clearTimeout(introTimer)
+    system.removeEventListener('change', paintPreview)
+    dialog.close()
+    dialog.remove()
+    if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true })
+    options.onClosed?.()
+  }
+
+  async function finish(tour: boolean, button: HTMLButtonElement, saveAppearance = true) {
+    if (finishing) return
+    finishing = true
+    const error = requireElement(dialog, '.onboarding-setup-error', HTMLElement)
+    const buttons = dialog.querySelectorAll('button')
+    const appearance = saveAppearance ? { ...draft } : {}
+    error.hidden = true
+    dialog.setAttribute('aria-busy', 'true')
+    for (const action of buttons) action.disabled = true
+    try {
+      await options.onFinish({ tour, appearance })
+    } catch {
+      if (closed) return
+      error.textContent = 'Setup couldn’t be saved. Try again.'
+      error.hidden = false
+      dialog.removeAttribute('aria-busy')
+      for (const action of buttons) action.disabled = false
+      button.focus()
+      finishing = false
+      return
+    }
+    if (closed) return
+    dialog.dataset.closing = ''
+    await Promise.allSettled(dialog.getAnimations().map(animation => animation.finished))
+    close()
+  }
+
+  dialog.addEventListener('click', event => {
+    if (!(event.target instanceof Element) || finishing) return
+    const button = event.target.closest<HTMLButtonElement>('button[data-action]')
+    if (!button) return
+    switch (button.dataset.action) {
+      case 'next':
+        move(1)
+        break
+      case 'back':
+        move(-1)
+        break
+      case 'skip':
+        runTask('Skip setup', () => finish(false, button, false))
+        break
+      case 'finish':
+        runTask('Finish setup', () => finish(false, button))
+        break
+      case 'tour':
+        runTask('Finish setup and start the tour', () => finish(true, button))
+        break
+      case undefined:
+      default:
+        break
+    }
+  })
+
+  dialog.addEventListener('change', event => {
+    const { target } = event
+    if (!(target instanceof HTMLInputElement) || !target.checked) return
+    const { name, value } = target
+    const theme = themeChoices.find(choice => choice.value === value)
+    const layout = layoutChoices.find(choice => choice.value === value)
+    if (name === 'theme' && theme) draft.theme = theme.value
+    if (name === 'layout' && layout) draft.layout = layout.value
+    paintPreview()
+    options.onStep(step, { ...draft })
+  })
+
+  dialog.addEventListener('cancel', event => {
+    event.preventDefault()
+    if (!finishing) move(-1)
+  })
+
+  render()
+  system.addEventListener('change', paintPreview)
+  document.body.append(dialog)
+  dialog.showModal()
+  requireElement(dialog, '#onboarding-setup-title', HTMLElement).focus({ preventScroll: true })
+  if (step === 'intro') {
+    if (reducedMotion.matches) goTo('welcome')
+    else introTimer = setTimeout(() => runTask('Leave the onboarding intro', exitIntro), introHold)
+  }
+  return { close }
+}

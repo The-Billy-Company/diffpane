@@ -67,6 +67,7 @@ import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
 import { projectIcon } from '../layout/icons.ts'
 import { createWorkspaceLayout } from '../layout/workspace-layout.ts'
 import { createRollingNumber } from '../number-flow/number-flow.ts'
+import { createOnboarding } from '../onboarding/onboarding.ts'
 import { clearErrorNotice, guard, renderFailure, reportError, runTask, setErrorNoticeHost } from '../recovery/errors.ts'
 import { drawRecentTargetArt, drawWelcomeArt, drawWorkbenchArt } from './art/workspace-art.ts'
 import { requireElement } from './dom.js'
@@ -496,7 +497,7 @@ const settings =
     setCapturing: active => shortcutApi.setCapturing(active),
   })
 const openSettings = () => {
-  if (!closingRequested) runTask('Open settings', () => settings?.open())
+  if (!closingRequested && !onboarding?.isActive) runTask('Open settings', () => settings?.open())
 }
 ui.settingsToggle.hidden = !settings
 ui.settingsToggle.addEventListener('click', openSettings)
@@ -510,6 +511,21 @@ function shortcutBinding(action) {
 function shortcutLabel(action) {
   return bindingLabel(shortcutBinding(action), isMac)
 }
+
+const onboarding =
+  api.onboarding &&
+  createOnboarding({
+    api: api.onboarding,
+    appearance: () => uiPreferences.get('appearance'),
+    shortcutLabel,
+    surface: () => {
+      if (closed || closingRequested || app.inert || targetOpening || !ui.agentThreads.hidden || settings?.isOpen)
+        return undefined
+      if (snapshot) return 'workspace'
+      if (!ui.startScreen.hidden && ui.startError.hidden && !ui.startActions.hidden) return 'home'
+      return undefined
+    },
+  })
 
 /** @param {KeyboardEvent} event @param {ShortcutAction} action */
 function matchesShortcut(event, action) {
@@ -637,6 +653,7 @@ function revealWorkspaceWhenReady() {
     return
   finishWorkspaceOpening()
   rendererDiagnostics.measure('renderer.workspace-first-render', 0)
+  onboarding?.ready()
 }
 
 function showStartScreen(failed = false) {
@@ -683,6 +700,7 @@ function showStartScreen(failed = false) {
   } else {
     runTask('Load recent projects', loadRecentTargets)
     refreshHomeWorkspaces()
+    if (!failed) onboarding?.ready()
   }
 }
 
@@ -3739,6 +3757,7 @@ Object.assign(window, {
     'pagehide',
     () => {
       closed = true
+      onboarding?.dispose()
       workspaceController.dispose()
       unsubscribeWorkspaces()
       terminalBounds.disconnect()
