@@ -181,6 +181,8 @@ const icons = {
   review:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 5h5.5M8 10h5.5"/><path class="review-idle-mark" d="m2 5 1.25 1.25L5.5 4M2 10l1.25 1.25L5.5 9"/><path class="review-pending-mark" d="M2 5h3.5M2 10h3.5M3.75 8.25v3.5"/></svg>',
   note: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 2.5h9a1 1 0 0 1 1 1v6L9.5 13.5h-6a1 1 0 0 1-1-1v-9a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M9.5 13.5v-3a1 1 0 0 1 1-1h3M5 5.5h6M5 8h3" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/></svg>',
+  folder:
+    '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><path d="M2 4a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1Z"/><path d="M2 6.5h12"/></svg>',
   settings:
     '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round" aria-hidden="true"><path d="m6.5 1.5-.3 1.7-1.1.6-1.6-.6-1.5 2.6 1.3 1.1v1.2L2 9.2l1.5 2.6 1.6-.6 1.1.6.3 1.7h3l.3-1.7 1.1-.6 1.6.6L14 9.2l-1.3-1.1V6.9L14 5.8l-1.5-2.6-1.6.6-1.1-.6-.3-1.7z"/><circle cx="8" cy="7.5" r="2"/></svg>',
   idea: '<svg viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="2.5" width="11.5" height="13" rx="2"/><path d="M7 2.5v13M2 6h3m-3 6h3m4.5-5h3m-3 3h2"/></svg>',
@@ -191,18 +193,18 @@ const app = document.getElementById('app') ?? document.body.appendChild(document
 const workspaceOpening = document.getElementById('workspace-opening')
 app.innerHTML = `
   <header class="titlebar">
-    <div class="brand" role="img" aria-label="diffpane"><span class="brand-mark">${icons.mark}</span></div>
-    <span class="title-divider"></span>
-    <div class="project"><span id="project-name">Diffpane</span><span id="project-path"></span></div>
+    <span class="brand-mark" aria-hidden="true">${icons.mark}</span>
+    <div class="project"><span id="project-name">Diffpane</span></div>
     <button type="button" class="branch titlebar-button" id="git-workspace-toggle" aria-label="Git workspace" aria-controls="git-workspace" aria-pressed="false" title="Inspect Git history and changes" hidden>${icons.branch}<span id="branch-name"></span></button>
+    <span id="project-path"></span>
     <div class="titlebar-actions">
-      <button type="button" id="ideas-toggle" class="titlebar-button" aria-controls="ideas-panel" aria-expanded="false" hidden>${icons.idea}<span>Ideas</span></button>
+      <button type="button" id="ideas-toggle" class="titlebar-button" aria-label="Ideas" aria-controls="ideas-panel" aria-expanded="false" hidden>${icons.idea}<span>Ideas</span></button>
       <button type="button" id="content-search-toggle" class="titlebar-button" aria-label="Search in project" aria-haspopup="dialog" aria-controls="content-search" hidden>${icons.search}<span>Search</span></button>
       <button type="button" id="review-toggle" class="titlebar-button" aria-label="Review changes" aria-controls="change-review" aria-pressed="false" data-pending="false" hidden>${icons.review}<span>Changes</span></button>
       <button type="button" id="review-notes-toggle" class="titlebar-button" aria-label="Review notes" aria-controls="review-notes-panel" aria-expanded="false" hidden>${icons.note}<span>Notes</span></button>
       <button type="button" id="agent-threads-toggle" class="titlebar-button" aria-label="Agent threads" title="Agent threads" aria-controls="agent-threads" hidden>${agentThreadsGlyph}<span>Agent threads</span></button>
       <button type="button" id="claude-toggle" class="titlebar-button" aria-label="The Creature" aria-controls="claude-panel" aria-expanded="false" hidden>${creatureGlyph}<span>The Creature</span></button>
-      <button type="button" id="terminal-toggle" class="titlebar-button" aria-label="Terminal" aria-controls="terminal-dock" aria-expanded="false" hidden>${icons.terminal}<span>Terminal</span></button>
+      <button type="button" id="terminal-toggle" class="titlebar-button" aria-label="Terminal" title="Terminal" aria-controls="terminal-dock" aria-expanded="false" hidden>${icons.terminal}<span>Terminal</span></button>
       <button type="button" id="settings-toggle" class="titlebar-button" aria-label="Settings" aria-haspopup="dialog" aria-controls="app-settings" hidden>${icons.settings}</button>
     </div>
   </header>
@@ -216,15 +218,19 @@ app.innerHTML = `
     <section class="workbench" tabindex="-1" aria-label="Code workspace">
   <main class="start-screen" id="start-screen" aria-labelledby="start-title" aria-busy="true">
     <div class="start-content">
-      <span class="workspace-art start-mark" aria-hidden="true">
-        <svg viewBox="0 0 152 78" stroke-linecap="round" stroke-linejoin="round"></svg>
-      </span>
-      <h1 id="start-title">Welcome to Diffpane</h1>
-      <p id="start-description">Open a file or folder in a Git working tree to get started.</p>
-      <div id="start-error" hidden></div>
-      <div class="start-actions" id="start-actions" hidden>
-        <button type="button" id="open-folder">Open Folder…</button>
-        <button type="button" id="open-file">Open File…</button>
+      <div class="start-intro">
+        <div class="start-copy">
+          <h1 id="start-title">Welcome to Diffpane</h1>
+          <p id="start-description">Open a file or folder in a Git working tree to get started.</p>
+          <div id="start-error" hidden></div>
+          <div class="start-actions" id="start-actions" hidden>
+            <button type="button" id="open-folder">${icons.folder}Open Folder…</button>
+            <button type="button" id="open-file">${icons.file}Open File…</button>
+          </div>
+        </div>
+        <span class="workspace-art start-mark" aria-hidden="true">
+          <svg viewBox="0 0 152 78" stroke-linecap="round" stroke-linejoin="round"></svg>
+        </span>
       </div>
       <section class="recent-targets" id="recent-targets" aria-labelledby="recent-title" hidden>
         <h2 id="recent-title">Recently opened</h2>
@@ -635,7 +641,6 @@ async function loadRecentTargets() {
     })
     ui.recentList.replaceChildren(...items)
     ui.recentTargets.hidden = !items.length && ui.recentStatus.hidden
-    ui.startScreen.classList.toggle('has-recents', items.length > 0)
     if (focusedPath)
       [...ui.recentList.querySelectorAll('button')]
         .find(button => button.dataset.path === focusedPath)
@@ -1949,7 +1954,9 @@ function renderSnapshot(next) {
     'Working tree'
   ui.projectPath.textContent = next.scope
   ui.projectPath.title = next.scope
+  ui.projectName.title = next.scope
   ui.branchName.textContent = next.branch || 'HEAD'
+  ui.gitToggle.title = `Inspect Git history and changes · ${next.branch || 'Detached HEAD'}`
   ui.gitToggle.setAttribute('aria-description', next.branch || 'Detached HEAD')
   document.title = `${ui.projectName.textContent} · diffpane`
   if (next.watchError && watchChanged) {
@@ -2164,6 +2171,13 @@ function renderDocument(card, document, wipeState) {
   card.document = document
   const baseline = comparisonLabel(card)
   const preview = document.preview
+  card.element.toggleAttribute(
+    'data-changed',
+    document.decorations.length > 0 ||
+      document.beforeDecorations.length > 0 ||
+      Boolean(card.file.index?.trim()) ||
+      Boolean(card.file.worktree?.trim()),
+  )
   const reading = !preview && isMarkdown(card.file.path) && !card.markdownSource
   const text = document.after
   const previousMarkdown = reading && text === card.markdownText ? card.markdownPreview : null

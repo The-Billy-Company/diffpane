@@ -339,7 +339,7 @@
   inset: auto 0 -1px;
   height: 2px;
   border-radius: 2px 2px 0 0;
-  background: var(--queue-progress-ink);
+  background: var(--accent);
   content: '';
 }
 
@@ -357,12 +357,8 @@
 }
 
 .change-review-filters button[aria-pressed='true'] span {
-  background: color-mix(in oklab, var(--queue-progress-ink) 12%, var(--surface));
+  background: var(--accent-surface);
   color: var(--accent);
-}
-
-.change-review[data-complete='true'] .change-review-filters button[aria-pressed='true'] span {
-  color: var(--added);
 }
 
 .change-review-filters button:focus-visible {

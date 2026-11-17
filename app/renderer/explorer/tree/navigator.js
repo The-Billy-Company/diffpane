@@ -56,7 +56,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
  * }} NavigatorOptions
  */
 
-const ROW_HEIGHT = 22
+const ROW_HEIGHT = 24
 const OVERSCAN = 4
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 let instance = 0
@@ -235,12 +235,14 @@ export function createNavigator(
         <button type="button" class="navigator-action" data-action="collapse" aria-label="Collapse folders" title="Collapse folders">${ICONS.collapse}</button>
       </div>
     </div>
-    <div class="navigator-search">
-      ${ICONS.search}
-      <input type="search" placeholder="Find files or folders…" aria-label="Find files or folders in explorer" spellcheck="false" autocomplete="off">
+    <div class="navigator-controls">
+      <div class="navigator-search">
+        ${ICONS.search}
+        <input type="search" placeholder="Find files…" aria-label="Find files or folders in explorer" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="navigator-filter-host"></div>
+      <div class="navigator-summary" role="status">Reading files…</div>
     </div>
-    <div class="navigator-filter-host"></div>
-    <div class="navigator-summary" role="status">Reading files…</div>
     <div class="navigator-tree-region">
       <div class="navigator-tree" id="navigator-${id}-tree" role="tree" aria-label="Project files" tabindex="0">
         <div class="navigator-rows"><div class="navigator-branch-trace" aria-hidden="true"></div></div>
@@ -294,6 +296,7 @@ export function createNavigator(
   let selectedPath = null
   /** @type {number | undefined | null} */
   let tracedIndex = null
+  const tracedParents = new Set()
   /** @type {RevealRequest | null} */
   let revealPath = null
   /** @type {Set<NavigationNode>} */
@@ -368,6 +371,7 @@ export function createNavigator(
       ? visible.filter(({ node }) => node.searchPath?.includes(query))
       : flattenNavigationTree(tree, expanded, query, filterState, languageFor)
     if (!showingResults) visible.shift()
+    container.dataset.results = String(showingResults)
     container.dataset.searching = String(showingResults || document.activeElement === input)
     visibleIndex = new Map()
     for (let position = 0; position < visible.length; position++) {
@@ -400,12 +404,14 @@ export function createNavigator(
     const index = showingResults || selectedPath === null ? undefined : visibleIndex.get(`file:${selectedPath}`)
     if (index === tracedIndex) return
     tracedIndex = index
+    tracedParents.clear()
     const segments = document.createDocumentFragment()
     for (let childIndex = index; childIndex !== undefined;) {
       const child = visible[childIndex]
       if (!child?.node.parentKey) break
       const parentIndex = visibleIndex.get(child.node.parentKey)
       if (parentIndex === undefined) break
+      tracedParents.add(child.node.parentKey)
 
       const segment = document.createElement('span')
       segment.className = 'navigator-branch-segment'
@@ -501,6 +507,9 @@ export function createNavigator(
       if (active) activeId = `navigator-${id}-row-${index}`
       const activeState = String(active)
       if (row.dataset.active !== activeState) row.dataset.active = activeState
+      const onSelectedPath = tracedParents.has(node.key)
+      if (row.hasAttribute('data-selected-ancestor') !== onSelectedPath)
+        row.toggleAttribute('data-selected-ancestor', onSelectedPath)
       const selected = String(node.kind === 'file' && node.path === selectedPath)
       if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected)
       if (rowRevisions.get(row) === rowRevision) continue

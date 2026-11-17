@@ -365,6 +365,7 @@ async function run(fixture: ReturnType<typeof createFixture>) {
   assert.equal(await visible(`${gitPanel} .git-activity`), false)
   assert.equal(await visible(`${gitPanel} .git-file-list`), false)
   await hunkAt(2)
+  await screenshot('focused')
   await key(focusDiff, 'Escape')
   assert.equal(await attribute(focusDiff, 'aria-pressed'), 'false')
   assert.ok(await visible(gitFile(scattered)))
@@ -445,6 +446,13 @@ async function run(fixture: ReturnType<typeof createFixture>) {
   await oneSidedChange('working', 'Line 1')
   await screenshot('history')
   await viewport(650, 900)
+  await until('the activity rail stacks above the inspector at minimum width', () =>
+    matches(`(() => {
+      const activity = ${select(`${gitPanel} .git-activity`)}.getBoundingClientRect()
+      const inspector = ${select(`${gitPanel} .git-inspector`)}.getBoundingClientRect()
+      return activity.width === inspector.width && activity.bottom === inspector.top
+    })()`),
+  )
   await until('inline Git diff at desktop minimum width', () =>
     visible(`${gitPanel} .monaco-diff-editor:not(.side-by-side)`),
   )

@@ -37,7 +37,7 @@
 }
 
 .content-search-toolbar .content-search-case {
-  border-color: var(--control-border);
+  border-color: var(--line);
 }
 
 .content-search-toolbar button:hover {
@@ -46,7 +46,7 @@
 }
 
 .content-search-toolbar button[aria-pressed='true'] {
-  border-color: var(--control-border);
+  border-color: color-mix(in oklab, var(--accent) 28%, var(--line));
   background: var(--selection);
   color: var(--accent);
   font-weight: var(--weight-semibold);
@@ -58,18 +58,27 @@
 }
 
 .content-search-results {
-  padding: 4px 9px 8px;
+  padding: 5px 9px 10px;
+}
+
+.content-search-file + .content-search-file {
+  margin-block-start: 6px;
+  border-block-start: 1px solid var(--editor-separator);
 }
 
 .content-search-path {
   margin: 0;
-  padding: 10px 9px 5px;
+  padding: 8px 9px 5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--muted);
-  font-size: var(--text-caption);
+  font: var(--text-caption)/var(--leading-ui) var(--font-mono);
   font-weight: var(--weight-semibold);
+}
+
+.content-search-file:has(> [aria-selected='true']) .content-search-path {
+  color: var(--accent);
 }
 
 .content-search-hit {
@@ -85,6 +94,10 @@
   font: var(--text-caption)/var(--leading-ui) var(--editor-font, var(--font-mono));
   font-variant-numeric: tabular-nums;
   text-align: end;
+}
+
+.content-search-hit[aria-selected='true'] .content-search-line {
+  color: var(--accent);
 }
 
 .content-search-snippet {

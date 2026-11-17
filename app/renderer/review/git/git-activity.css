@@ -1,9 +1,10 @@
 .git-activity {
+  container: git-activity / inline-size;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   min-width: 0;
   min-height: 0;
-  background: var(--surface);
+  background: color-mix(in oklab, var(--surface) 80%, var(--canvas));
   border-inline-end: 1px solid var(--line);
 }
 
@@ -13,14 +14,14 @@
   justify-content: space-between;
   gap: 6px 12px;
   flex-wrap: wrap;
-  padding: 18px var(--git-gutter) 12px;
+  padding: 20px var(--git-gutter) 13px;
 }
 
 .git-activity-heading h2 {
   font-size: var(--text-subheading);
   line-height: 1.2;
   font-weight: var(--weight-semibold);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
 }
 
 .git-activity-heading > span {
@@ -31,10 +32,12 @@
 .git-activity-scroll {
   min-width: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 4px;
 }
 
 .git-activity-list {
-  padding: 2px var(--git-gutter) 8px;
+  padding: 2px var(--git-gutter) 12px;
 }
 
 .git-history-list {
@@ -46,16 +49,45 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  column-gap: 8px;
   width: 100%;
-  height: 44px;
+  height: 44px; /* Match the graph viewBox so edges meet at the row boundaries. */
   padding: 0 10px 0 29px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text);
   text-align: start;
   font: inherit;
+}
+
+.git-activity-row:not(.git-working-row) {
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  row-gap: 3px;
+
+  & .git-activity-primary {
+    display: contents;
+  }
+
+  & .git-activity-subject {
+    grid-area: 1 / -3 / 2 / -1;
+    align-self: end;
+  }
+
+  & .git-activity-meta {
+    grid-area: 2 / -3;
+    align-self: start;
+  }
+
+  & .git-activity-time {
+    grid-area: 2 / -2;
+    align-self: start;
+    line-height: 1.2;
+  }
+
+  & .git-graph-rail {
+    grid-area: 1 / 1 / -1 / 2;
+  }
 }
 
 .git-history-list .git-activity-row {
@@ -73,7 +105,17 @@
 }
 
 .git-activity-row[aria-pressed='true'] {
-  background: color-mix(in oklab, var(--selection-inactive) 72%, var(--surface));
+  background: color-mix(in oklab, var(--selection) 72%, var(--surface));
+}
+
+.git-activity-row[aria-pressed='true']::after {
+  position: absolute;
+  inset-block: 12px;
+  inset-inline-start: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: '';
 }
 
 .git-activity-row:focus-visible {
@@ -83,23 +125,19 @@
 
 .git-activity-primary {
   display: grid;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .git-activity-subject {
   display: block;
   overflow: hidden;
-  color: var(--muted);
-  font-size: var(--text-label);
+  color: var(--text);
+  font-size: var(--text-body);
   font-weight: var(--weight-medium);
   line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.git-activity-row:is(:hover, :focus-visible, [data-git-head], [aria-pressed='true']) .git-activity-subject {
-  color: var(--text);
 }
 
 .git-activity-row:is([data-git-head], [aria-pressed='true']) .git-activity-subject {
@@ -109,12 +147,16 @@
 .git-activity-meta {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   min-width: 0;
   overflow: hidden;
   color: var(--subtle);
   font-size: var(--text-caption);
   line-height: 1.2;
+}
+
+.git-activity-meta .git-hash {
+  line-height: inherit;
 }
 
 .git-activity-time {
@@ -125,14 +167,14 @@
 }
 
 .git-activity-row[aria-pressed='true'] .git-activity-time {
-  color: var(--text);
+  color: var(--accent);
 }
 
 .git-ref {
   flex: 0 1 auto;
   overflow: hidden;
   max-width: 100%;
-  padding: 1px 4px;
+  padding: 0 4px;
   border-radius: 3px;
   background: var(--violet-surface);
   color: var(--violet);
@@ -156,23 +198,18 @@
 }
 
 .git-working-row {
-  margin-block-end: 2px;
   background: var(--surface-raised);
   box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .git-activity-list:not(.git-history-list) > .git-working-row {
-  height: 56px;
-  padding-inline: 34px 12px;
-}
-
-.git-history-list .git-working-row {
-  margin-block-end: 0;
+  height: 62px;
+  padding-inline: 41px 12px;
 }
 
 .git-working-row .git-activity-subject {
   color: var(--text);
-  font-size: var(--text-body);
+  font-size: var(--text-content);
   font-weight: var(--weight-semibold);
 }
 
@@ -183,7 +220,7 @@
 }
 
 .git-working-row[aria-pressed='true'] {
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 36%, var(--line));
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 32%, var(--line));
 }
 
 .git-working-status {
@@ -192,7 +229,7 @@
   gap: 5px;
   padding: 2px 6px;
   border-radius: 99px;
-  background: var(--surface-inset);
+  background: color-mix(in oklab, var(--surface-inset) 70%, transparent);
   color: var(--muted);
   font-size: var(--text-caption);
   white-space: nowrap;
@@ -206,12 +243,22 @@
   content: '';
 }
 
+.git-working-row[aria-pressed='true'] .git-working-status {
+  color: var(--added);
+  background: var(--added-surface);
+}
+
 .git-today-summary {
-  margin-block: 12px 9px;
-  padding: 9px 10px;
+  margin-block: 13px 9px;
+  padding: 10px 11px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-inset);
+  background: var(--surface);
+}
+
+.git-today-summary:has(.git-compare-day[aria-pressed='true']) {
+  border-color: color-mix(in oklab, var(--accent) 40%, var(--line));
+  background: color-mix(in oklab, var(--accent-surface) 32%, var(--surface));
 }
 
 .git-today-selection {
@@ -232,35 +279,54 @@
 
 .git-today-count strong {
   color: var(--text);
-  font-size: var(--text-body);
+  font-size: var(--text-heading);
   font-weight: var(--weight-semibold);
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
 
-.git-compare-day {
-  padding: 3px 7px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--surface);
+.git-today-count:not(:has(strong)) {
+  align-items: center;
+  min-height: 24px;
   color: var(--muted);
-  font: inherit;
+  font-size: var(--text-label);
+}
+
+.git-compare-day {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font-weight: var(--weight-semibold);
   white-space: nowrap;
 }
 
-.git-compare-day:is(:hover, :focus-visible, [aria-pressed='true']) {
+.git-compare-day:is(:hover, :focus-visible) {
   border-color: color-mix(in oklab, var(--accent) 30%, var(--line));
   background: var(--accent-surface);
   color: var(--accent);
 }
 
+.git-compare-day[aria-pressed='true'] {
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--action-text);
+}
+
 .git-commit-timeline {
-  margin-block-start: 7px;
+  margin-block-start: 9px;
 }
 
 .git-timeline-plot {
   display: grid;
   grid-template-columns: repeat(24, minmax(0, 1fr));
-  height: 39px;
+  height: 42px;
+  background: repeating-linear-gradient(
+    to top,
+    transparent 0 calc(33.333% - 1px),
+    color-mix(in oklab, var(--line) 58%, transparent) calc(33.333% - 1px) 33.333%
+  );
   border-block-end: 1px solid var(--line);
 }
 
@@ -270,7 +336,7 @@
 }
 
 .git-timeline-hour:nth-child(6n + 1) {
-  border-inline-start: 1px solid color-mix(in oklab, var(--line) 72%, transparent);
+  box-shadow: inset 1px 0 color-mix(in oklab, var(--line) 72%, transparent);
 }
 
 .git-timeline-bin {
@@ -288,17 +354,21 @@
   background: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
+.git-timeline-bin[aria-current='true'] {
+  box-shadow: inset 0 -2px var(--accent);
+}
+
 .git-timeline-bin:focus-visible {
   outline-offset: -1px;
 }
 
 .git-timeline-bar {
   position: absolute;
-  inset-inline: 1px;
+  inset-inline: 2px;
   inset-block-end: 0;
   height: clamp(3px, var(--git-hour-height), calc(100% - 3px));
-  border-radius: 2px 2px 0 0;
-  background: color-mix(in oklab, var(--accent) 57%, var(--surface-inset));
+  border-radius: 3px 3px 0 0;
+  background: color-mix(in oklab, var(--accent) 68%, var(--accent-surface));
   pointer-events: none;
 }
 
@@ -311,7 +381,9 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   padding-block-start: 5px;
   color: var(--subtle);
-  font: var(--text-caption) / var(--leading-ui) var(--font-mono);
+  font-size: var(--text-caption);
+  line-height: var(--leading-ui);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -336,8 +408,8 @@
   top: 50%;
   inset-inline-start: 12.5px;
   z-index: 2;
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--subtle);
   content: '';
@@ -345,8 +417,8 @@
 }
 
 .git-today-commits .git-activity-row[data-git-head]::before {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border: 1px solid var(--accent);
   background: var(--surface);
 }
@@ -357,12 +429,13 @@
 }
 
 .git-activity-list:not(.git-history-list) > .git-working-row::before {
-  inset-inline-start: 17px;
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--accent);
-  border-radius: 3px;
+  inset-inline-start: 21px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
   background: var(--accent-surface);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 13%, transparent);
 }
 
 .git-graph-rail {
@@ -388,15 +461,15 @@
 .git-graph-edge {
   fill: none;
   stroke: var(--git-lane-color);
-  stroke-width: 1.3;
-  opacity: 0.62;
+  stroke-width: 1.4;
+  opacity: 0.72;
 }
 
 .git-graph-edge[data-dashed='true'] {
   stroke-dasharray: 2.5 3;
 }
 
-.git-activity-row[aria-pressed='true'] .git-graph-edge[data-git-edge-from] {
+.git-activity-row:is(:hover, :focus-visible, [aria-pressed='true']) .git-graph-edge[data-git-edge-from] {
   stroke-width: 2;
   opacity: 1;
 }
@@ -413,6 +486,7 @@
 
 .git-graph-focus {
   fill: var(--accent-surface);
+  stroke-width: 1;
   opacity: 0;
 }
 
@@ -424,61 +498,71 @@
   fill: var(--git-lane-color);
 }
 
-@container git-workspace (max-width: 680px) {
+@container git-activity (max-width: 250px) {
   .git-activity-heading {
-    padding-block: 10px 8px;
+    padding-block: 15px 9px;
   }
 
-  .git-activity-row:not(.git-working-row) {
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-    row-gap: 3px;
-
-    & .git-activity-primary {
-      display: contents;
-    }
-
-    & .git-activity-subject {
-      grid-area: 1 / -3 / 2 / -1;
-      align-self: end;
-    }
-
-    & .git-activity-meta {
-      grid-area: 2 / -3;
-      align-self: start;
-    }
-
-    & .git-activity-time {
-      grid-area: 2 / -2;
-      align-self: start;
-      line-height: 1.2;
-    }
-
-    & .git-graph-rail {
-      grid-area: 1 / 1 / -1 / 2;
-    }
-  }
-
-  .git-activity-list:not(.git-history-list) > .git-working-row {
-    height: 44px;
-    column-gap: 6px;
-    padding-inline: 27px 8px;
-  }
-
-  .git-activity-list:not(.git-history-list) > .git-working-row::before {
-    inset-inline-start: 11px;
+  .git-activity-heading,
+  .git-activity-list {
+    padding-inline: min(var(--git-gutter), 12px);
   }
 
   .git-working-status {
     gap: 4px;
     padding-inline: 5px;
   }
+}
+
+@container git-workspace (max-width: 680px) or (max-height: 490px) {
+  .git-activity-heading {
+    padding-block: 10px 8px;
+  }
+
+  .git-activity-list:not(.git-history-list) > .git-working-row {
+    height: 47px;
+    column-gap: 6px;
+    padding-inline: 32px 9px;
+  }
+
+  .git-activity-list:not(.git-history-list) > .git-working-row::before {
+    inset-inline-start: 16px;
+  }
 
   .git-today-summary {
     margin-block: 8px 5px;
-    padding-block: 5px;
+    padding-block: 6px;
   }
 
   .git-timeline-plot {
     height: 27px;
+  }
+}
+
+@container git-workspace (480px <= width <= 760px) and (min-height: 590px) {
+  .git-activity-list:has(.git-today-summary) {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 8px 10px;
+
+    & > .git-working-row {
+      height: 100%;
+      min-height: 47px;
+    }
+  }
+
+  .git-today-summary {
+    margin: 0;
+  }
+
+  .git-today-commits {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .git-activity-row,
+  .git-timeline-bin {
+    transition: background-color 120ms ease-out;
   }
 }

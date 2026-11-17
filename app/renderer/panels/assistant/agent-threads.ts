@@ -71,6 +71,7 @@ interface ConversationView {
   transcriptElement?: HTMLElement
   contents?: ChildNode[]
   scrollTop: number
+  hasNewActivity?: boolean
 }
 
 function icon(name: keyof typeof glyphs) {
@@ -248,7 +249,7 @@ export function createAgentThreadPanel(
       </div>
       <p class="agent-thread-file-status" data-file-status role="status" hidden></p>
       <div class="agent-thread-reading" id="agent-thread-active-panel">
-        <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')} Jump to latest</button>
+        <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')}<span>Jump to latest</span></button>
         <div class="agent-thread-transcript" data-conversation></div>
       </div>
     </section>`
@@ -304,6 +305,7 @@ export function createAgentThreadPanel(
   const delegateTablist = requireElement(delegateTabs, '[data-delegate-tablist]', HTMLDivElement)
   const delegateStatus = requireElement(delegateTabs, '[data-delegate-status]', HTMLParagraphElement)
   const latest = requireElement(detail, '[data-latest]', HTMLButtonElement)
+  const latestLabel = requireElement(latest, 'span', HTMLSpanElement)
   const fileStatus = requireElement(detail, '[data-file-status]', HTMLParagraphElement)
   const compactProjects = window.matchMedia('(max-width: 700px)')
 
@@ -865,6 +867,11 @@ export function createAgentThreadPanel(
 
   function syncConversationScroll() {
     following = isAtLatest()
+    if (activeView && following) activeView.hasNewActivity = false
+    const hasNewActivity = Boolean(activeView?.hasNewActivity)
+    const label = hasNewActivity ? 'Jump to new activity' : 'Jump to latest'
+    latest.toggleAttribute('data-new-activity', hasNewActivity)
+    if (latestLabel.textContent !== label) latestLabel.textContent = label
     latest.hidden = following
   }
 
@@ -894,13 +901,17 @@ export function createAgentThreadPanel(
     view.transcriptElement = view.transcript.update(from, events)
     setTranscriptElement(view.transcriptElement)
     if (follow) conversation.scrollTop = conversation.scrollHeight
+    else if (!view.needsSnapshot && events.length) view.hasNewActivity = true
     syncConversationScroll()
   }
 
   function updateSelectedThread(thread: AgentThread) {
     selected = thread
     threads.set(thread.id, thread)
-    detailTitle.textContent = thread.title
+    if (detailTitle.textContent !== thread.title) {
+      detailTitle.textContent = thread.title
+      detailTitle.title = thread.title
+    }
     detailProject.textContent = projectName(projectOf(thread))
     detailProject.hidden = projectOf(thread) === NO_PROJECT
     detailCwd.textContent = thread.cwd

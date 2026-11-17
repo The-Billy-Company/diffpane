@@ -15,10 +15,10 @@
 .navigator-change-rail {
   position: relative;
   display: flex;
-  flex: 0 0 24px;
-  padding: 3px 3px 3px 2px;
+  flex: 0 0 19px;
+  padding: 2px 3px 2px 2px;
   border-inline-start: 1px solid var(--line);
-  background: color-mix(in oklab, var(--surface-inset) 75%, var(--surface));
+  background: color-mix(in oklab, var(--surface-inset) 60%, var(--surface));
   cursor: ns-resize;
   touch-action: none;
   user-select: none;
@@ -52,8 +52,8 @@
 }
 
 .navigator-change-rail:is(:hover, :focus-visible) .navigator-change-viewport {
-  border-color: var(--scrollbar-hover);
-  background-color: color-mix(in oklab, var(--scrollbar-hover) 50%, transparent);
+  border-color: color-mix(in oklab, var(--accent) 42%, transparent);
+  background-color: color-mix(in oklab, var(--accent) 12%, transparent);
 }
 
 .navigator-change-track svg {
@@ -96,12 +96,12 @@
   position: absolute;
   z-index: 2;
   inset-block-start: clamp(16px, var(--change-label-position), calc(100% - 16px));
-  inset-inline-end: calc(100% + 5px);
+  inset-inline-end: calc(100% + 6px);
   max-inline-size: min(230px, 65cqi);
   padding: 3px 8px;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--surface-raised);
   box-shadow: 0 2px 8px var(--shadow);
   color: var(--text);

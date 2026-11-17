@@ -189,7 +189,7 @@
   position: absolute;
   width: 1px;
   height: 100%;
-  background: var(--control-border);
+  background: var(--line);
   transform: translate(var(--splitter-x), var(--splitter-y));
   transition:
     background-color 130ms ease-out,
@@ -226,7 +226,7 @@
 }
 
 .workspace-splitter:is(:hover, :focus-visible, .is-dragging)::after {
-  background: color-mix(in oklab, var(--control-border), var(--focus-ring) 55%);
+  background: color-mix(in oklab, var(--line), var(--focus-ring) 58%);
 }
 
 .workspace-splitter:is(:hover, :focus-visible, .is-dragging) span {

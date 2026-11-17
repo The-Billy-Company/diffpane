@@ -45,7 +45,7 @@
 }
 
 .picker-file strong {
-  font-size: var(--text-body);
+  font-size: var(--text-content);
   font-weight: var(--weight-medium);
 }
 
@@ -57,6 +57,10 @@
 
 .picker-enter {
   visibility: hidden;
+}
+
+.picker-file[aria-selected='true'] strong {
+  color: var(--accent);
 }
 
 .picker-file[aria-selected='true'] .picker-enter {

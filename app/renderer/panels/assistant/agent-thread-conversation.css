@@ -37,10 +37,10 @@
   --author-indent: calc(var(--thread-avatar-size) + var(--thread-author-label-gap));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: clamp(30px, 5vh, 48px);
+  gap: clamp(26px, 4.8cqh, 42px);
   width: min(100%, var(--thread-reading-width));
   margin-inline: auto;
-  padding: clamp(24px, 4.5vh, 42px) var(--thread-reading-gutter) 76px;
+  padding: clamp(20px, 4.4cqh, 34px) var(--thread-reading-gutter) 76px;
 }
 
 .agent-thread-turn {
@@ -188,7 +188,7 @@
 
 .agent-thread-turn-body > .agent-thread-markdown {
   max-inline-size: 72ch;
-  font: var(--text-subheading) / 1.7 var(--font-prose);
+  font: clamp(var(--text-content), 2cqi, var(--text-subheading)) / 1.65 var(--font-prose);
   color: var(--text);
   overflow-wrap: anywhere;
 }
@@ -250,7 +250,7 @@
   padding: 11px 16px;
   border: 1px solid color-mix(in oklab, var(--mark-color, var(--accent)) 15%, var(--line));
   border-radius: 13px 13px 4px 13px;
-  background: color-mix(in oklab, var(--mark-color, var(--accent)) 6%, var(--surface));
+  background: color-mix(in oklab, var(--mark-color, var(--accent)) 8%, var(--surface));
 }
 
 .agent-thread-turn-body > .agent-thread-prompt {
@@ -793,7 +793,7 @@ button.agent-thread-reference:hover,
 @container agent-thread-reading (min-width: 1060px) and (min-height: 270px) {
   .agent-thread-minimap {
     position: absolute;
-    inset-block-start: clamp(24px, 4.5vh, 42px);
+    inset-block-start: clamp(20px, 4.4cqh, 34px);
     inset-inline-start: min(calc(50% + var(--thread-reading-width) / 2), calc(100% - 108px));
     display: flex;
     flex-direction: column;

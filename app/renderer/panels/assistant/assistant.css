@@ -5,6 +5,8 @@
 }
 
 .claude-panel {
+  --claude-gutter: clamp(12px, 4.5cqi, 28px);
+  --claude-reading-width: 580px;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -12,8 +14,8 @@
 }
 
 .claude-panel > .claude-heading {
-  min-height: 52px;
-  padding-inline: clamp(10px, 4.2cqi, 22px);
+  min-height: 49px;
+  padding-inline: var(--claude-gutter);
   background: var(--surface);
 }
 
@@ -48,6 +50,10 @@
 .claude-heading h2 {
   gap: 8px;
   white-space: nowrap;
+}
+
+.claude-panel > .claude-heading h2 {
+  font-size: var(--text-content);
 }
 
 .claude-brand {
@@ -139,6 +145,10 @@
     gap: 6px;
   }
 
+  .claude-panel > .claude-heading h2 {
+    font-size: var(--text-body);
+  }
+
   .claude-tools .claude-icon {
     width: 25px;
   }
@@ -149,6 +159,7 @@
   position: relative;
   flex: 1;
   min-height: 0;
+  background: var(--workbench-background);
 }
 
 .claude-conversation {
@@ -158,7 +169,7 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  padding: clamp(16px, 5cqi, 32px) clamp(13px, 5cqi, 32px) 18px;
+  padding: clamp(15px, 4.5cqi, 29px) var(--claude-gutter) 22px;
   scrollbar-color: var(--scrollbar) transparent;
   scrollbar-width: thin;
   overscroll-behavior: contain;
@@ -195,7 +206,7 @@
   padding: 12px 10px;
   border-radius: 20px;
   background:
-    radial-gradient(ellipse at center, transparent 20%, var(--surface) 74%),
+    radial-gradient(ellipse at center, transparent 20%, var(--workbench-background) 74%),
     radial-gradient(circle, color-mix(in oklab, var(--accent) 22%, var(--line)) 0.85px, transparent 1px) center / 10px
       10px,
     radial-gradient(ellipse at center, color-mix(in oklab, var(--accent-surface) 78%, var(--surface)), var(--surface));
@@ -317,7 +328,7 @@
   display: grid;
   gap: clamp(20px, 5cqi, 33px);
   min-width: 0;
-  width: min(100%, 580px);
+  width: min(100%, var(--claude-reading-width));
   margin-inline: auto;
 }
 
@@ -351,7 +362,7 @@
   flex: 1;
   height: 1px;
   margin-inline-start: 3px;
-  background: var(--line);
+  background: color-mix(in oklab, var(--line) 72%, transparent);
   content: '';
 }
 
@@ -441,7 +452,7 @@
 }
 
 .claude-turn-content :is(h1, h2) {
-  font-size: 1.2em;
+  font-size: 1.28em;
 }
 
 .claude-turn-content :is(ul, ol) {
@@ -1129,7 +1140,8 @@
   --claude-send-hover: var(--action-hover);
   flex: none;
   margin: 0;
-  padding: 0 clamp(10px, 4cqi, 26px) 14px;
+  padding: 0 var(--claude-gutter) clamp(8px, 2.7cqh, 14px);
+  background: var(--workbench-background);
 }
 
 .claude-composer:is([data-mode='edit'], [data-state='review']) {
@@ -1140,13 +1152,13 @@
 }
 
 .claude-compose-surface {
-  width: min(100%, 588px);
+  width: min(100%, var(--claude-reading-width));
   margin-inline: auto;
   overflow: hidden;
-  border: 1px solid color-mix(in oklab, var(--claude-compose-ink) 22%, var(--line));
-  border-radius: 13px;
-  background: color-mix(in oklab, var(--canvas) 68%, var(--surface-raised));
-  box-shadow: 0 2px 8px color-mix(in oklab, var(--shadow) 55%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  box-shadow: 0 2px 6px color-mix(in oklab, var(--shadow) 35%, transparent);
 }
 
 .claude-compose-surface:focus-within {
@@ -1160,10 +1172,11 @@
 
 .claude-context {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  padding: 9px 10px 0;
+  padding: 8px 10px 0;
 }
 
 .claude-context:not(:has(.claude-context-chip:not([hidden]))),
@@ -1180,6 +1193,7 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
+  max-width: 100%;
   min-height: 24px;
   padding: 2px 7px;
   border: 1px solid var(--line);
@@ -1240,7 +1254,7 @@
   width: 100%;
   min-height: 51px;
   max-height: clamp(43px, 22cqh, 150px);
-  padding: 9px 11px 6px;
+  padding: 9px 11px 7px;
   margin: 0;
   border: 0;
   background: transparent;
@@ -1263,17 +1277,20 @@
 
 .claude-composer-actions {
   justify-content: space-between;
-  padding: 3px 8px 8px;
+  padding: 5px 8px;
+  border-block-start: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
+  background: var(--surface-inset);
+}
+
+.claude-compose-surface:focus-within .claude-composer-actions {
+  background: color-mix(in oklab, var(--claude-compose-tint) 36%, var(--surface-inset));
 }
 
 .claude-mode {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  padding: 2px 3px;
 }
 
 .claude-mode button {
@@ -1347,8 +1364,9 @@
 }
 
 .claude-send:disabled {
-  opacity: 1;
-  background: var(--surface-raised);
+  opacity: 0.74;
+  border-color: var(--line);
+  background: transparent;
   color: var(--subtle);
 }
 
@@ -1651,7 +1669,10 @@
   }
 
   .claude-composer-actions {
+    align-self: stretch;
     gap: 6px;
+    border-block-start: 0;
+    border-inline-start: 1px solid color-mix(in oklab, var(--line) 70%, transparent);
   }
 
   .claude-composer textarea {

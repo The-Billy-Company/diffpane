@@ -43,6 +43,7 @@ const MAX_HISTORY = 1000
 const DISPLAY_DATE = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
 const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 const DISPLAY_TIME = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+const COMMIT_TIMESTAMP = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 const DISPLAY_HOUR = new Intl.DateTimeFormat(undefined, { hour: 'numeric', timeZone: 'UTC' })
 const STATUS: Readonly<Record<string, string>> = {
   A: 'Added',
@@ -71,7 +72,7 @@ function button(className: string, text?: string) {
 
 function setDiffFocus(control: HTMLButtonElement, expanded: boolean) {
   control.setAttribute('aria-pressed', String(expanded))
-  control.title = expanded ? 'Restore Git layout' : 'Focus diff'
+  control.title = expanded ? 'Exit focus (Esc)' : 'Focus diff'
 }
 
 function dayBounds() {
@@ -273,8 +274,19 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
         </div>
       </div>
       <nav class="git-tabs" aria-label="Git view">
-        <button type="button" data-git-view="today" aria-pressed="true">Today</button>
-        <button type="button" data-git-view="history" aria-pressed="false">History</button>
+        <button type="button" data-git-view="today" aria-pressed="true">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" aria-hidden="true">
+            <rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M5.5 2.5v2M10.5 2.5v2M3 7h10"/>
+            <circle cx="8" cy="10.25" r=".9" stroke="none" fill="currentColor"/>
+          </svg>
+          Today
+        </button>
+        <button type="button" data-git-view="history" aria-pressed="false">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M2.5 7a5.6 5.6 0 1 1 .9 4.1M2.5 3.5V7H6M8 4.75V8l2 1.25"/>
+          </svg>
+          History
+        </button>
       </nav>
     </header>
     <div class="git-columns">
@@ -291,11 +303,10 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
       </section>
       <section class="git-inspector" aria-label="Git change inspector">
         <header class="git-inspector-heading">
-          <div class="git-inspector-top">
-            <div class="git-inspector-identity"><h2>Working tree</h2><span class="git-inspector-hash git-hash"></span></div>
-            <button type="button" class="git-review" aria-label="Review changes">
-              Review changes <span aria-hidden="true">→</span>
-            </button>
+          <div class="git-inspector-identity">
+            <h2>Working tree</h2>
+            <span class="git-inspector-hash git-hash" hidden></span>
+            <time class="git-inspector-date" hidden></time>
           </div>
           <div class="git-inspector-context">
             <div class="git-comparison">
@@ -305,12 +316,17 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
             </div>
             <div class="git-inspector-refs" hidden></div>
           </div>
+          <button type="button" class="git-review" aria-label="Review changes">
+            Review changes <span aria-hidden="true">→</span>
+          </button>
         </header>
-        <div class="git-files-heading">
-          <div class="git-files-title"><h3>Changed files</h3><span class="git-file-count" aria-hidden="true"></span></div>
-          <div class="git-line-totals" role="status"></div>
-        </div>
-        <div class="git-file-list" aria-label="Changed files"></div>
+        <section class="git-files" aria-labelledby="git-files-heading" hidden>
+          <header class="git-files-heading">
+            <div class="git-files-title"><h3 id="git-files-heading">Changed files</h3><span class="git-file-count" aria-hidden="true"></span></div>
+            <div class="git-line-totals" role="status"></div>
+          </header>
+          <div class="git-file-list"></div>
+        </section>
         <div class="git-comparison-message" role="status"></div>
         <div class="git-workspace-preview" hidden></div>
       </section>
@@ -328,8 +344,10 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   const historyLimitText = requireElement(root, '.git-history-limit', HTMLParagraphElement)
   const more = requireElement(root, '.git-more', HTMLButtonElement)
   const overviewMessage = requireElement(root, '.git-overview-message', HTMLDivElement)
+  const inspector = requireElement(root, '.git-inspector', HTMLElement)
   const inspectorTitle = requireElement(root, '.git-inspector h2', HTMLHeadingElement)
   const inspectorId = requireElement(root, '.git-inspector-hash', HTMLSpanElement)
+  const inspectorDate = requireElement(root, '.git-inspector-date', HTMLTimeElement)
   const inspectorRefs = requireElement(root, '.git-inspector-refs', HTMLDivElement)
   const review = requireElement(root, '.git-review', HTMLButtonElement)
   const chooser = requireElement(root, '#git-comparison-select', HTMLSelectElement)
@@ -337,6 +355,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   const fixed = requireElement(root, '.git-fixed-comparison', HTMLSpanElement)
   const fixedBase = requireElement(fixed, 'span:first-child', HTMLSpanElement)
   const fixedTarget = requireElement(fixed, 'span:last-child', HTMLSpanElement)
+  const fileSection = requireElement(root, '.git-files', HTMLElement)
   const fileCount = requireElement(root, '.git-file-count', HTMLSpanElement)
   const totals = requireElement(root, '.git-line-totals', HTMLDivElement)
   const files = requireElement(root, '.git-file-list', HTMLDivElement)
@@ -364,9 +383,24 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   let refreshTimer = 0
   let midnightTimer = 0
   let refreshPending = false
+  let activityHeight = 0
+
+  const activityResize = new ResizeObserver(([entry]) => {
+    const height = entry?.contentRect.height ?? 0
+    if (height > 0 && height < activityHeight) revealSelectedActivity()
+    activityHeight = height
+  })
+  activityResize.observe(activityScroll)
 
   const visible = () => !root.hidden
   const displayedCommits = () => (view === 'today' ? overview?.today : overview?.commits) ?? []
+
+  function revealSelectedActivity() {
+    activity.querySelector('[data-git-commit][aria-pressed="true"]')?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    })
+  }
 
   function renderSelections() {
     const key = selection.kind === 'commit' ? selection.id : selection.kind
@@ -390,12 +424,15 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     scope.title = scope.textContent
     repository.hidden = !scope.textContent
     const history = view === 'history'
+    const commits = displayedCommits()
     activityHeading.textContent = history ? 'Commit graph' : DISPLAY_DATE.format(todayStart)
-    activityScope.textContent = history ? 'Repository history' : 'Local time'
+    activityScope.hidden = !history || !overview
+    activityScope.textContent = overview?.historyHasMore
+      ? `${printNumber(commits.length)} shown`
+      : `${printNumber(commits.length)} ${commits.length === 1 ? 'commit' : 'commits'}`
     historyTail.hidden = !history || !overview?.historyHasMore
     historyLimitText.hidden = historyLimit < MAX_HISTORY
     more.hidden = historyLimit >= MAX_HISTORY
-    const commits = displayedCommits()
     const key = JSON.stringify([view, todayStart, overview?.head, overview?.branch, commits])
     if (activityKey === key) {
       renderSelections()
@@ -493,10 +530,16 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   function renderComparison({ comparison, title, baseLabel, targetLabel, commit }: ComparisonDetails) {
     const working = comparison.kind === 'working'
     const merge = commit && commit.parents.length > 1
+    inspector.dataset.comparisonKind = working ? 'working' : commit ? 'commit' : 'day'
     inspectorTitle.textContent = title
     inspectorId.textContent = commit ? shortId(commit.id) : ''
     inspectorId.title = commit?.id ?? ''
     inspectorId.hidden = !commit
+    inspectorDate.hidden = !commit
+    if (commit) {
+      inspectorDate.dateTime = new Date(commit.committedAt).toISOString()
+      inspectorDate.textContent = COMMIT_TIMESTAMP.format(commit.committedAt)
+    }
     const refs = commit?.refs ?? []
     inspectorRefs.hidden = refs.length === 0
     inspectorRefs.replaceChildren(...refs.map(refPill))
@@ -588,6 +631,8 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
           ?.focus({ preventScroll: true })
       }
     }
+    inspector.dataset.changeState = loadedFiles.length ? 'ready' : 'empty'
+    fileSection.hidden = !loadedFiles.length
     renderFileSelection()
     renderMessage(comparisonMessage, loadedFiles.length ? '' : 'No changed files in this comparison.')
     showFile(current, refreshPreview)
@@ -598,6 +643,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     comparisonKey = fileKey = ''
     loadedFiles = []
     selectedFile = null
+    fileSection.hidden = true
     fileCount.textContent = ''
     totals.replaceChildren()
     totals.removeAttribute('aria-label')
@@ -616,6 +662,8 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     }
     if (fresh) {
       resetFiles()
+      inspector.scrollTop = 0
+      inspector.dataset.changeState = 'loading'
       renderMessage(comparisonMessage, 'Loading changes…')
     }
     comparisonKey = key
@@ -625,8 +673,10 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
       if (visible() && version === comparisonRequest)
         renderFiles(changes, details(), force && requested.comparison.kind === 'working')
     } catch {
-      if (visible() && version === comparisonRequest)
+      if (visible() && version === comparisonRequest) {
+        if (!loadedFiles.length) inspector.dataset.changeState = 'error'
         renderMessage(comparisonMessage, 'Could not load changes.', () => requestChanges(true))
+      }
     }
   }
 
@@ -737,6 +787,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
   function destroy() {
     hide()
     listeners.abort()
+    activityResize.disconnect()
     root.replaceChildren()
   }
 
@@ -770,6 +821,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
         ensureSelection()
         activityScroll.scrollTop = 0
         renderActivity()
+        revealSelectedActivity()
         requestChanges()
       } else if (gitCommit) {
         selection =
@@ -786,6 +838,11 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
         selectedFile = gitFile
         renderFileSelection()
         showFile(details(), false)
+        if (event.detail > 0 && preview.offsetHeight) {
+          const { top, height } = preview.getBoundingClientRect()
+          const visibleHeight = inspector.getBoundingClientRect().bottom - top
+          if (visibleHeight < Math.min(height, 220)) preview.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        }
       }
     },
     listOptions,

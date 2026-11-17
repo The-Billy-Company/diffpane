@@ -26,9 +26,25 @@ interface GitDiffOptions {
 
 let nextModel = 0
 
+function gitDiffAppearance(settings: Appearance) {
+  // A stacked Git workspace leaves the comparison wider than the editor's default inline breakpoint.
+  return { ...diffAppearance(settings, true), renderSideBySideInlineBreakpoint: 740 }
+}
+
 function physicalLines(model: editor.ITextModel) {
   const count = model.getLineCount()
   return model.getLineLength(count) ? count : count - 1
+}
+
+function markEmptySide(pane: editor.ICodeEditor) {
+  const label = document.createElement('span')
+  label.className = 'git-diff-empty-side'
+  label.textContent = 'No content'
+  pane.addOverlayWidget({
+    getId: () => 'diffpane.git-empty-side',
+    getDomNode: () => label,
+    getPosition: () => null,
+  })
 }
 
 function normalizeGitHunks(hunks: readonly editor.ILineChange[], model: editor.IDiffEditorModel) {
@@ -65,12 +81,42 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
   function open({ host, comparison, file, baseLabel, targetLabel, focus }: GitDiffRequest) {
     const panel = document.createElement('div')
     panel.className = 'git-diff'
+    panel.setAttribute('role', 'region')
     panel.setAttribute('aria-label', 'File comparison')
+    const chrome = document.createElement('div')
+    chrome.className = 'git-diff-chrome'
+    const bar = document.createElement('div')
+    bar.className = 'git-diff-header'
+    const identity = document.createElement('div')
+    identity.className = 'git-diff-file'
+    identity.title = file.path
+    const separator = file.path.lastIndexOf('/')
+    const name = file.path.slice(separator + 1)
+    const symbol = projectIcon({ name, kind: 'file' })
+    if (symbol) {
+      const icon = document.createElement('img')
+      icon.alt = ''
+      icon.src = symbol
+      identity.append(icon)
+    }
+    const description = document.createElement('div')
+    description.className = 'git-diff-file-description'
+    const title = document.createElement('strong')
+    title.textContent = name
+    description.append(title)
+    if (separator !== -1) {
+      const directory = document.createElement('span')
+      directory.textContent = file.path.slice(0, separator)
+      description.append(directory)
+    }
+    identity.append(description)
+    bar.append(identity)
     const status = document.createElement('p')
     status.className = 'git-diff-status'
     status.setAttribute('role', 'status')
     status.textContent = 'Loading comparison…'
-    panel.append(status)
+    chrome.append(bar, status)
+    panel.append(chrome)
     host.replaceChildren(panel)
     let disposed = false
     let request = 0
@@ -81,7 +127,9 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
       releaseEditor?.()
       releaseEditor = undefined
       updateText = undefined
-      panel.replaceChildren(status)
+      bar.replaceChildren(identity)
+      chrome.replaceChildren(bar, status)
+      panel.replaceChildren(chrome)
       status.hidden = false
       status.textContent = message
     }
@@ -100,32 +148,6 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
         return
       }
       panel.dataset.reviewScope = 'focus'
-      const bar = document.createElement('div')
-      bar.className = 'git-diff-header'
-      const identity = document.createElement('div')
-      identity.className = 'git-diff-file'
-      identity.title = file.path
-      const separator = file.path.lastIndexOf('/')
-      const name = file.path.slice(separator + 1)
-      const symbol = projectIcon({ name, kind: 'file' })
-      if (symbol) {
-        const icon = document.createElement('img')
-        icon.alt = ''
-        icon.src = symbol
-        identity.append(icon)
-      }
-      const description = document.createElement('div')
-      description.className = 'git-diff-file-description'
-      const title = document.createElement('strong')
-      title.textContent = name
-      description.append(title)
-      if (separator !== -1) {
-        const directory = document.createElement('span')
-        directory.textContent = file.path.slice(0, separator)
-        description.append(directory)
-      }
-      identity.append(description)
-
       const actions = document.createElement('div')
       actions.className = 'git-diff-actions'
       const scope = document.createElement('button')
@@ -155,12 +177,14 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path class="git-diff-focus-expand" d="M2.5 6V2.5H6m4 0h3.5V6m0 4v3.5H10m-4 0H2.5V10"/>
           <path class="git-diff-focus-restore" d="M2.5 6H6V2.5m4 0V6h3.5m0 4H10v3.5m-4 0V10H2.5"/>
-        </svg>`
-      actions.append(scope, navigation.bar, expand)
-      bar.append(identity, actions)
+        </svg>
+        <span class="git-diff-focus-expand" aria-hidden="true">Focus</span>
+        <span class="git-diff-focus-restore" aria-hidden="true">Exit focus</span>`
+      actions.append(navigation.bar, scope, expand)
+      bar.append(actions)
       const editorHost = document.createElement('div')
       editorHost.className = 'git-diff-editor'
-      panel.prepend(bar, navigation.changeMap)
+      chrome.insertBefore(navigation.changeMap, status)
       panel.append(editorHost)
 
       const modelId = String(++nextModel)
@@ -195,12 +219,15 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
         modifiedAriaLabel: `${targetLabel} · ${file.path}`,
       }
       diff = editor.createDiffEditor(editorHost, {
-        ...diffAppearance(appearance(), true),
+        ...gitDiffAppearance(appearance()),
         ...labels,
         readOnly: true,
         originalEditable: false,
         domReadOnly: true,
         automaticLayout: true,
+        lineNumbersMinChars: 3,
+        lineDecorationsWidth: 17,
+        glyphMargin: false,
         minimap: { enabled: false },
         renderMarginRevertIcon: false,
         renderGutterMenu: false,
@@ -212,10 +239,13 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
         ignoreTrimWhitespace: false,
         maxComputationTime: 1000,
         maxFileSize: 2,
-        padding: { top: 8, bottom: 8 },
+        scrollbar: { verticalScrollbarSize: 9, horizontalScrollbarSize: 9, alwaysConsumeMouseWheel: false },
+        padding: { top: 10, bottom: 12 },
       })
       activeEditor = diff
       diff.setModel({ original, modified })
+      markEmptySide(diff.getOriginalEditor())
+      markEmptySide(diff.getModifiedEditor())
       const panes = [
         { model: original, decorations: diff.getOriginalEditor().createDecorationsCollection() },
         { model: modified, decorations: diff.getModifiedEditor().createDecorationsCollection() },
@@ -294,7 +324,7 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
   return {
     open,
     updateAppearance(preferences: Appearance) {
-      activeEditor?.updateOptions(diffAppearance(preferences, true))
+      activeEditor?.updateOptions(gitDiffAppearance(preferences))
     },
   }
 }

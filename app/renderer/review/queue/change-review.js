@@ -186,6 +186,7 @@ export function createChangeReview(
   count.prepend(reviewedCount)
   const progress = requireElement(container, 'progress', HTMLProgressElement)
   const progressGroup = requireElement(container, '.change-review-progress', HTMLDivElement)
+  const progressLabel = requireElement(progressGroup, '.change-review-progress-label', HTMLSpanElement)
   const progressAnnouncement = requireElement(progressGroup, '.change-review-progress-announcement', HTMLSpanElement)
   const progressStrip = requireElement(progressGroup, '.change-review-progress-strip', HTMLDivElement)
   const filterGroup = requireElement(container, '.change-review-filters', HTMLDivElement)
@@ -536,6 +537,7 @@ export function createChangeReview(
   /** @param {number} total @param {number[]} reviewedPositions @param {boolean} animate */
   function updateProgress(total, reviewedPositions, animate) {
     const done = reviewedPositions.length
+    const complete = total > 0 && done === total
     const totalLabel = total.toLocaleString()
     const readout = `/ ${totalLabel}`
     if (countTotal.textContent !== readout) countTotal.textContent = readout
@@ -543,10 +545,12 @@ export function createChangeReview(
     if (reviewedCount.value !== done) reviewedCount.update(done)
     const summary = `${done.toLocaleString()} of ${totalLabel} reviewed`
     if (progressAnnouncement.textContent !== summary) progressAnnouncement.textContent = summary
+    const label = complete ? 'Review complete' : 'Files reviewed'
+    if (progressLabel.textContent !== label) progressLabel.textContent = label
     progress.max = total || 1
     progress.value = done
     progress.setAttribute('aria-valuetext', summary)
-    container.dataset.complete = String(total > 0 && done === total)
+    container.dataset.complete = String(complete)
     renderProgressStrip(reviewedPositions)
     reportProgress()
   }
