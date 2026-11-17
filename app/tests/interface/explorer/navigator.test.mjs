@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'vite-plus/test'
 import {
   buildNavigationTree,
+  expandFolderChain,
+  expandInitialFolderChains,
   findChangedFile,
   flattenNavigationTree,
   navigationStatus,
@@ -40,6 +42,64 @@ test('explorer builds naturally sorted folders and exposes only expanded descend
     'README.md',
   ])
   assert.deepEqual(paths(flattenNavigationTree(tree, new Set())), [''])
+})
+
+test('initial expansion reveals files through top-level wrapper folders', () => {
+  const tree = buildNavigationTree([
+    file('README.md'),
+    file('docs/index.md'),
+    file('src/main/java/App.java'),
+    file('src/main/java/helpers/Helper.java'),
+  ])
+  const expanded = new Set([''])
+  expandInitialFolderChains(tree.root, expanded)
+  assert.deepEqual(paths(flattenNavigationTree(tree, expanded)), [
+    '',
+    'docs',
+    'src',
+    'src/main',
+    'src/main/java',
+    'src/main/java/helpers',
+    'src/main/java/App.java',
+    'README.md',
+  ])
+})
+
+test('a scoped root opens its only branch and waits for the user to choose a subfolder', () => {
+  const tree = buildNavigationTree(
+    [file('project/src/app/lib/app.ts'), file('project/src/test/app.test.ts')],
+    'project',
+  )
+  const expanded = new Set(['project'])
+  expandInitialFolderChains(tree.root, expanded)
+  assert.deepEqual(paths(flattenNavigationTree(tree, expanded)), [
+    'project',
+    'project/src',
+    'project/src/app',
+    'project/src/test',
+  ])
+
+  const app = tree.nodes.get('dir:project/src/app')
+  assert.ok(app)
+  assert.equal(expandFolderChain(app, expanded), true)
+  assert.deepEqual(paths(flattenNavigationTree(tree, expanded)), [
+    'project',
+    'project/src',
+    'project/src/app',
+    'project/src/app/lib',
+    'project/src/app/lib/app.ts',
+    'project/src/test',
+  ])
+  assert.equal(expandFolderChain(app, expanded), false)
+})
+
+test('automatic expansion leaves ignored subfolders closed', () => {
+  const cache = 'tools/cache'
+  const tree = buildNavigationTree([file(cache, { directory: true, ignored: true })])
+  const expanded = new Set([''])
+  expandInitialFolderChains(tree.root, expanded)
+  assert.deepEqual(paths(flattenNavigationTree(tree, expanded)), ['', 'tools', cache])
+  assert.equal(expanded.has(cache), false)
 })
 
 test('first and last changes check direct files before descending into changed subfolders', () => {

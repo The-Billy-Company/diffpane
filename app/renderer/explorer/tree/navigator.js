@@ -107,6 +107,40 @@ export function buildNavigationTree(inventory, basePath = '') {
   return reconcileNavigationTree(tree, inventory, basePath) ?? tree
 }
 
+/** @param {NavigationNode} folder */
+function singleSubfolder(folder) {
+  const children = folder.children
+  const child = !folder.file?.ignored && children?.length === 1 ? children[0] : undefined
+  return child?.kind === 'directory' && !child.file?.ignored ? child : undefined
+}
+
+/** @param {NavigationNode} folder @param {Set<string>} expanded */
+export function expandFolderChain(folder, expanded) {
+  let changed = false
+  /** @type {NavigationNode | undefined} */
+  let current = folder
+  while (current) {
+    if (!expanded.has(current.path)) {
+      expanded.add(current.path)
+      changed = true
+    }
+    current = singleSubfolder(current)
+  }
+  return changed
+}
+
+/** @param {NavigationNode} root @param {Set<string>} expanded */
+export function expandInitialFolderChains(root, expanded) {
+  if (!expanded.has(root.path)) return
+  const onlyFolder = singleSubfolder(root)
+  if (onlyFolder) expandFolderChain(onlyFolder, expanded)
+  else {
+    for (const child of root.children ?? []) {
+      if (singleSubfolder(child)) expandFolderChain(child, expanded)
+    }
+  }
+}
+
 /**
  * @param {NavigationTree} tree
  * @param {ReadonlySet<string>} expanded
@@ -301,6 +335,7 @@ export function createNavigator(
   /** @type {number | null} */
   let appliedInventoryRevision = null
   let inventoryReady = false
+  let expandOnLoad = true
   /** @type {string | null} */
   let activeKey = tree.root.key
   /** @type {string | null} */
@@ -591,8 +626,7 @@ export function createNavigator(
     const folder = tree.nodes.get(`dir:${pathname}`)
     const node = directory ? folder : (tree.files.get(pathname) ?? folder)
     if (!node) return false
-    let projectionChanged = directory && !expanded.has(node.path)
-    if (directory) setExpanded(node, true)
+    let projectionChanged = directory && setExpanded(node, true)
     let parent = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
     while (parent) {
       if (!expanded.has(parent.path)) projectionChanged = true
@@ -663,9 +697,10 @@ export function createNavigator(
             const { inventory } = result.value
             tree = reconcileNavigationTree(tree, inventory, base) ?? buildNavigationTree(inventory, base)
           }
+          if (prior.root.path !== tree.root.path) expanded = new Set([tree.root.path])
+          if (!inventoryReady && expandOnLoad) expandInitialFolderChains(tree.root, expanded)
           // Publish each completed scan even when edits have already queued another one.
           inventoryReady = true
-          if (prior.root.path !== tree.root.path) expanded = new Set([tree.root.path])
           filters.update(() => tree.files.values())
           markChanges()
           if (generation === wanted) loading = false
@@ -742,6 +777,7 @@ export function createNavigator(
     if (changedRoot) {
       appliedInventoryRevision = null
       inventoryReady = false
+      expandOnLoad = true
       expanded = new Set([scopePrefix(next)])
       tree = buildNavigationTree([], scopePrefix(next))
       activeKey = tree.root.key
@@ -767,9 +803,8 @@ export function createNavigator(
 
   /** @param {NavigationNode} node @param {boolean} value */
   function setExpanded(node, value) {
-    if (value) expanded.add(node.path)
-    else {
-      expanded.delete(node.path)
+    const changed = value ? expandFolderChain(node, expanded) : expanded.delete(node.path)
+    if (!value) {
       for (const pathname of expanded) {
         if ((!node.path || pathname.startsWith(`${node.path}/`)) && tree.nodes.get(`dir:${pathname}`)?.file?.ignored)
           expanded.delete(pathname)
@@ -786,6 +821,7 @@ export function createNavigator(
         }
       })
     }
+    return changed
   }
 
   /** @param {NavigationNode} node */
@@ -924,6 +960,7 @@ export function createNavigator(
 
   function collapseFolders() {
     revealPath = null
+    expandOnLoad = false
     setExpanded(tree.root, false)
     expanded = new Set([tree.root.path])
     activeKey = tree.root.key
