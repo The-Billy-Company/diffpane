@@ -7,6 +7,7 @@ export interface NavigationFile {
   submodule?: boolean
   ignored?: boolean
   originalPath?: string | null
+  renameEdited?: boolean
   reviewVersion?: number
 }
 export interface NavigationNode {

@@ -62,6 +62,7 @@ const contrastGroups: readonly [number, readonly ColorRole[], readonly ColorRole
   [4.5, ['violet'], ['violetSurface']],
   [4.5, ['text'], ['addedSurface', 'removedSurface', 'warningSurface', 'violetSurface']],
   [4.5, ['added', 'removed', 'warning', 'modified'], ['surface', 'surfaceRaised', 'selection']],
+  [4.5, ['violet', 'rose'], ['surface', 'hover', 'selection', 'selectionInactive']],
   [3, ['focusRing', 'controlBorder'], readingSurfaces],
   [3, ['chartCode', 'chartComments', 'chartDocs', 'chartBlank'], ['surfaceInset', 'workbenchBackground']],
   [3, ['addedEdge'], ['addedGutter', 'workbenchBackground']],

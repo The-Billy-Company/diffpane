@@ -65,10 +65,20 @@ const STATUS_LABELS = {
   A: 'Added',
   C: 'Copied',
   D: 'Deleted',
-  M: 'Modified',
-  R: 'Renamed',
+  M: 'Edited',
+  R: 'Moved',
+  RM: 'Moved and edited',
   T: 'Type changed',
   U: 'Untracked',
+}
+/** @type {Readonly<Partial<Record<string, ChangeKind>>>} */
+const MARK_KINDS = {
+  '!': 'conflict',
+  A: 'added',
+  D: 'removed',
+  R: 'moved',
+  RM: 'moved-edited',
+  U: 'added',
 }
 let instance = 0
 
@@ -195,7 +205,11 @@ export function flattenNavigationTree(tree, expanded, query = '', filters, langu
 /** @param {NavigationFile | null | undefined} file */
 export function navigationStatus(file) {
   if (file?.conflicted) return '!'
-  const status = file?.worktree && ![' ', '.'].includes(file.worktree) ? file.worktree : file?.index
+  const { index, worktree, renameEdited } = file ?? {}
+  const status = worktree && ![' ', '.'].includes(worktree) ? worktree : index
+  if (status === 'R' || (index === 'R' && (status === 'M' || status === 'T'))) {
+    return renameEdited || status === 'M' || status === 'T' || index === 'M' || index === 'T' ? 'RM' : 'R'
+  }
   return !status || [' ', '.'].includes(status) ? '' : status === '?' ? 'U' : status
 }
 
@@ -347,6 +361,8 @@ export function createNavigator(
   let revealPath = null
   /** @type {Set<NavigationNode>} */
   let statusNodes = new Set()
+  /** @type {Map<NavigationNode, 'R' | 'RM'>} */
+  const folderMoves = new Map()
   /** @type {Map<string, NavigationFile>} */
   let changes = new Map()
   let loading = false
@@ -480,16 +496,7 @@ export function createNavigator(
       if (!node) continue
       const row = visibleIndex.get(node.key)
       if (row !== undefined) {
-        const status = navigationStatus(file)
-        const kind =
-          status === '!'
-            ? 'conflict'
-            : status === 'D'
-              ? 'removed'
-              : status === 'A' || status === 'U'
-                ? 'added'
-                : 'modified'
-        yield { row, kind }
+        yield { row, kind: MARK_KINDS[navigationStatus(file)] ?? 'modified' }
         continue
       }
 
@@ -566,19 +573,18 @@ export function createNavigator(
       row.setAttribute('aria-level', String(depth + 1))
       if (node.kind === 'directory') row.setAttribute('aria-expanded', String(expanded.has(node.path)))
       const file = changes.get(node.path) ?? node.file
-      const status = node.kind === 'file' ? navigationStatus(file) : ''
+      const status = node.kind === 'file' ? navigationStatus(file) : (folderMoves.get(node) ?? '')
       row.dataset.status = status
       row.dataset.changed = String(node.changedCount > 0)
       row.dataset.ignored = String(node.file?.ignored === true)
-      const statusLabel =
+      const statusLabel = status ? (STATUS_LABELS[status] ?? 'Changed') : ''
+      const description =
         node.kind === 'directory' && node.changedCount
-          ? `${node.changedCount} changed ${node.changedCount === 1 ? 'file' : 'files'}`
-          : status
-            ? (STATUS_LABELS[status] ?? 'Changed')
-            : ''
+          ? `${node.changedCount} ${statusLabel.toLowerCase() || 'changed'} ${node.changedCount === 1 ? 'file' : 'files'}`
+          : statusLabel
       const titlePath = node.path || (snapshot?.scope ?? snapshot?.root ?? '')
-      row.title = statusLabel ? `${titlePath}\n${statusLabel}` : titlePath
-      if (statusLabel) row.setAttribute('aria-description', statusLabel)
+      row.title = description ? `${titlePath}\n${description}` : titlePath
+      if (description) row.setAttribute('aria-description', description)
       else row.removeAttribute('aria-description')
       const glyph = iconFor?.(node, expanded.has(node.path))
       const icon = requireElement(row, '.navigator-icon', HTMLSpanElement)
@@ -611,9 +617,16 @@ export function createNavigator(
   function markChanges() {
     for (const node of statusNodes) node.changedCount = 0
     statusNodes = new Set()
+    folderMoves.clear()
     for (const file of snapshot?.files ?? []) {
+      const status = navigationStatus(file)
       let node = tree.files.get(file.path)
       while (node) {
+        // Only color a folder as moved when all of its changed files share that status.
+        if (node.kind === 'directory') {
+          if (node.changedCount === 0 && (status === 'R' || status === 'RM')) folderMoves.set(node, status)
+          else if (folderMoves.get(node) !== status) folderMoves.delete(node)
+        }
         node.changedCount++
         statusNodes.add(node)
         node = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
@@ -749,9 +762,12 @@ export function createNavigator(
     /** @type {Map<string, NavigationFile>} */
     const nextChanges = new Map()
     let newPath = false
+    let newStatus = false
     for (const file of next.files) {
       nextChanges.set(file.path, file)
-      if (!changes.has(file.path)) newPath = true
+      const previous = changes.get(file.path)
+      if (!previous) newPath = true
+      else if (!newStatus && navigationStatus(previous) !== navigationStatus(file)) newStatus = true
     }
     const different = newPath || changes.size !== nextChanges.size
     const changedRoot = key !== nextKey
@@ -789,7 +805,7 @@ export function createNavigator(
       filters.reset()
       refreshProjection(false)
     }
-    if (different || changedRoot) markChanges()
+    if (different || changedRoot || newStatus) markChanges()
     if (!searching())
       summary.textContent = loading
         ? 'Reading files…'

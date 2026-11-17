@@ -49,6 +49,7 @@ export const colorPairs = {
   modifiedEdge: ['oklch(54% 0.09 225)', 'oklch(72% 0.1 225)'],
   violet: ['oklch(44% 0.11 305)', 'oklch(82% 0.095 305)'],
   violetSurface: ['oklch(95% 0.025 305)', 'oklch(27.5% 0.043 305)'],
+  rose: ['oklch(43.5% 0.144 350)', 'oklch(82% 0.116 350)'],
 
   chartCode: ['oklch(53% 0.145 255)', 'oklch(73% 0.12 255)'],
   chartComments: ['oklch(51% 0.107 164)', 'oklch(72% 0.13 164)'],

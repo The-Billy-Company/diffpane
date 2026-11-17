@@ -288,6 +288,12 @@
 .navigator-row[data-changed='true'] .navigator-name {
   color: var(--modified);
 }
+.navigator-row[data-status='R'] .navigator-name {
+  color: var(--violet);
+}
+.navigator-row[data-status='RM'] .navigator-name {
+  color: var(--rose);
+}
 .navigator-row[data-status='D'] .navigator-name {
   color: var(--muted);
   text-decoration: line-through;

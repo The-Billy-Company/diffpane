@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { writeFileSync } from 'node:fs'
+import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -496,12 +497,14 @@ test('staged rename uses original HEAD and the new index path', async t => {
   await repo.write('before name.rs', 'before\n')
   await repo.commit()
   await repo.git(['mv', 'before name.rs', 'after name.rs'])
-  await repo.write('after name.rs', 'after\n')
   const repository = await repo.open()
+  assert.equal(find(await repository.snapshot(), 'after name.rs').renameEdited, false)
+  await repo.write('after name.rs', 'after\n')
   const snapshot = await repository.snapshot()
   assert.equal(snapshot.files.length, 1)
   const file = find(snapshot, 'after name.rs')
   assert.equal(file.originalPath, 'before name.rs')
+  assert.equal(file.renameEdited, true)
   assert.deepEqual(await repository.contents(file), {
     before: 'before\n',
     after: 'after\n',
@@ -518,6 +521,95 @@ test('staged rename uses original HEAD and the new index path', async t => {
     note: null,
   })
 })
+
+test('staged rename detects reordered text even when Git reports full similarity', async t => {
+  const repo = await fixture(t)
+  await repo.write('before.txt', 'one\ntwo\nthree\n')
+  await repo.commit()
+  await repo.git(['mv', 'before.txt', 'after.txt'])
+  await repo.write('after.txt', 'three\none\ntwo\n')
+  await repo.git(['add', 'after.txt'])
+  assert.match(await repo.git(['status', '--porcelain=v2']), /R100/u)
+  const repository = await repo.open()
+  const file = find(await repository.snapshot(), 'after.txt')
+  assert.equal(file.index, 'R')
+  assert.equal(file.worktree, ' ')
+  assert.equal(file.renameEdited, true)
+})
+
+test('filesystem moves refresh as destination contents change and leave the real Git index and objects intact', async t => {
+  const repo = await fixture(t)
+  const before = 'alpha\nbeta\ngamma\ndelta\nepsilon\n'
+  await repo.write('before.txt', before)
+  await repo.commit()
+  const afterPath = 'new\nname.txt'
+  await rename(path.join(repo.root, 'before.txt'), path.join(repo.root, afterPath))
+  const gitStatus = () => repo.git(['--no-optional-locks', 'status', '--porcelain=v2', '-z', '-uall'])
+  const porcelain = await gitStatus()
+  const indexPath = path.join(repo.root, '.git', 'index')
+  const index = await readFile(indexPath)
+  const objects = await repo.git(['count-objects', '-v'])
+  const repository = await repo.open()
+  const moved = await repository.snapshot()
+  assert.equal(moved.files.length, 1)
+  const file = find(moved, afterPath)
+  assert.equal(file.originalPath, 'before.txt')
+  assert.equal(file.index, ' ')
+  assert.equal(file.worktree, 'R')
+  assert.equal(file.renameEdited, false)
+  assert.equal(await repository.snapshot(), moved)
+
+  const after = 'epsilon\nalpha\nbeta\ngamma\ndelta\n'
+  await repo.write(afterPath, after)
+  assert.equal(await gitStatus(), porcelain)
+  const edited = find(await repository.snapshot(), afterPath)
+  assert.equal(edited.worktree, 'R')
+  assert.equal(edited.renameEdited, true)
+  assert.deepEqual(await repository.contents(edited), { before, after, note: null })
+  assert.deepEqual(await repository.contents(edited, 'unstaged'), { before, after, note: null })
+  assert.deepEqual(await repository.contents(edited, 'staged'), { before, after: before, note: null })
+  assert.deepEqual(await readFile(indexPath), index)
+  assert.equal(await repo.git(['count-objects', '-v']), objects)
+})
+
+test('a working move after a staged rename keeps all three comparison paths', async t => {
+  const repo = await fixture(t)
+  const before = 'alpha\nbeta\ngamma\ndelta\n'
+  const staged = `${before}epsilon\n`
+  await repo.write('head.txt', before)
+  await repo.commit()
+  await repo.git(['mv', 'head.txt', 'index.txt'])
+  await repo.write('index.txt', staged)
+  await repo.git(['add', 'index.txt'])
+  await rename(path.join(repo.root, 'index.txt'), path.join(repo.root, 'working.txt'))
+  const repository = await repo.open()
+  const file = find(await repository.snapshot(), 'working.txt')
+  assert.equal(file.originalPath, 'head.txt')
+  assert.equal(file.index, 'R')
+  assert.equal(file.worktree, 'R')
+  assert.equal(file.renameEdited, true)
+  assert.deepEqual(await repository.contents(file), { before, after: staged, note: null })
+  assert.deepEqual(await repository.contents(file, 'staged'), { before, after: staged, note: null })
+  assert.deepEqual(await repository.contents(file, 'unstaged'), { before: staged, after: staged, note: null })
+})
+
+test('exact detection still matches directory moves over the similarity search limit', async t => {
+  const repo = await fixture(t)
+  const count = 513
+  const source = path.join(repo.root, 'before')
+  await mkdir(source)
+  for (let index = 0; index < count; index++) writeFileSync(path.join(source, `${index}.txt`), `file ${index}\n`)
+  await repo.commit()
+  await rename(source, path.join(repo.root, 'after'))
+  const repository = await repo.open()
+  const snapshot = await repository.snapshot()
+  assert.equal(snapshot.files.length, count)
+  for (const file of snapshot.files) {
+    assert.equal(file.worktree, 'R')
+    assert.equal(file.renameEdited, false)
+    assert.equal(file.originalPath, `before/${path.basename(file.path)}`)
+  }
+}, 20_000)
 
 test('staged deletion and recreation keep index and worktree distinct', async t => {
   const repo = await fixture(t)

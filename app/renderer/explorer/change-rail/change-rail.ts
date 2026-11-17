@@ -5,6 +5,8 @@ const STEPS = 384
 const STROKES = [
   { kind: 'folder', start: 5, width: 6 },
   { kind: 'modified', start: 3, width: 10 },
+  { kind: 'moved', start: 3, width: 10 },
+  { kind: 'moved-edited', start: 3, width: 10 },
   { kind: 'added', start: 9, width: 4 },
   { kind: 'removed', start: 3, width: 4 },
   { kind: 'conflict', start: 3, width: 10 },
@@ -163,6 +165,8 @@ export function createChangeRail(
       const buckets: Record<ChangeKind, Set<number>> = {
         folder: new Set(),
         modified: new Set(),
+        moved: new Set(),
+        'moved-edited': new Set(),
         added: new Set(),
         removed: new Set(),
         conflict: new Set(),

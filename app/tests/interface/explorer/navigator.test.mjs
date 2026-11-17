@@ -190,3 +190,14 @@ test('Git status prioritizes conflicts, then working changes, then index changes
   assert.equal(navigationStatus(file('a', { worktree: '?' })), 'U')
   assert.equal(navigationStatus(file('a', { index: 'A', worktree: 'M', conflicted: true })), '!')
 })
+
+test('explorer distinguishes moves from moves with edits across Git layers', () => {
+  assert.equal(navigationStatus(file('a', { index: 'R' })), 'R')
+  assert.equal(navigationStatus(file('a', { worktree: 'R' })), 'R')
+  assert.equal(navigationStatus(file('a', { index: 'R', renameEdited: true })), 'RM')
+  assert.equal(navigationStatus(file('a', { worktree: 'R', renameEdited: true })), 'RM')
+  assert.equal(navigationStatus(file('a', { index: 'R', worktree: 'M' })), 'RM')
+  assert.equal(navigationStatus(file('a', { index: 'M', worktree: 'R' })), 'RM')
+  assert.equal(navigationStatus(file('a', { index: 'R', worktree: 'D' })), 'D')
+  assert.equal(navigationStatus(file('a', { index: 'R', worktree: 'M', conflicted: true })), '!')
+})

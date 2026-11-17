@@ -12,6 +12,8 @@ export interface WorkspaceFile {
   submodule?: boolean
   ignored?: boolean
   originalPath?: string | null
+  indexPath?: string
+  renameEdited?: boolean
   reviewVersion?: number
 }
 

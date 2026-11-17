@@ -79,6 +79,14 @@
   stroke: var(--modified-edge);
 }
 
+.navigator-change-track [data-kind='moved'] {
+  stroke: var(--violet);
+}
+
+.navigator-change-track [data-kind='moved-edited'] {
+  stroke: var(--rose);
+}
+
 .navigator-change-track [data-kind='added'] {
   stroke: var(--added-edge);
 }

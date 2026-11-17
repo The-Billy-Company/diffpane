@@ -512,6 +512,8 @@ function isWorkspaceFile(value) {
     optional(isBoolean)(value.submodule) &&
     optional(isBoolean)(value.ignored) &&
     optional(nullable(isString))(value.originalPath) &&
+    optional(isString)(value.indexPath) &&
+    optional(isBoolean)(value.renameEdited) &&
     optional(isCount)(value.reviewVersion)
   )
 }

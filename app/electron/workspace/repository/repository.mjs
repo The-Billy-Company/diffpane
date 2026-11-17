@@ -23,12 +23,14 @@ import {
   searchableText,
 } from '../documents/file-content.ts'
 import { gitWorkspaceChanges, gitWorkspaceOverview, isGitOid, parseGitComparison } from './git-workspace.mjs'
+import { detectWorkingRenames, MAX_WORKING_RENAME_INPUTS } from './working-renames.mjs'
 
 /** @import { BigIntStats } from 'node:fs' */
 /** @import { FileHandle } from 'node:fs/promises' */
 /** @import { FileContent } from '../documents/file-content.ts' */
 /** @import { WorkspaceFile } from '../../runtime/session/workspace-types.ts' */
 /** @import { GitChanges, GitFile, GitFileContents } from '../../../shared/review/git.ts' */
+/** @import { RenameSource, WorkingRename } from './working-renames.mjs' */
 /** @typedef {Parameters<typeof fileContent>[0]} ContentBytes */
 /** @typedef {{bytes: Buffer, size: number}} BlobContents */
 /** @typedef {{value: Promise<BlobContents>, bytes: number}} CachedBlob */
@@ -52,7 +54,7 @@ const MAX_CHECKPOINT_PATHS = 2_000
 const MAX_CHECKPOINT_PREVIEWS = 32 * 1024 * 1024
 const MAX_CHECKPOINT_FILE = 512 * 1024 * 1024
 const MAX_CHECKPOINT_SCAN = 1024 * 1024 * 1024
-const CHECKPOINT_CONCURRENCY = 8
+const FILE_READ_CONCURRENCY = 8
 const statusArguments = [
   'status',
   '--porcelain=v2',
@@ -88,20 +90,20 @@ function checkCheckpointPathCount(paths) {
 }
 
 /** @template Item, Result @param {readonly Item[]} items @param {(item: Item) => Promise<Result>} read */
-async function mapCheckpointReads(items, read) {
+async function mapFileReads(items, read) {
   /** @type {Result[]} */
   const values = []
   let next = 0
   /** @type {Error | undefined} */
   let failure
   await Promise.all(
-    Array.from({ length: Math.min(CHECKPOINT_CONCURRENCY, items.length) }, async () => {
+    Array.from({ length: Math.min(FILE_READ_CONCURRENCY, items.length) }, async () => {
       while (!failure) {
         const index = next++
         const item = items[index]
         if (item === undefined) break
         try {
-          // oxlint-disable-next-line eslint/no-await-in-loop -- Each worker holds one slot in the checkpoint I/O pool.
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Each worker holds one slot in the filesystem I/O pool.
           values[index] = await read(item)
         } catch (error) {
           failure ??= error instanceof Error ? error : appError(error)
@@ -257,11 +259,44 @@ export class Repository {
   async #status(trackFingerprint) {
     const bytes = await git(this.root, statusArguments, MAX_STATUS_BYTES)
     // The worktree may change without changing Git's status records. Reuse the
-    // parsed result in that case while the session still checks file stamps.
-    // Polling uses the fingerprint to detect exact Git metadata changes as well.
-    const fingerprint = trackFingerprint ? createHash('sha256').update(bytes).digest('base64') : undefined
+    // parsed result unless the bytes of an inferred rename destination might have changed.
+    const hash = trackFingerprint ? createHash('sha256').update(bytes) : undefined
+    let fingerprint = hash?.copy().digest('base64')
     if (this.#lastStatus && this.#lastStatus.fingerprint === fingerprint) return this.#lastStatus.result
-    let snapshot = parseStatus(bytes)
+    const { renameSources, ...status } = parseStatus(bytes)
+    let snapshot = status
+    if (hash && renameSources.size && renameSources.size <= MAX_WORKING_RENAME_INPUTS) {
+      const candidates = status.files.filter(file => file.index === '?' && !file.path.endsWith('/'))
+      if (candidates.length && candidates.length <= MAX_WORKING_RENAME_INPUTS) {
+        /** @type {Set<string>} */
+        const targets = new Set()
+        const metadata = await mapFileReads(candidates, file =>
+          lstat(path.join(this.root, file.path), { bigint: true }).catch(() => null),
+        )
+        for (const [index, candidate] of candidates.entries()) {
+          const info = metadata[index]
+          if (info?.isFile() || info?.isSymbolicLink()) {
+            targets.add(candidate.path)
+            hash.update(checkpointStamp(info)).update('\0')
+          } else hash.update('\0')
+        }
+        fingerprint = hash.digest('base64')
+        if (this.#lastStatus?.fingerprint === fingerprint) return this.#lastStatus.result
+        if (targets.size) {
+          const renames = await detectWorkingRenames(
+            this.commonDir,
+            renameSources,
+            targets,
+            async (args, input, environment) =>
+              successful(await command(this.root, args, MAX_STATUS_BYTES, input, { environment })),
+          ).catch(() => null)
+          // A failed optional scan leaves Git's original deletion and untracked records available.
+          if (renames === null) fingerprint = undefined
+          else if (renames.length)
+            snapshot = { ...status, files: mergeWorkingRenames(status.files, renameSources, renames) }
+        }
+      }
+    }
     const scope = path.relative(this.root, this.scope).split(path.sep).join('/')
     /** @param {string} name */
     const scoped = name => name === scope || name.startsWith(`${scope}/`)
@@ -269,7 +304,10 @@ export class Repository {
       snapshot = {
         ...snapshot,
         files: snapshot.files.filter(
-          file => scoped(file.path) || (file.originalPath !== null && scoped(file.originalPath)),
+          file =>
+            scoped(file.path) ||
+            (file.originalPath !== null && scoped(file.originalPath)) ||
+            (file.indexPath !== undefined && scoped(file.indexPath)),
         ),
       }
     if (fingerprint !== undefined) this.#lastStatus = { fingerprint, result: snapshot }
@@ -333,7 +371,7 @@ export class Repository {
     }
     if (comparison.mode !== 'staged') {
       const untracked = status.files.filter(file => file.worktree === '?')
-      const changes = await mapCheckpointReads(untracked, async file => {
+      const changes = await mapFileReads(untracked, async file => {
         const worktree = await this.#workingFile(file.path, true)
         if (comparison.mode === 'head' && status.head && files.get(file.path)?.status === 'D') {
           const head = await this.#blob(`${status.head}:`, file.path)
@@ -424,6 +462,7 @@ export class Repository {
       if (file.submodule) continue
       if (this.#checkpointIncludes(file.path)) paths.add(file.path)
       if (file.originalPath && this.#checkpointIncludes(file.originalPath)) paths.add(file.originalPath)
+      if (file.indexPath && this.#checkpointIncludes(file.indexPath)) paths.add(file.indexPath)
       checkCheckpointPathCount(paths)
     }
     return paths
@@ -441,7 +480,7 @@ export class Repository {
     const budget = { bytes: 0, previews: 0 }
     // Git already retains clean paths in HEAD. Copy only paths whose working version may differ.
     const paths = new Map(
-      await mapCheckpointReads(candidates, async filename => {
+      await mapFileReads(candidates, async filename => {
         const captured = await this.#readCheckpointFile(filename, { algorithm, budget, capture: true })
         return /** @type {const} */ ([filename, captured])
       }),
@@ -455,7 +494,7 @@ export class Repository {
       [...paths.keys()].some(filename => !latestPaths.has(filename))
     )
       throw new Error('The working tree changed while capturing the checkpoint. Try again.')
-    await mapCheckpointReads([...paths], async ([filename, captured]) => {
+    await mapFileReads([...paths], async ([filename, captured]) => {
       const entry = await this.#checkpointEntry(filename)
       if (entry?.stamp !== captured?.stamp)
         throw new Error('The working tree changed while capturing the checkpoint. Try again.')
@@ -497,7 +536,7 @@ export class Repository {
     /** @type {StatusFile[]} */
     const files = []
     const budget = { bytes: 0 }
-    const results = await mapCheckpointReads([...candidates].toSorted(comparePaths), async filename => {
+    const results = await mapFileReads([...candidates].toSorted(comparePaths), async filename => {
       const captured = checkpoint.paths.has(filename)
       const entry = checkpoint.baseline.get(filename) ?? entries.get(filename) ?? null
       const before = captured ? (checkpoint.paths.get(filename) ?? null) : entry
@@ -1110,14 +1149,21 @@ export class Repository {
       )
     }
     const headPath = file.originalPath ?? file.path
-    const indexPath = file.index === 'R' || file.index === 'C' ? file.path : headPath
+    const indexPath = file.indexPath ?? (file.index === 'R' || file.index === 'C' ? file.path : headPath)
+    validatePath(indexPath)
     const [beforeBytes, afterBytes] = await Promise.all([
       file.ignored
         ? empty()
         : this.#blob(comparison === 'unstaged' ? ':' : 'HEAD:', comparison === 'unstaged' ? indexPath : headPath),
       comparison === 'staged' ? (file.ignored ? empty() : this.#blob(':', indexPath)) : this.#workingFile(file.path),
     ])
-    return comparedContents(beforeBytes, afterBytes, headPath, file.path, file.conflicted)
+    return comparedContents(
+      beforeBytes,
+      afterBytes,
+      comparison === 'unstaged' ? indexPath : headPath,
+      comparison === 'staged' ? indexPath : file.path,
+      file.conflicted,
+    )
   }
 
   /** @param {string} filename */
@@ -1628,7 +1674,7 @@ async function existingEntry(absolute) {
   }
 }
 
-/** @param {Buffer} bytes @returns {RepositoryStatus} */
+/** @param {Buffer} bytes @returns {RepositoryStatus & {renameSources: Map<string, RenameSource>}} */
 function parseStatus(bytes) {
   let source
   try {
@@ -1639,6 +1685,8 @@ function parseStatus(bytes) {
   const records = source.split('\0')
   /** @type {Map<string, StatusFile>} */
   const files = new Map()
+  /** @type {Map<string, RenameSource>} */
+  const renameSources = new Map()
   let branch = 'HEAD'
   let oid = ''
   for (let i = 0; i < records.length; i += 1) {
@@ -1674,6 +1722,7 @@ function parseStatus(bytes) {
       if (status?.length !== 2 || !submodule || !filename) throw new Error('Invalid porcelain v2 Git status record.')
       const originalPath = record[0] === '2' ? records[++i] : null
       if (record[0] === '2' && !originalPath) throw new Error('Git rename has no original path.')
+      if (originalPath) validatePath(originalPath)
       file = {
         path: filename,
         originalPath: originalPath ?? null,
@@ -1684,6 +1733,18 @@ function parseStatus(bytes) {
         // Modes and blob IDs change even when the displayed status letters stay the same.
         statusKey: `${fields.slice(0, -1).join(' ')}\0${originalPath ?? ''}`,
       }
+      const [mode, headOid, indexOid, score] = [fields[4], fields[6], fields[7], fields[8]]
+      if (file.index === 'R') file.renameEdited = headOid !== indexOid || file.worktree === 'M' || file.worktree === 'T'
+      else if (file.worktree === 'R') file.renameEdited = score !== 'R100' || file.index === 'M' || file.index === 'T'
+      if (
+        file.worktree === 'D' &&
+        !file.conflicted &&
+        mode &&
+        /^(?:100644|100755|120000)$/u.test(mode) &&
+        headOid &&
+        indexOid
+      )
+        renameSources.set(filename, { mode, oid: indexOid, headOid })
     } else throw new Error('Unknown porcelain v2 Git status record.')
     validatePath(file.path)
     const existing = files.get(file.path)
@@ -1705,7 +1766,34 @@ function parseStatus(bytes) {
     branch,
     head: oid && oid !== '(initial)' ? oid : null,
     files: [...files.values()].toSorted((a, b) => comparePaths(a.path, b.path)),
+    renameSources,
   }
+}
+
+/**
+ * @param {readonly Readonly<StatusFile>[]} files
+ * @param {Map<string, RenameSource>} sources
+ * @param {WorkingRename[]} renames
+ */
+function mergeWorkingRenames(files, sources, renames) {
+  const merged = new Map(files.map(file => [file.path, file]))
+  for (const { from, to, oid } of renames) {
+    const file = merged.get(from)
+    const source = sources.get(from)
+    if (file?.worktree !== 'D' || !source) continue
+    const baselineOid = /^0+$/u.test(source.headOid) ? source.oid : source.headOid
+    merged.delete(from)
+    merged.set(to, {
+      ...file,
+      path: to,
+      originalPath: file.originalPath ?? from,
+      indexPath: from,
+      worktree: 'R',
+      renameEdited: oid !== baselineOid,
+      statusKey: `${file.statusKey}\0${from}\0${oid}`,
+    })
+  }
+  return [...merged.values()].toSorted((a, b) => comparePaths(a.path, b.path))
 }
 
 /** @param {string} record @param {number} count */
@@ -1739,8 +1827,8 @@ function successful(output) {
   throw new Error(output.stderr.toString('utf8').trim() || `Git exited with ${output.code ?? output.signal}.`)
 }
 
-/** @param {string} directory @param {readonly string[]} args @param {number} limit @param {Buffer} [input] @param {{truncate?: boolean, signal?: AbortSignal}} [options] @returns {Promise<CommandOutput>} */
-function command(directory, args, limit, input, { truncate = false, signal } = {}) {
+/** @param {string} directory @param {readonly string[]} args @param {number} limit @param {Buffer} [input] @param {{truncate?: boolean, signal?: AbortSignal, environment?: NodeJS.ProcessEnv}} [options] @returns {Promise<CommandOutput>} */
+function command(directory, args, limit, input, { truncate = false, signal, environment } = {}) {
   signal?.throwIfAborted()
   /** @type {NodeJS.ProcessEnv} */
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_PAGER: 'cat' }
@@ -1758,6 +1846,7 @@ function command(directory, args, limit, input, { truncate = false, signal } = {
     'GIT_ICASE_PATHSPECS',
   ])
     delete env[key]
+  Object.assign(env, environment)
   const gitArgs = ['--no-optional-locks']
   // check-ignore rejects pathspec magic; its absolute stdin paths are already literal.
   if (args[0] !== 'check-ignore') gitArgs.push('--literal-pathspecs')
