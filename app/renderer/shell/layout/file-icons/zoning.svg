@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" role="img" aria-labelledby="title">
+  <!-- The Billy Company's Zoning mark. Geometry and colors from https://github.com/The-Billy-Company/zoning/tree/main/assets -->
+  <title id="title">Zoning</title>
+  <style>
+    @media (prefers-color-scheme: dark) {
+      path { fill: #f3f5f7; }
+    }
+  </style>
+  <path fill="#16191d" d="M3 1h10v4H3zM1 6h10v4H1zM5 11h10v4H5z"/>
+</svg>

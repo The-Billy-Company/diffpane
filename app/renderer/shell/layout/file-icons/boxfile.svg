@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- The Box Unpack mark, traced from The-Billy-Company/the-box/assets/brand/logo.png. -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      path { fill: #8c8c8c; }
+    }
+  </style>
+  <path fill="#171717" d="M2.52 4.9h9.78l3.12 3.26-4.74 4.64v.94h7.44l1.44-1.24v7.54a.64.64 0 0 1-.64.64H2.52a.64.64 0 0 1-.64-.64V5.54a.64.64 0 0 1 .64-.64Zm10.74-1.56h4.32l4.54 4.78-4.36 4.2h-4.18l4.22-4.2Z"/>
+</svg>

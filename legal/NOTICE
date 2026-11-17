@@ -1,5 +1,21 @@
 Diffpane bundles the following upstream assets.
 
+YAML file icon
+Official YAML Logo by Ingy dot Net
+Source: https://github.com/yaml/yaml-common/blob/main/image/yaml-logo.svg
+License and attribution: https://commons.wikimedia.org/wiki/File:Official_YAML_Logo.svg
+Licensed under Creative Commons Attribution-ShareAlike 4.0 International:
+https://creativecommons.org/licenses/by-sa/4.0/
+Diffpane adds colors for dark backgrounds.
+
+The Box and Zoning file icons
+Artwork by The Billy Company.
+The Box icon is an SVG trace of the Unpack mark:
+https://github.com/The-Billy-Company/the-box/tree/main/assets/brand
+The Zoning icon adapts the upstream mark for both color schemes:
+https://github.com/The-Billy-Company/zoning/tree/main/assets
+Zoning copyright 2026 The Billy Company, licensed under the Apache License, Version 2.0.
+
 Starry Night grammar notices
 THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
 
