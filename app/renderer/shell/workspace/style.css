@@ -971,6 +971,41 @@ button svg,
   color: var(--muted);
   font-size: var(--text-label);
 }
+.empty-state[data-review] h2 {
+  font-size: clamp(var(--text-heading), 4cqi, 30px);
+  font-weight: var(--weight-semibold);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+}
+.empty-state[data-review] p {
+  max-width: 32ch;
+  font-size: var(--text-content);
+  line-height: 1.5;
+}
+@container (min-width: 620px) {
+  .empty-state[data-review] {
+    display: grid;
+    grid-template-columns: 164px minmax(0, max-content);
+    grid-template-rows: auto auto;
+    align-content: center;
+    column-gap: 25px;
+    text-align: start;
+  }
+  .empty-state[data-review] .empty-symbol {
+    grid-row: 1 / span 2;
+    width: 100%;
+    margin: 0;
+    padding-inline-end: 14px;
+    border-inline-end: 1px solid var(--line);
+  }
+  .empty-state[data-review] h2 {
+    align-self: end;
+    margin-block-end: 6px;
+  }
+  .empty-state[data-review] p {
+    align-self: start;
+  }
+}
 .feed:empty {
   display: none;
 }

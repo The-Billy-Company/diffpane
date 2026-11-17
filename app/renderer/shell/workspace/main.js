@@ -1026,6 +1026,7 @@ function updateReviewBaseline(mode = reviewComparison === 'head' ? 'head' : 'che
   }
   review.update(files)
   syncReviewState()
+  if (changed) updateEmptyStateHint()
 }
 
 /** @param {Card} card */
@@ -1611,7 +1612,8 @@ function setSidebarVisible(visible) {
   review.setVisible(showReview)
   if (showReview) refreshBillyLanes()
   ui.reviewToggle.setAttribute('aria-pressed', String(showReview))
-  requireElement(ui.emptyState, 'h2', HTMLElement).textContent = showReview ? 'Open a comparison' : 'Open a file'
+  ui.emptyState.toggleAttribute('data-review', showReview)
+  requireElement(ui.emptyState, 'h2', HTMLElement).textContent = showReview ? 'Choose a file to review' : 'Open a file'
   drawWorkbenchArt(requireElement(ui.emptyState, '.empty-symbol svg', SVGSVGElement), showReview)
   updateEmptyStateHint()
 }
@@ -1619,7 +1621,7 @@ function setSidebarVisible(visible) {
 function updateEmptyStateHint() {
   const showReview = ui.reviewToggle.getAttribute('aria-pressed') === 'true'
   requireElement(ui.emptyState, 'p', HTMLElement).textContent = showReview
-    ? 'Select a changed file from the review queue.'
+    ? `Compare the working tree with ${reviewComparison === 'head' ? 'Git HEAD' : 'your checkpoint'}.`
     : `Select a file in the explorer, or press ${shortcutLabel('searchFiles')}.`
 }
 
@@ -2215,6 +2217,13 @@ function renderDocument(card, document, wipeState) {
   baselineBadge.textContent = baselineText
   card.element.dataset.diff = String(card.comparing)
   card.element.dataset.view = preview ? 'document' : reading ? 'markdown' : 'source'
+  const { bar, changeMap } = card.reviewFocus
+  const inReview = Boolean(card.reviewComparison)
+  card.element.toggleAttribute('data-review-comparison', inReview)
+  if (inReview !== (bar.parentElement === card.element)) {
+    const anchor = inReview ? changeMap : requireElement(card.element, '.file-action-toggle', HTMLButtonElement)
+    anchor.before(bar)
+  }
   const labels = requireElement(card.element, '.comparison-labels', HTMLElement)
   labels.hidden = !card.comparing || Boolean(preview)
   for (const label of labels.querySelectorAll('.is-original')) label.textContent = baseline

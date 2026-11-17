@@ -203,9 +203,10 @@ export function createBillyLanes(
         outcomes.className = 'billy-lanes-outcomes'
         outcomes.setAttribute('aria-label', 'Saved check outcomes')
         const countsByOutcome = [
-          { label: 'Passed', count: counts.passed },
           { label: 'Failed', count: counts.failed, warning: true },
+          { label: 'Passed', count: counts.passed },
         ]
+        if (!counts.failed) countsByOutcome.reverse()
         if (counts.advisory) countsByOutcome.push({ label: 'Advisory failures', count: counts.advisory, warning: true })
         if (counts.skipped) countsByOutcome.push({ label: 'Skipped', count: counts.skipped })
         for (const { label, count, warning } of countsByOutcome) {
@@ -217,6 +218,7 @@ export function createBillyLanes(
           outcomes.append(item)
         }
         evidence.append(outcomes)
+        appendRetainedLogs(capture, failedChecks)
         const metadata = document.createElement('div')
         metadata.className = 'billy-lanes-evidence-meta'
         const captured = document.createElement('p')
@@ -277,7 +279,6 @@ export function createBillyLanes(
           evidence.append(coverage)
         }
         evidence.append(metadata)
-        appendRetainedLogs(capture, failedChecks)
         break
       }
     }

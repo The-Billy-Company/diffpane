@@ -74,13 +74,17 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
     <span class="review-hunk-navigation">
       <button type="button" class="review-hunk-prev" aria-label="Previous change in file" title="Previous change in file">${chevron('up')}</button>
       <svg class="review-hunk-aligned" viewBox="0 0 20 20" aria-hidden="true" stroke-linecap="round" hidden></svg>
-      <span class="review-hunk-position" aria-hidden="true"></span>
+      <span class="review-hunk-readout" aria-hidden="true"><span class="review-hunk-label">Change</span><span class="review-hunk-position"></span></span>
       <button type="button" class="review-hunk-next" aria-label="Next change in file" title="Next change in file">${chevron('down')}</button>
     </span>
     <span class="review-hunk-announcement" role="status"></span>
     <button type="button" class="review-hunk-replay" aria-label="Replay change" aria-haspopup="dialog" title="Replay change" hidden>
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.75a.5.5 0 0 1 .77-.42l6.5 4.25a.5.5 0 0 1 0 .84l-6.5 4.25a.5.5 0 0 1-.77-.42z" fill="currentColor"/></svg>
       <span aria-hidden="true">Replay</span>
+    </button>
+    <button type="button" class="review-hunk-scope" aria-label="Focus changes" aria-pressed="false" title="Focus changes" hidden>
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 3.5h10M3 12.5h10M5.5 6.5 8 8l2.5-1.5M5.5 9.5 8 8l2.5 1.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span aria-hidden="true">Focus changes</span>
     </button>`
 
   const position = requireElement(bar, '.review-hunk-position', HTMLSpanElement)
@@ -92,6 +96,7 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
   const previous = requireElement(bar, '.review-hunk-prev', HTMLButtonElement)
   const next = requireElement(bar, '.review-hunk-next', HTMLButtonElement)
   const replayButton = requireElement(bar, '.review-hunk-replay', HTMLButtonElement)
+  const scopeButton = requireElement(bar, '.review-hunk-scope', HTMLButtonElement)
   const changeMap = createReviewChangeMap(jump, lineCount)
   /** @type {import('monaco-editor').editor.IDiffEditor | null} */
   let editor = null
@@ -143,6 +148,8 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
     }
     previous.hidden = next.hidden = hunks.length === 0
     replayButton.hidden = !hunks[index] || Boolean(message)
+    scopeButton.hidden = replayButton.hidden
+    scopeButton.setAttribute('aria-pressed', String(scope === 'focus'))
     previous.disabled = next.disabled = hunks.length < 2
     changeMap.select(index)
     onActionsChange?.()
@@ -312,6 +319,7 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
   previous.addEventListener('click', () => step(-1))
   next.addEventListener('click', () => step(1))
   replayButton.addEventListener('click', () => replay())
+  scopeButton.addEventListener('click', toggleScope)
 
   function detach() {
     replayDialog?.close()
@@ -331,6 +339,7 @@ export function createReviewFocus({ onScope, onActionsChange, lineCount, normali
     bar.hidden = true
     positionNumber.animated = false
     replayButton.hidden = true
+    scopeButton.hidden = true
     changeMap.update([], null)
     onActionsChange?.()
   }

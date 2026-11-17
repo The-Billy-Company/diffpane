@@ -105,18 +105,20 @@ export function createChangeReview(
   container.hidden = true
   container.style.setProperty('--change-review-row-height', `${ROW_HEIGHT}px`)
   container.innerHTML = `
-    <header class="change-review-heading">
-      <h2 id="${id}-title">Changes</h2>
-      <button type="button" class="change-review-back" aria-label="Back to files" title="Back to files">${icon(GLYPHS.back)}<span>Files</span></button>
-    </header>
-    <div class="change-review-progress" hidden>
-      <div class="change-review-progress-readout" aria-hidden="true">
-        <span class="change-review-count"><span class="change-review-total"></span></span>
-        <span class="change-review-progress-label">Files reviewed</span>
+    <div class="change-review-masthead">
+      <header class="change-review-heading">
+        <h2 id="${id}-title">Changes</h2>
+        <button type="button" class="change-review-back" aria-label="Back to files" title="Back to files">${icon(GLYPHS.back)}<span>Files</span></button>
+      </header>
+      <div class="change-review-progress" hidden>
+        <div class="change-review-progress-readout" aria-hidden="true">
+          <span class="change-review-count"><span class="change-review-total"></span></span>
+          <span class="change-review-progress-label">Files reviewed</span>
+        </div>
+        <div class="change-review-progress-strip" aria-hidden="true"></div>
+        <span class="change-review-progress-announcement" role="status"></span>
+        <progress aria-label="Review progress" max="1" value="0"></progress>
       </div>
-      <div class="change-review-progress-strip" aria-hidden="true"></div>
-      <span class="change-review-progress-announcement" role="status"></span>
-      <progress aria-label="Review progress" max="1" value="0"></progress>
     </div>
     <div class="change-review-context">
       <div class="change-review-baseline">
@@ -528,7 +530,7 @@ export function createChangeReview(
   function updateProgress(total, reviewedPositions, animate) {
     const done = reviewedPositions.length
     const totalLabel = total.toLocaleString()
-    const readout = ` / ${totalLabel}`
+    const readout = `/ ${totalLabel}`
     if (countTotal.textContent !== readout) countTotal.textContent = readout
     reviewedCount.animated = animate && !progressGroup.hidden && total > 0
     if (reviewedCount.value !== done) reviewedCount.update(done)

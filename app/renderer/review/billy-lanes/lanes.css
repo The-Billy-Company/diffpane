@@ -1,7 +1,8 @@
 .billy-lanes {
-  --lane-label-width: 48px;
+  --lane-label-width: var(--review-context-label-width, 48px);
+  --lane-control-size: 24px;
   display: grid;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
   margin-inline: var(--queue-inset, 12px);
   color: var(--muted);
@@ -12,12 +13,12 @@
 .billy-lanes-controls label {
   display: grid;
   align-items: center;
-  gap: 5px;
+  gap: var(--review-context-gap, 5px);
   min-width: 0;
 }
 
 .billy-lanes-controls {
-  grid-template-columns: minmax(0, 1fr) 27px;
+  grid-template-columns: minmax(0, 1fr) var(--lane-control-size);
 }
 
 .billy-lanes-controls label {
@@ -27,7 +28,7 @@
 .billy-lanes-controls select,
 .billy-lanes-refresh {
   min-width: 0;
-  min-height: 27px;
+  min-height: var(--lane-control-size);
   padding: 0 5px;
   border: 1px solid transparent;
   border-radius: 5px;
@@ -37,10 +38,12 @@
 }
 
 .billy-lanes-controls select {
+  color: var(--text);
   text-overflow: ellipsis;
 }
 
 .billy-lanes-controls select:disabled {
+  color: var(--subtle);
   opacity: 1;
 }
 
@@ -51,8 +54,8 @@
 }
 
 .billy-lanes-refresh svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .billy-lanes-controls :is(select, button):hover:enabled {
@@ -61,9 +64,10 @@
 }
 
 .billy-lanes-controls select:has(option:checked:not([value=''])) {
+  border-color: color-mix(in oklab, var(--accent) 20%, transparent);
   background: var(--accent-surface);
   color: var(--accent);
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
 }
 
 .billy-lanes p {
@@ -72,7 +76,7 @@
 }
 
 .billy-lanes-status {
-  padding: 0 5px 3px calc(var(--lane-label-width) + 11px);
+  padding: 0 5px 2px calc(var(--lane-label-width) + var(--review-context-gap, 5px) + 6px);
   color: var(--subtle);
   overflow-wrap: anywhere;
 }
@@ -88,22 +92,40 @@
 }
 
 .billy-lanes-checks {
+  --lane-check-border: var(--line);
+  --lane-check-ink: var(--muted);
+  --lane-check-surface: transparent;
   min-width: 0;
-  margin-block-end: 2px;
+  margin-block: 2px 4px;
+  border: 1px solid var(--lane-check-border);
+  border-radius: 6px;
+  background: var(--lane-check-surface);
 }
 
 .billy-lanes-checks summary {
   cursor: pointer;
 }
 
+.billy-lanes-checks:is([data-state='incomplete'], [data-state='unavailable']) {
+  --lane-check-ink: var(--warning);
+}
+
+.billy-lanes-checks:has(.billy-lanes-checks-failed:not([hidden])) {
+  --lane-check-border: color-mix(in oklab, var(--warning-edge) 38%, var(--line));
+  --lane-check-ink: var(--warning);
+  --lane-check-surface: var(--warning-surface);
+}
+
 .billy-lanes-checks > summary {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 26px;
+  gap: 7px;
+  min-height: 25px;
   padding-block: 3px;
-  padding-inline: 6px 8px;
+  padding-inline: 8px 9px;
   border-radius: 5px;
+  color: var(--lane-check-ink);
+  font-weight: var(--weight-medium);
 }
 
 .billy-lanes-checks > summary::-webkit-details-marker {
@@ -114,7 +136,6 @@
   flex: none;
   width: 5px;
   height: 5px;
-  margin-inline-start: auto;
   border-inline-end: 1px solid currentColor;
   border-block-end: 1px solid currentColor;
   content: '';
@@ -127,31 +148,32 @@
 
 .billy-lanes-checks > summary:hover,
 .billy-lanes-checks[open] > summary {
-  background: var(--hover);
-  color: var(--text);
+  background: color-mix(in oklab, var(--lane-check-ink) 7%, transparent);
+}
+
+.billy-lanes-checks[open] > summary {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
 }
 
 .billy-lanes-checks-label {
+  flex: 1 1 auto;
   min-width: 0;
   overflow-wrap: anywhere;
-}
-
-.billy-lanes-checks-failed,
-.billy-lanes-checks:is([data-state='incomplete'], [data-state='unavailable']) > summary {
-  color: var(--warning);
 }
 
 .billy-lanes-checks-failed {
   flex: none;
   padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--warning-surface);
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--warning-edge) 14%, transparent);
+  color: var(--warning);
   font-variant-numeric: tabular-nums;
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
   white-space: nowrap;
 }
 
-.billy-lanes-checks > summary:focus-visible {
+.billy-lanes-checks summary:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
@@ -159,17 +181,12 @@
 .billy-lanes-evidence {
   display: grid;
   gap: 8px;
-  max-height: min(26vh, 204px);
-  margin-block-start: 4px;
   padding: 8px;
-  overflow: auto;
   overflow-wrap: anywhere;
-  overscroll-behavior: contain;
-  border: 1px solid var(--line);
-  border-radius: 6px;
+  border-block-start: 1px solid var(--lane-check-border);
+  border-end-start-radius: 5px;
+  border-end-end-radius: 5px;
   background: var(--surface-inset);
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar) transparent;
   user-select: text;
 }
 
@@ -186,20 +203,25 @@
 }
 
 .billy-lanes-outcomes li {
-  padding: 3px 5px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
   border-radius: 4px;
-  background: var(--surface);
+  background: var(--surface-raised);
 }
 
 .billy-lanes-outcomes li[data-warning] {
+  border-color: var(--lane-check-border);
   background: var(--warning-surface);
   color: var(--warning);
 }
 
 .billy-lanes-outcomes strong {
+  display: block;
   color: var(--text);
+  font-size: var(--text-subheading);
   font-variant-numeric: tabular-nums;
   font-weight: var(--weight-semibold);
+  line-height: 1.2;
 }
 
 .billy-lanes-outcomes li[data-warning] strong {
@@ -246,14 +268,18 @@
 
 .billy-lanes-logs {
   min-width: 0;
-  padding-block-start: 6px;
-  border-block-start: 1px solid var(--line);
 }
 
 .billy-lanes-logs summary {
-  width: fit-content;
-  color: var(--text);
-  font-weight: var(--weight-medium);
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--warning-edge) 14%, transparent);
+  color: var(--warning);
+  font-weight: var(--weight-semibold);
+}
+
+.billy-lanes-logs summary:hover {
+  background: color-mix(in oklab, var(--warning-edge) 22%, transparent);
 }
 
 .billy-lanes-logs select {
@@ -267,28 +293,30 @@
 }
 
 .billy-lanes-logs pre {
+  max-block-size: min(25vh, 160px);
   margin: 5px 0 0;
+  padding: 5px 6px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
   color: var(--text);
   font: var(--text-caption) / 1.45 var(--font-mono);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
   white-space: pre-wrap;
 }
 
-@container review-queue (max-width: 210px) {
-  .billy-lanes {
-    --lane-label-width: 40px;
-  }
-
-  .billy-lanes-status {
-    padding-inline-start: 5px;
-  }
-}
-
-@container review-queue (max-width: 190px) {
+@container review-queue (max-width: 196px) {
   .billy-lanes-controls label {
     grid-template-columns: minmax(0, 1fr);
   }
 
   .billy-lanes-controls label > span {
     display: none;
+  }
+
+  .billy-lanes-status {
+    padding-inline-start: 6px;
   }
 }
