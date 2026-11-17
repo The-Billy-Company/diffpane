@@ -174,11 +174,17 @@ export function createAgentThreadPanel(
           <div data-projects></div>
         </div>
       </nav>
-      <section class="agent-thread-roster" aria-label="Threads" tabindex="-1" data-roster>
-        <div class="agent-thread-filters">
-          <div class="agent-thread-query-tools">
-            <label class="agent-thread-search">${icon('search')}<input type="search" aria-label="Search threads" placeholder="Search threads" /></label>
-            <button class="agent-thread-control agent-thread-running" type="button" aria-pressed="false" data-running><span></span>Running</button>
+      <section class="agent-thread-roster" aria-labelledby="agent-thread-roster-title" tabindex="-1" data-roster>
+        <header class="agent-thread-roster-header">
+          <div class="agent-thread-roster-overview">
+            <div class="agent-thread-roster-heading">
+              <h2 id="agent-thread-roster-title" data-roster-title>All threads</h2>
+              <p data-result-count role="status" hidden></p>
+            </div>
+            <div class="agent-thread-query-tools">
+              <label class="agent-thread-search">${icon('search')}<input type="search" aria-label="Search threads" placeholder="Search threads" /></label>
+              <button class="agent-thread-control agent-thread-running" type="button" aria-pressed="false" data-running><span></span>Running</button>
+            </div>
           </div>
           <div class="agent-thread-providers" role="group" aria-label="Filter by agent">
             <button class="agent-thread-source" type="button" aria-pressed="true" data-any-agent>All agents</button>
@@ -191,35 +197,33 @@ export function createAgentThreadPanel(
               )
               .join('')}
           </div>
-        </div>
-        <section class="agent-thread-memory" aria-labelledby="agent-thread-memory-title">
-          <div class="agent-thread-memory-system">
-            <div class="agent-thread-memory-heading">
-              <h2 id="agent-thread-memory-title">Memory pressure</h2>
-              <span class="agent-thread-memory-state" role="status" data-memory-pressure>Checking…</span>
-            </div>
-            <div class="agent-thread-memory-sample">
-              <div>
+        </header>
+        <div class="agent-thread-list" data-list>
+          <div class="agent-thread-roster-grid">
+            <aside class="agent-thread-memory" aria-label="Live activity">
+              <section class="agent-thread-memory-agents" aria-labelledby="agent-thread-memory-agents-title" data-memory-agents>
+                <div class="agent-thread-memory-heading">
+                  <h3 id="agent-thread-memory-agents-title">Active agent threads</h3>
+                  <span class="agent-thread-memory-caption" data-memory-caption hidden></span>
+                </div>
+                <p class="agent-thread-memory-empty" data-memory-empty>Checking activity…</p>
+                <ul class="agent-thread-memory-actions" aria-label="Active agent threads" data-memory-actions hidden></ul>
+                <p class="agent-thread-memory-empty agent-thread-memory-error" role="status" data-memory-activity-status hidden></p>
+              </section>
+              <section class="agent-thread-memory-system" aria-labelledby="agent-thread-memory-title" data-memory-system>
+                <div class="agent-thread-memory-heading">
+                  <h3 id="agent-thread-memory-title">Memory pressure</h3>
+                  <span class="agent-thread-memory-state" role="status" data-memory-pressure>Checking…</span>
+                </div>
                 <div class="agent-thread-memory-usage" data-memory-usage hidden></div>
+                <div class="agent-thread-memory-history" aria-hidden="true" data-memory-history></div>
                 <div class="agent-thread-memory-source" data-memory-source hidden>
                   <span data-memory-provider></span><time data-memory-time></time>
                 </div>
-              </div>
-              <div class="agent-thread-memory-history" aria-hidden="true" data-memory-history></div>
-            </div>
+              </section>
+            </aside>
+            <div class="agent-thread-list-content" data-list-content></div>
           </div>
-          <div class="agent-thread-memory-agents">
-            <div class="agent-thread-memory-heading">
-              <h3>Active agent threads</h3>
-              <span class="agent-thread-memory-caption" data-memory-caption hidden>Latest recorded action</span>
-            </div>
-            <p class="agent-thread-memory-empty" data-memory-empty>Checking activity…</p>
-            <ul class="agent-thread-memory-actions" aria-label="Active agent threads" data-memory-actions hidden></ul>
-            <p class="agent-thread-memory-empty" role="status" data-memory-activity-status hidden></p>
-          </div>
-        </section>
-        <div class="agent-thread-list" data-list>
-          <div class="agent-thread-list-content" data-list-content></div>
         </div>
       </section>
     </div>
@@ -237,7 +241,6 @@ export function createAgentThreadPanel(
             <span class="agent-thread-cwd" data-detail-cwd></span>
           </div>
         </div>
-        <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')} Latest</button>
       </header>
       <div class="agent-thread-delegate-tabs" data-delegate-tabs hidden>
         <div class="agent-thread-tablist" role="tablist" aria-label="Conversation and subagents" data-delegate-tablist></div>
@@ -245,6 +248,7 @@ export function createAgentThreadPanel(
       </div>
       <p class="agent-thread-file-status" data-file-status role="status" hidden></p>
       <div class="agent-thread-reading" id="agent-thread-active-panel">
+        <button class="agent-thread-control agent-thread-jump" type="button" data-latest hidden>${icon('down')} Jump to latest</button>
         <div class="agent-thread-transcript" data-conversation></div>
       </div>
     </section>`
@@ -257,12 +261,16 @@ export function createAgentThreadPanel(
   const appTitle = requireElement(host, '[data-app-title]', HTMLElement)
   const sync = requireElement(host, '[data-sync]', HTMLElement)
   const roster = requireElement(host, '[data-roster]', HTMLElement)
+  const rosterTitle = requireElement(roster, '[data-roster-title]', HTMLHeadingElement)
+  const resultCount = requireElement(roster, '[data-result-count]', HTMLParagraphElement)
   const refresh = requireElement(host, '[data-refresh]', HTMLButtonElement)
   const query = requireElement(host, 'input[type=search]', HTMLInputElement)
   const running = requireElement(host, '[data-running]', HTMLButtonElement)
   const list = requireElement(host, '[data-list]', HTMLDivElement)
   const listContent = requireElement(list, '[data-list-content]', HTMLDivElement)
   const memoryPressure = requireElement(host, '[data-memory-pressure]', HTMLElement)
+  const memorySystem = requireElement(host, '[data-memory-system]', HTMLElement)
+  const memoryAgents = requireElement(host, '[data-memory-agents]', HTMLElement)
   const memoryDetail = requireElement(host, '[data-memory-detail]', HTMLElement)
   const memoryUsage = requireElement(host, '[data-memory-usage]', HTMLDivElement)
   const memorySource = requireElement(host, '[data-memory-source]', HTMLDivElement)
@@ -297,6 +305,7 @@ export function createAgentThreadPanel(
   const delegateStatus = requireElement(delegateTabs, '[data-delegate-status]', HTMLParagraphElement)
   const latest = requireElement(detail, '[data-latest]', HTMLButtonElement)
   const fileStatus = requireElement(detail, '[data-file-status]', HTMLParagraphElement)
+  const compactProjects = window.matchMedia('(max-width: 700px)')
 
   let threads = new Map<string, AgentThread>()
   const rowButtons = new Map<string, HTMLButtonElement>()
@@ -310,6 +319,7 @@ export function createAgentThreadPanel(
   let providerFilter: AgentProvider | undefined
   let runningOnly = false
   let projectsOpen = true
+  let projectsToggled = false
   let returnFocus: HTMLElement | null = null
   let previousListTop = 0
   let selected: AgentThread | undefined
@@ -375,6 +385,7 @@ export function createAgentThreadPanel(
   function renderMemory(sample: AgentMemorySnapshot | undefined, failed = false) {
     const pressure = sample?.pressure ?? 'unknown'
     const pressureLabel = sample || failed ? pressureLabels[pressure] : 'Checking…'
+    memorySystem.dataset.pressure = pressure
     memoryPressure.dataset.pressure = pressure
     if (memoryPressure.textContent !== pressureLabel) memoryPressure.textContent = pressureLabel
     memoryDetail.dataset.pressure = pressure
@@ -406,6 +417,8 @@ export function createAgentThreadPanel(
     memoryHistory.hidden = !sample
 
     const activities = sample?.activities ?? []
+    memoryAgents.dataset.active = String(Boolean(activities.length))
+    memoryCaption.textContent = activities.length ? String(activities.length) : ''
     memoryCaption.hidden = !activities.length
     memoryActions.hidden = !activities.length
     memoryEmpty.hidden = Boolean(activities.length)
@@ -484,6 +497,12 @@ export function createAgentThreadPanel(
     sidebarToggle.title = label
   }
 
+  function updateProjectLayout() {
+    if (projectsToggled) return
+    if (compactProjects.matches && sidebar.contains(document.activeElement)) sidebarToggle.focus()
+    setProjectsOpen(!compactProjects.matches)
+  }
+
   function selectProject(path: string) {
     projectFilter = path
     applyFilters()
@@ -506,17 +525,29 @@ export function createAgentThreadPanel(
   function createThreadRow(thread: AgentThread, now: number) {
     const button = node('button', 'agent-thread-row')
     button.type = 'button'
+    const threadState = stateOf(thread)
+    button.dataset.state = threadState
     const content = node('span', 'agent-thread-row-content')
     const title = node('strong', 'agent-thread-row-title', thread.title)
     title.title = thread.title
-    const activity = node('span', 'agent-thread-row-activity')
     const excerpt = thread.activity?.replace(/\s+/gu, ' ').trim()
     const worktree = thread.cwd && thread.cwd !== projectOf(thread) ? basename(thread.cwd) : ''
-    activity.textContent = [agentProviderNames[thread.provider], worktree, excerpt].filter(Boolean).join(' · ')
-    content.append(title, activity)
+    const secondary = node('span', 'agent-thread-row-secondary')
+    const context = node(
+      'span',
+      'agent-thread-row-context',
+      [agentProviderNames[thread.provider], worktree].filter(Boolean).join(' · '),
+    )
+    secondary.append(context)
+    if (excerpt) {
+      const activity = node('span', 'agent-thread-row-activity', excerpt)
+      activity.title = excerpt
+      secondary.append(activity)
+    }
+    content.append(title, secondary)
     const meta = node('span', 'agent-thread-row-meta')
     const state = node('span', 'agent-thread-state')
-    renderState(state, stateOf(thread))
+    renderState(state, threadState)
     const time = node('time', 'agent-thread-time')
     renderTime(time, thread.updatedAt, now)
     meta.append(state, time)
@@ -529,26 +560,31 @@ export function createAgentThreadPanel(
   }
 
   function renderRoster() {
-    const terms = query.value.trim().toLowerCase().split(/\s+/u)
+    const searchText = query.value.trim().toLowerCase()
+    const terms = searchText.split(/\s+/u)
     const now = lastChecked || Date.now()
     const projects = new Map<string, { total: number; matches: AgentThread[] }>()
     const byProvider = new Map<AgentProvider, number>()
+    let hasRunning = false
     for (const thread of threads.values()) {
       const path = projectOf(thread)
       const group = projects.get(path) ?? { total: 0, matches: [] }
       projects.set(path, group)
       group.total++
       if (projectFilter && projectFilter !== path) continue
-      if (runningOnly && stateOf(thread) !== 'running') continue
+      const isRunning = stateOf(thread) === 'running'
+      if (runningOnly && !isRunning) continue
       const searchable = [thread.title, thread.activity, thread.cwd, path, agentProviderNames[thread.provider]]
         .join(' ')
         .toLowerCase()
       if (!terms.every(term => searchable.includes(term))) continue
       byProvider.set(thread.provider, (byProvider.get(thread.provider) ?? 0) + 1)
       if (providerFilter && providerFilter !== thread.provider) continue
+      hasRunning ||= isRunning
       group.matches.push(thread)
     }
 
+    running.dataset.live = String(hasRunning)
     allAgents.setAttribute('aria-pressed', String(!providerFilter))
     for (const [provider, source] of sources) {
       source.button.setAttribute('aria-pressed', String(providerFilter === provider))
@@ -558,8 +594,9 @@ export function createAgentThreadPanel(
       source.button.title = missing ? `${agentProviderNames[provider]} sessions could not be refreshed` : ''
     }
 
-    const scope = projectFilter === NO_PROJECT ? 'with no project' : `in ${projectName(projectFilter)}`
-    roster.setAttribute('aria-label', projectFilter ? `Threads ${scope}` : 'Threads')
+    const scope = projectFilter ? projectName(projectFilter) : 'All threads'
+    if (rosterTitle.textContent !== scope) rosterTitle.textContent = scope
+    rosterTitle.title = projectFilter && projectFilter !== NO_PROJECT ? projectFilter : ''
 
     const activeProject =
       document.activeElement instanceof HTMLButtonElement && projectNav.contains(document.activeElement)
@@ -577,11 +614,13 @@ export function createAgentThreadPanel(
     for (const [path, group] of projects) {
       if (!group.matches.length && path !== projectFilter) continue
       const section = node('section', 'agent-thread-group')
-      const heading = node('header', 'agent-thread-group-heading')
-      heading.innerHTML = icon('folder')
-      heading.append(node('h2', '', projectName(path)), node('span', '', threadCount(group.matches.length)))
-      heading.title = path === NO_PROJECT ? '' : path
-      section.append(heading)
+      if (!projectFilter) {
+        const heading = node('header', 'agent-thread-group-heading')
+        heading.innerHTML = icon('folder')
+        heading.append(node('h3', '', projectName(path)), node('span', '', threadCount(group.matches.length)))
+        heading.title = path === NO_PROJECT ? '' : path
+        section.append(heading)
+      }
       if (group.matches.length) {
         const rows = node('div', 'agent-thread-group-rows')
         rows.append(...group.matches.map(thread => createThreadRow(thread, now)))
@@ -589,6 +628,10 @@ export function createAgentThreadPanel(
       }
       content.append(section)
     }
+    const filtered = runningOnly || providerFilter !== undefined || searchText.length > 0
+    const countLabel = `${threadCount(rowButtons.size)}${filtered ? ' found' : ''}`
+    resultCount.hidden = !loaded
+    if (resultCount.textContent !== countLabel) resultCount.textContent = countLabel
     if (!rowButtons.size) {
       const empty = node('div', 'agent-thread-empty')
       const art = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -863,7 +906,9 @@ export function createAgentThreadPanel(
     detailCwd.textContent = thread.cwd
     detailCwd.title = thread.cwd
     detailCwd.hidden = !thread.cwd
-    renderState(detailState, stateOf(thread))
+    const state = stateOf(thread)
+    detail.dataset.state = state
+    renderState(detailState, state)
     renderTime(detailTime, thread.updatedAt, Date.now(), true)
   }
 
@@ -1052,6 +1097,7 @@ export function createAgentThreadPanel(
 
   requireElement(host, '[data-close]', HTMLButtonElement).addEventListener('click', close)
   sidebarToggle.addEventListener('click', () => {
+    projectsToggled = true
     setProjectsOpen(!projectsOpen)
     if (projectsOpen) projectNav.querySelector<HTMLElement>('[aria-current="true"]')?.focus({ preventScroll: true })
   })
@@ -1133,7 +1179,8 @@ export function createAgentThreadPanel(
   })
   transcriptSize.observe(conversation)
 
-  setProjectsOpen(true)
+  updateProjectLayout()
+  compactProjects.addEventListener('change', updateProjectLayout)
   document.addEventListener('visibilitychange', updateMemorySampling)
   document.addEventListener('visibilitychange', updateConversationVisibility)
 
@@ -1152,6 +1199,7 @@ export function createAgentThreadPanel(
     dispose() {
       close()
       disposed = true
+      compactProjects.removeEventListener('change', updateProjectLayout)
       document.removeEventListener('visibilitychange', updateMemorySampling)
       document.removeEventListener('visibilitychange', updateConversationVisibility)
       transcriptSize.disconnect()

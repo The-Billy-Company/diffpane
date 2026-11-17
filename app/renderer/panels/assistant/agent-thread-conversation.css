@@ -31,16 +31,16 @@
 }
 
 .agent-thread-turns {
-  --thread-avatar-size: 24px;
-  --thread-author-gap: 8px;
-  --thread-author-label-gap: 10px;
+  --thread-avatar-size: 28px;
+  --thread-author-gap: 10px;
+  --thread-author-label-gap: 12px;
   --author-indent: calc(var(--thread-avatar-size) + var(--thread-author-label-gap));
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 30px;
+  gap: clamp(30px, 5vh, 48px);
   width: min(100%, var(--thread-reading-width));
   margin-inline: auto;
-  padding: 30px var(--thread-reading-gutter) 64px;
+  padding: clamp(24px, 4.5vh, 42px) var(--thread-reading-gutter) 76px;
 }
 
 .agent-thread-turn {
@@ -51,9 +51,10 @@
 }
 
 .agent-thread-turn[data-role='user'] {
+  --thread-author-gap: 6px;
   justify-self: end;
   justify-items: end;
-  max-width: min(88%, 60ch);
+  max-width: min(86%, 62ch);
 }
 
 .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body {
@@ -70,8 +71,9 @@
 }
 
 .agent-thread-turn[data-role='user'] .agent-thread-author {
-  padding-inline-end: 5px;
+  padding-inline-end: 3px;
   color: var(--muted);
+  font-size: var(--text-label);
 }
 
 .agent-thread-avatar,
@@ -94,7 +96,7 @@
 }
 
 .agent-thread-turn-body {
-  --thread-body-gap: 12px;
+  --thread-body-gap: 14px;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: var(--thread-body-gap);
@@ -102,18 +104,18 @@
   max-width: 100%;
 }
 
-@media (width > 550px) {
+@container agent-thread-reading (width > 550px) {
   .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body {
     --thread-trail-color: var(--mark-color, var(--accent));
-    --thread-trail-line: color-mix(in oklab, var(--thread-trail-color) 38%, var(--line));
+    --thread-trail-line: color-mix(in oklab, var(--thread-trail-color) 26%, var(--line));
     --thread-trail-offset: calc(var(--thread-avatar-size) / 2 - var(--author-indent));
   }
 
   .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > * {
-    --thread-marker-center: 12px;
-    --thread-marker-size: 7px;
-    --thread-marker-radius: 50%;
-    --thread-marker-fill: var(--thread-trail-color);
+    --thread-marker-center: 14px;
+    --thread-marker-size: 6px;
+    --thread-marker-color: var(--thread-trail-color);
+    --thread-marker-fill: var(--thread-marker-color);
     --thread-trail-lead: var(--thread-body-gap);
     position: relative;
   }
@@ -122,8 +124,14 @@
     --thread-trail-lead: var(--thread-author-gap);
   }
 
-  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-thinking {
+  .agent-thread-turn[data-role='assistant']
+    > .agent-thread-turn-body
+    > :is(.agent-thread-thinking, .agent-thread-tool-group) {
     --thread-marker-fill: var(--workbench-background);
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-markdown {
+    --thread-marker-size: 8px;
   }
 
   .agent-thread-turn[data-role='assistant']
@@ -134,6 +142,11 @@
 
   .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-references {
     --thread-marker-size: 5px;
+  }
+
+  .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > .agent-thread-edit-summary {
+    --thread-marker-center: 18px;
+    --thread-marker-color: var(--added);
   }
 
   .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body > *::before,
@@ -160,23 +173,24 @@
     inset-inline-start: calc(var(--thread-trail-offset) + 0.5px - var(--thread-marker-size) / 2);
     inline-size: var(--thread-marker-size);
     block-size: var(--thread-marker-size);
-    border: 1px solid var(--thread-trail-color);
-    border-radius: var(--thread-marker-radius);
+    border: 1px solid var(--thread-marker-color);
+    border-radius: 50%;
     background: var(--thread-marker-fill);
   }
 
   .agent-thread-turn[data-role='assistant']
     > .agent-thread-turn-body
-    > :is([open], :has(> summary:is(:hover, :focus-visible)))::after {
-    background: var(--thread-trail-color);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--thread-trail-color) 20%, transparent);
+    > :is([open], :focus-within, :has(> summary:hover))::after {
+    background: var(--thread-marker-color);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--thread-marker-color) 18%, transparent);
   }
 }
 
 .agent-thread-turn-body > .agent-thread-markdown {
-  font: var(--text-subheading) / 1.6 var(--font-prose);
+  max-inline-size: 72ch;
+  font: var(--text-subheading) / 1.7 var(--font-prose);
   color: var(--text);
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .agent-thread-markdown > :is(p, ul, ol, blockquote, .claude-table-scroll, .claude-code-block) + * {
@@ -193,7 +207,11 @@
 }
 
 .agent-thread-markdown h2 {
-  font-size: 1.25em;
+  font-size: 1.3em;
+}
+
+.agent-thread-markdown .claude-code-block pre {
+  padding: 12px 14px;
 }
 
 .agent-thread-markdown .agent-thread-inline-link {
@@ -229,10 +247,15 @@
 }
 
 .agent-thread-prompt {
-  padding: 10px 15px;
-  border: 1px solid color-mix(in oklab, var(--line) 70%, var(--accent-surface));
-  border-radius: 14px 14px 4px 14px;
-  background: color-mix(in oklab, var(--accent-surface) 45%, var(--surface-raised));
+  padding: 11px 16px;
+  border: 1px solid color-mix(in oklab, var(--mark-color, var(--accent)) 15%, var(--line));
+  border-radius: 13px 13px 4px 13px;
+  background: color-mix(in oklab, var(--mark-color, var(--accent)) 6%, var(--surface));
+}
+
+.agent-thread-turn-body > .agent-thread-prompt {
+  font-size: var(--text-content);
+  line-height: var(--leading-prose);
 }
 
 .agent-thread-images {
@@ -284,34 +307,41 @@
   line-height: var(--leading-ui);
 }
 
-.agent-thread-thinking > summary {
-  width: fit-content;
-  padding: 3px 6px;
-  border-radius: 5px;
-  cursor: pointer;
-}
-
-.agent-thread-thinking > summary:hover {
-  background: var(--hover);
+.agent-thread-thinking[open] > summary {
   color: var(--text);
 }
 
 .agent-thread-thinking > .agent-thread-markdown {
-  margin: 5px 0 2px 6px;
-  padding-inline-start: 12px;
-  border-inline-start: 2px solid var(--line);
+  max-inline-size: 72ch;
+  margin: 6px 10px 12px;
+  padding-inline-start: 13px;
+  border-inline-start: 2px solid color-mix(in oklab, var(--mark-color, var(--accent)) 22%, var(--line));
   color: inherit;
   font: var(--text-body) / var(--leading-prose) var(--font-prose);
+}
+
+.agent-thread-thinking,
+.agent-thread-tool-group,
+.agent-thread-edit-summary {
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+:is(.agent-thread-thinking, .agent-thread-tool-group)[open],
+.agent-thread-tool-group:has(.agent-thread-tool-detail[open], .agent-thread-tool-toggle[aria-expanded='true']) {
+  border-color: color-mix(in oklab, var(--mark-color, var(--accent)) 16%, var(--line));
+  background: var(--surface);
 }
 
 .agent-thread-tool-group,
 .agent-thread-edit-summary {
   min-width: 0;
-  color: var(--subtle);
-  font-size: var(--text-content);
+  color: var(--muted);
+  font-size: var(--text-body);
   line-height: var(--leading-ui);
 }
 
+.agent-thread-thinking > summary,
 .agent-thread-tool-summary,
 .agent-thread-tool-row,
 .agent-thread-edit-header,
@@ -320,8 +350,8 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 25px;
-  padding: 2px 3px;
+  min-height: 28px;
+  padding: 3px 8px;
 }
 
 .agent-thread-tool-row,
@@ -334,25 +364,45 @@
   margin-inline-end: 4px;
 }
 
-.agent-thread-tool-summary,
-summary.agent-thread-tool-row {
-  border-radius: 4px;
+:is(.agent-thread-thinking, .agent-thread-tool-group) > summary {
+  width: fit-content;
+  max-width: 100%;
+}
+
+:is(.agent-thread-thinking, .agent-thread-tool-group)[open] > summary {
+  width: auto;
+}
+
+.agent-thread-tool-row,
+:is(.agent-thread-thinking, .agent-thread-tool-group) > summary {
+  border-radius: 6px;
+}
+
+:is(.agent-thread-thinking, .agent-thread-tool-group, .agent-thread-tool-detail) > summary {
   list-style: none;
   cursor: pointer;
 }
 
-.agent-thread-tool-summary::-webkit-details-marker,
-summary.agent-thread-tool-row::-webkit-details-marker {
+:is(.agent-thread-thinking, .agent-thread-tool-group, .agent-thread-tool-detail) > summary::-webkit-details-marker {
   display: none;
 }
 
-.agent-thread-tool-summary:is(:hover, :focus-visible),
-summary.agent-thread-tool-row:is(:hover, :focus-visible) {
+:is(.agent-thread-thinking, .agent-thread-tool-group, .agent-thread-tool-detail) > summary:is(:hover, :focus-visible) {
+  background: var(--hover);
   color: var(--text);
 }
 
-.agent-thread-tool-summary::after,
-summary.agent-thread-tool-row::after,
+.agent-thread-tool-group[open] > summary {
+  border-radius: 7px 7px 0 0;
+}
+
+:is(.agent-thread-tool-group, .agent-thread-tool-detail)[open] > summary,
+.agent-thread-tool-row:has(> .agent-thread-tool-toggle[aria-expanded='true']) {
+  background: color-mix(in oklab, var(--mark-color, var(--accent)) 7%, var(--surface));
+  color: var(--text);
+}
+
+:is(.agent-thread-thinking, .agent-thread-tool-group, .agent-thread-tool-detail) > summary::after,
 .agent-thread-tool-toggle::after {
   flex: none;
   width: 6px;
@@ -360,22 +410,26 @@ summary.agent-thread-tool-row::after,
   margin-inline: 1px 2px;
   border-inline-end: 1px solid currentColor;
   border-block-end: 1px solid currentColor;
+  opacity: 0.7;
   transform: translateY(-1.5px) rotate(45deg);
   content: '';
 }
 
-.agent-thread-tool-group[open] > summary::after,
-.agent-thread-tool-detail[open] > summary::after,
+:is(.agent-thread-thinking, .agent-thread-tool-group, .agent-thread-tool-detail)[open] > summary::after,
 .agent-thread-tool-toggle[aria-expanded='true']::after {
+  opacity: 1;
   transform: translateY(1.5px) rotate(225deg);
 }
 
-summary.agent-thread-tool-row::after {
-  opacity: 0;
+.agent-thread-tool-group[open] > summary::after,
+.agent-thread-tool-detail > summary::after,
+.agent-thread-tool-toggle {
+  margin-inline-start: auto;
 }
 
-summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
-.agent-thread-tool-detail[open] > summary::after {
+:is(.agent-thread-thinking, .agent-thread-tool-group, .agent-thread-tool-detail)
+  > summary:is(:hover, :focus-visible)::after,
+.agent-thread-tool-toggle:is(:hover, :focus-visible)::after {
   opacity: 1;
 }
 
@@ -395,10 +449,6 @@ summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
 .agent-thread-tool-toggle:hover {
   background: var(--hover);
   color: var(--text);
-}
-
-.agent-thread-tool-row:not(:hover, :focus-within) > .agent-thread-tool-toggle[aria-expanded='false']::after {
-  opacity: 0;
 }
 
 .agent-thread-tool-icon {
@@ -440,10 +490,19 @@ summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
   list-style: none;
 }
 
+.agent-thread-tool-list {
+  padding: 4px;
+  border-block-start: 1px solid var(--thread-divider);
+}
+
+.agent-thread-tool-entry + .agent-thread-tool-entry {
+  border-block-start: 1px solid var(--thread-divider);
+}
+
 .agent-thread-tool-raw {
-  max-height: min(240px, 40vh);
-  margin: 3px 0 8px 26px;
-  padding: 10px;
+  max-height: min(300px, 42vh);
+  margin: 5px 7px 9px;
+  padding: 11px;
   overflow: hidden auto;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -457,12 +516,38 @@ summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
   tab-size: 2;
 }
 
+.agent-thread-edit-summary {
+  border-color: color-mix(in oklab, var(--added) 15%, var(--line));
+  background: var(--surface);
+}
+
+.agent-thread-edit-header {
+  min-height: 35px;
+  padding-inline: 10px;
+  border-radius: 7px 7px 0 0;
+  background: color-mix(in oklab, var(--added) 7%, var(--surface));
+  color: var(--text);
+}
+
+.agent-thread-edit-header > .agent-thread-tool-icon {
+  color: var(--added);
+}
+
 .agent-thread-edit-summary .agent-thread-edit-list {
-  padding-inline-start: 23px;
+  border-block-start: 1px solid var(--thread-divider);
+}
+
+.agent-thread-edit-summary .agent-thread-edit-row {
+  min-height: 32px;
+  padding-inline: 10px;
+}
+
+.agent-thread-edit-summary .agent-thread-edit-file + .agent-thread-edit-file {
+  border-block-start: 1px solid var(--thread-divider);
 }
 
 .agent-thread-edit-title {
-  font-weight: var(--weight-medium);
+  font-weight: var(--weight-semibold);
 }
 
 .agent-thread-edit-stats {
@@ -481,6 +566,12 @@ summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
   color: var(--removed);
 }
 
+.agent-thread-edit-summary .agent-thread-edit-stats {
+  margin-inline-start: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+
 .agent-thread-edit-path,
 .agent-thread-tool-row .agent-thread-reference {
   padding: 0;
@@ -492,6 +583,12 @@ summary.agent-thread-tool-row:is(:hover, :focus-visible)::after,
   text-align: start;
 }
 
+.agent-thread-edit-summary .agent-thread-edit-path {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+}
+
 button.agent-thread-edit-path,
 .agent-thread-tool-row button.agent-thread-reference {
   text-decoration: underline dotted;
@@ -499,7 +596,7 @@ button.agent-thread-edit-path,
   text-underline-offset: 3px;
 }
 
-button.agent-thread-edit-path:hover,
+button.agent-thread-edit-path:is(:hover, [aria-expanded='true']),
 .agent-thread-tool-row button.agent-thread-reference:hover {
   background: transparent;
   color: var(--text);
@@ -512,14 +609,16 @@ button.agent-thread-edit-path:hover,
 }
 
 .agent-thread-edit-diff {
-  max-height: min(280px, 42vh);
-  margin: 3px 0 8px 26px;
-  padding: 7px 0;
+  max-height: min(320px, 44vh);
+  margin: 3px 8px 9px;
+  padding: 8px 0;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-inset);
   font: var(--text-label) / 1.55 var(--editor-font, var(--font-mono));
+  scrollbar-color: var(--scrollbar) transparent;
+  scrollbar-width: thin;
   white-space: pre;
   overflow-wrap: normal;
   tab-size: 2;
@@ -589,15 +688,17 @@ button.agent-thread-reference:hover,
 .agent-thread-delegate {
   display: grid;
   justify-items: start;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
-  padding: 3px;
+  padding: 8px 11px;
+  border-inline-start: 2px solid color-mix(in oklab, var(--mark-color, var(--accent)) 30%, var(--line));
+  background: color-mix(in oklab, var(--mark-color, var(--accent)) 4%, var(--surface));
 }
 
 .agent-thread-delegate-open,
 .agent-thread-delegate-title {
   color: var(--text);
-  font: var(--weight-semibold) var(--text-label) / var(--leading-ui) var(--font-ui);
+  font: var(--weight-semibold) var(--text-body) / var(--leading-ui) var(--font-ui);
 }
 
 .agent-thread-delegate-open {
@@ -692,19 +793,20 @@ button.agent-thread-reference:hover,
 @container agent-thread-reading (min-width: 1060px) and (min-height: 270px) {
   .agent-thread-minimap {
     position: absolute;
-    inset-block-start: 30px;
-    inset-inline-start: calc(50% + var(--thread-reading-width) / 2 - 12px);
+    inset-block-start: clamp(24px, 4.5vh, 42px);
+    inset-inline-start: min(calc(50% + var(--thread-reading-width) / 2), calc(100% - 108px));
     display: flex;
     flex-direction: column;
-    gap: 7px;
-    inline-size: 84px;
-    block-size: min(282px, calc(100% - 60px));
+    gap: 8px;
+    inline-size: 94px;
+    block-size: min(310px, calc(100% - 68px));
     user-select: none;
   }
 }
 
 .agent-thread-minimap-label {
-  color: var(--subtle);
+  padding-inline: 3px;
+  color: var(--muted);
   font: var(--weight-medium) var(--text-caption) / var(--leading-ui) var(--font-ui);
 }
 
@@ -712,15 +814,19 @@ button.agent-thread-reference:hover,
   position: relative;
   flex: 1;
   min-block-size: 0;
-  padding: 4px;
+  padding: 5px;
   border: 1px solid var(--thread-divider);
-  border-radius: 8px;
-  background: var(--surface);
+  border-radius: 9px;
+  background: color-mix(in oklab, var(--surface-inset) 60%, var(--workbench-background));
+}
+
+.agent-thread-minimap-track:focus-within {
+  border-color: color-mix(in oklab, var(--mark-color) 25%, var(--line));
 }
 
 .agent-thread-minimap-marks {
   position: absolute;
-  inset: 4px 12px;
+  inset: 5px 13px;
   overflow: clip;
   pointer-events: none;
 }
@@ -734,7 +840,7 @@ button.agent-thread-reference:hover,
   inset-inline-end: 0;
   inline-size: 48%;
   border-radius: 3px 3px 1px 3px;
-  background: color-mix(in oklab, var(--subtle) 47%, transparent);
+  background: color-mix(in oklab, var(--muted) 44%, transparent);
 }
 
 .agent-thread-minimap-marks [data-role='assistant'] {
@@ -791,7 +897,7 @@ button.agent-thread-reference:hover,
   width: 100%;
   height: var(--minimap-viewport, 16px);
   appearance: none;
-  border: 1px solid color-mix(in oklab, var(--mark-color) 55%, var(--line));
+  border: 1px solid color-mix(in oklab, var(--mark-color) 62%, var(--line));
   border-radius: 5px;
   background: color-mix(in oklab, var(--mark-color) 10%, transparent);
 }
@@ -801,10 +907,12 @@ button.agent-thread-reference:hover,
   background: color-mix(in oklab, var(--mark-color) 17%, transparent);
 }
 
-@media (max-width: 550px) {
+@container agent-thread-reading (max-width: 550px) {
   .agent-thread-turns {
-    gap: 24px;
-    padding: 22px 16px 42px;
+    --thread-avatar-size: 24px;
+    --thread-author-label-gap: 8px;
+    gap: 27px;
+    padding: 24px clamp(14px, 4cqi, 22px) 64px;
   }
 
   .agent-thread-turn[data-role='assistant'] > .agent-thread-turn-body {
@@ -812,6 +920,10 @@ button.agent-thread-reference:hover,
   }
 
   .agent-thread-turn[data-role='user'] {
-    max-width: 94%;
+    max-width: 92%;
+  }
+
+  .agent-thread-prompt {
+    padding: 9px 12px;
   }
 }
