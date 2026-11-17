@@ -13,7 +13,8 @@ body,
   display: flex;
   flex-direction: column;
 }
-#app[data-agent-threads] > :is(.titlebar, .workspace-notices, .workspace, #terminal-dock, .statusbar) {
+#app[data-agent-threads] > :is(.titlebar, .workspace-notices, .workspace, #git-workspace, #terminal-dock, .statusbar),
+#app[data-git-workspace] > .statusbar {
   display: none;
 }
 button,
@@ -102,6 +103,12 @@ button svg,
   color: var(--muted);
   font-size: var(--text-caption);
   max-width: 220px;
+}
+#git-workspace-toggle {
+  gap: 7px;
+}
+#git-workspace-toggle[aria-pressed='true'] svg {
+  color: currentColor;
 }
 .branch span {
   overflow: hidden;
@@ -197,7 +204,8 @@ button svg,
   display: none;
 }
 
-.workspace {
+.workspace,
+#git-workspace {
   flex: 1;
   min-height: 0;
   min-width: 0;

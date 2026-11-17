@@ -1,0 +1,81 @@
+.git-diff {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.git-diff-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 39px;
+  padding: 5px 12px;
+}
+
+.git-diff-header > strong {
+  min-width: 0;
+  margin-inline-end: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-label);
+}
+
+.git-diff .git-diff-scope {
+  width: auto;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.git-diff-status {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: var(--text-label);
+  color: var(--muted);
+}
+
+.git-diff-editor {
+  flex: 1;
+  min-width: 0;
+  min-height: 160px;
+  border-top: 1px solid var(--line);
+}
+
+.git-diff .review-change-map {
+  margin: 0 10px 7px;
+}
+
+.git-diff .review-map-row-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-diff[data-review-scope][data-empty-original]
+  .monaco-diff-editor
+  :is(.line-delete, .char-delete, .gutter-delete, .inline-deleted-text, .inline-deleted-margin-view-zone) {
+  background: transparent !important;
+  border-color: transparent;
+}
+
+.git-diff[data-review-scope][data-empty-modified]
+  .monaco-diff-editor
+  :is(.line-insert, .char-insert, .gutter-insert, .inline-added-margin-view-zone) {
+  background: transparent !important;
+  border-color: transparent;
+}
+
+.git-diff[data-empty-original] .monaco-diff-editor :is(.delete-sign, .inline-deleted-margin-view-zone),
+.git-diff[data-empty-modified] .monaco-diff-editor .insert-sign,
+.git-diff .monaco-diff-editor :is(.view-overlays, .margin-view-overlays) > div:has(> .git-cursor-line) {
+  visibility: hidden;
+}
+
+.git-diff[data-empty-modified][data-original-cursor-line]
+  .monaco-diff-editor:not(.side-by-side)
+  :is(.view-zones .view-lines.line-delete, .inline-deleted-margin-view-zone) {
+  clip-path: inset(0 0 1lh);
+}

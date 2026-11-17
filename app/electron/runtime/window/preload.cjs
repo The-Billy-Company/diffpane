@@ -486,6 +486,60 @@ function isCheckpoint(value) {
     optional(isString)(value.error)
   )
 }
+function isGitId(value) {
+  return typeof value === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)
+}
+function isGitRef(value) {
+  return (
+    isRecord(value) &&
+    isString(value.name) &&
+    (value.kind === 'branch' || value.kind === 'remote' || value.kind === 'tag')
+  )
+}
+function isGitCommit(value) {
+  return (
+    isRecord(value) &&
+    isGitId(value.id) &&
+    arrayOf(isGitId)(value.parents) &&
+    isString(value.subject) &&
+    typeof value.committedAt === 'number' &&
+    Number.isSafeInteger(value.committedAt) &&
+    arrayOf(isGitRef)(value.refs)
+  )
+}
+function isGitOverview(value) {
+  return (
+    isRecord(value) &&
+    isString(value.branch) &&
+    nullable(isGitId)(value.head) &&
+    arrayOf(isGitCommit)(value.commits) &&
+    arrayOf(isGitCommit)(value.today) &&
+    nullable(isGitId)(value.dayBase) &&
+    isBoolean(value.historyHasMore)
+  )
+}
+function isGitFile(value) {
+  return (
+    isRecord(value) &&
+    isString(value.path) &&
+    nullable(isString)(value.originalPath) &&
+    isString(value.status) &&
+    nullable(isCount)(value.additions) &&
+    nullable(isCount)(value.deletions)
+  )
+}
+function isGitChanges(value) {
+  return isRecord(value) && arrayOf(isGitFile)(value.files) && isCount(value.additions) && isCount(value.deletions)
+}
+function isGitFileContents(value) {
+  return (
+    isRecord(value) &&
+    isString(value.before) &&
+    isString(value.after) &&
+    optional(nullable(isString))(value.note) &&
+    optional(isBoolean)(value.available)
+  )
+}
 function isSnapshot(value) {
   return (
     isRecord(value) &&
@@ -937,6 +991,12 @@ const API = {
   filesDelta: revision => invoke('files-delta', isInventoryUpdate, revision),
   directoryExpanded: (path, expanded) => invoke('directory-expanded', isNull, path, expanded),
   document: (path, comparison = 'head') => invoke('document', isWorkspaceDocument, path, comparison),
+  git: {
+    overview: (dayStart, dayEnd, historyLimit) => invoke('git-overview', isGitOverview, dayStart, dayEnd, historyLimit),
+    changes: comparison => invoke('git-changes', isGitChanges, comparison),
+    contents: (comparison, file) => invoke('git-contents', isGitFileContents, comparison, file),
+    onChange: callback => listen('git-change', isNull, callback),
+  },
   save: (path, text, expected) => invoke('save', isNull, path, text, expected),
   rename: (path, name) => invoke('rename', isString, path, name),
   fileAction: (action, path) => invoke('file-action', isVoid, action, path),

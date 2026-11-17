@@ -73,6 +73,7 @@ export function showChangeReplay(
   hunk: editor.ILineChange,
   baseline: string,
   position: string,
+  target = 'Working file',
 ) {
   const before = excerpt(model.original, hunk.originalStartLineNumber, hunk.originalEndLineNumber)
   const after = excerpt(model.modified, hunk.modifiedStartLineNumber, hunk.modifiedEndLineNumber)
@@ -128,6 +129,7 @@ export function showChangeReplay(
   file.title = filename
   requireElement(dialog, '.change-replay-position', HTMLSpanElement).textContent = position
   original.textContent = baseline
+  working.textContent = target
   const lastVisibleLine = Math.max(
     hunk.originalStartLineNumber + before.lines - 1,
     hunk.modifiedStartLineNumber + after.lines - 1,
@@ -168,7 +170,7 @@ export function showChangeReplay(
         : noLines
           ? ''
           : `, lines ${firstLine}–${firstLine + content.lines - 1}`
-    stage.setAttribute('aria-label', `${isWorking ? 'Working file' : baseline} excerpt${range}`)
+    stage.setAttribute('aria-label', `${isWorking ? target : baseline} excerpt${range}`)
     gutter.replaceChildren(
       ...Array.from({ length: content.lines }, (_, index) => {
         const line = document.createElement('div')

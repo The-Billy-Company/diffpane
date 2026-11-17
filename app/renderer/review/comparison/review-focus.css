@@ -479,19 +479,19 @@
   }
 }
 
-.file-card .monaco-diff-editor:not(.side-by-side) .insert-sign {
+:is(.file-card, .git-diff) .monaco-diff-editor:not(.side-by-side) .insert-sign {
   color: var(--added);
 }
 
-.file-card .monaco-diff-editor:not(.side-by-side) .delete-sign {
+:is(.file-card, .git-diff) .monaco-diff-editor:not(.side-by-side) .delete-sign {
   color: var(--removed);
 }
 
-.file-card[data-review-scope] .monaco-diff-editor .line-insert {
+:is(.file-card, .git-diff)[data-review-scope] .monaco-diff-editor .line-insert {
   background: var(--added-surface) !important;
 }
 
-.file-card[data-review-scope] .monaco-diff-editor .line-delete {
+:is(.file-card, .git-diff)[data-review-scope] .monaco-diff-editor .line-delete {
   background: var(--removed-surface) !important;
 }
 
@@ -511,7 +511,7 @@
   --hunk-ink: var(--added-edge);
 }
 
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center {
+:is(.file-card, .git-diff)[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center {
   --fold-paper: color-mix(in oklab, var(--surface-raised) 78%, var(--workbench-background));
   --fold-crease: color-mix(in oklab, var(--subtle) 48%, var(--fold-paper));
   position: relative;
@@ -523,7 +523,7 @@
 }
 
 /* Keep Monaco's click and drag targets above the fold artwork. */
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center::before {
+:is(.file-card, .git-diff)[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center::before {
   position: absolute;
   z-index: -1;
   inset: 1px 0;
@@ -543,11 +543,15 @@
   pointer-events: none;
 }
 
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .content-row {
+:is(.file-card, .git-diff)[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .content-row {
   min-width: 0;
 }
 
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .content-row > span:first-child {
+:is(.file-card, .git-diff)[data-review-scope='focus']
+  .monaco-editor
+  .diff-hidden-lines
+  .content-row
+  > span:first-child {
   min-width: 0;
   padding: 1px 8px;
   overflow: hidden;
@@ -558,7 +562,7 @@
   text-overflow: ellipsis;
 }
 
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .default-control {
+:is(.file-card, .git-diff)[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .default-control {
   display: grid;
   place-items: center;
   width: 20px;
@@ -568,8 +572,11 @@
   cursor: pointer;
 }
 
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines .center:is(:hover, :focus-within),
-.file-card[data-review-scope='focus'] .monaco-editor .diff-hidden-lines.dragging .center {
+:is(.file-card, .git-diff)[data-review-scope='focus']
+  .monaco-editor
+  .diff-hidden-lines
+  .center:is(:hover, :focus-within),
+:is(.file-card, .git-diff)[data-review-scope='focus'] .monaco-editor .diff-hidden-lines.dragging .center {
   --fold-paper: var(--accent-surface);
   --fold-crease: color-mix(in oklab, var(--accent) 58%, var(--fold-paper));
   color: var(--accent);

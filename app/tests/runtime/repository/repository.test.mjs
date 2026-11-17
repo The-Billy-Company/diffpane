@@ -61,11 +61,11 @@ async function fixture(t) {
     GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
   }
   for (const key of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR']) delete env[key]
-  /** @param {string[]} args */
-  const git = async args =>
+  /** @param {string[]} args @param {NodeJS.ProcessEnv} [variables] */
+  const git = async (args, variables) =>
     (
       await execute('git', ['-C', root, ...args], {
-        env,
+        env: { ...env, ...variables },
         timeout: 10_000,
         maxBuffer: 16 * 1024 * 1024,
       })
@@ -86,6 +86,208 @@ async function fixture(t) {
   await git(['config', 'commit.gpgsign', 'false'])
   return { root, git, write, commit, open: () => Repository.open(root) }
 }
+
+test('Git Today and History preserve day boundaries, merge parents, ref tips and historical patches', async t => {
+  const repo = await fixture(t)
+  /** @param {string} name @param {string} date */
+  const commitAt = async (name, date) => {
+    await repo.git(['add', '--all'])
+    await repo.git(['commit', '-m', name], { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date })
+    return (await repo.git(['rev-parse', 'HEAD'])).trim()
+  }
+  await repo.write('scope/old.txt', 'Keep this line.\n')
+  const baseline = await commitAt('Before local midnight', '2026-11-15T23:59:59-08:00')
+  await repo.git(['checkout', '-qb', 'review/line,map'])
+  await repo.git(['mv', 'scope/old.txt', 'scope/new\tname.txt'])
+  const feature = await commitAt('Rename at local midnight', '2026-11-16T00:00:00-08:00')
+
+  await repo.git(['checkout', '-q', 'main'])
+  await repo.write('outside.txt', 'Main branch\n')
+  const main = await commitAt('Main branch file', '2026-11-16T08:58:00-08:00')
+  await repo.git(['tag', '--no-sign', 'v1,preview', main])
+  await repo.git(['update-ref', 'refs/remotes/upstream/main', main])
+  await repo.git(['checkout', '-q', 'review/line,map'])
+  await repo.git(['merge', '--no-ff', '--no-commit', 'main'])
+  const merged = await commitAt('Merge main', '2026-11-16T09:00:00-08:00')
+  await repo.git(['checkout', '-q', 'main'])
+  await repo.write('outside.txt', 'Main branch again\n')
+  const unrelated = await commitAt('Diverged from review', '2026-11-16T09:04:00-08:00')
+  await repo.git(['checkout', '-q', 'review/line,map'])
+  const repoView = await Repository.open(path.join(repo.root, 'scope'))
+  const start = Date.parse('2026-11-16T00:00:00-08:00')
+  const end = Date.parse('2026-11-17T00:00:00-08:00')
+  const partial = await repoView.gitOverview(start, end, 2)
+  assert.equal(partial.head, merged)
+  assert.equal(partial.branch, 'review/line,map')
+  assert.equal(partial.dayBase, baseline)
+  assert.equal(partial.historyHasMore, true)
+  assert.deepEqual(
+    partial.today.map(commit => commit.id),
+    [merged, main, feature],
+  )
+  assert.deepEqual(partial.today[0]?.parents, [feature, main])
+  const history = await repoView.gitOverview(start, end, 25)
+  assert.equal(history.historyHasMore, false)
+  const ids = history.commits.map(commit => commit.id)
+  for (const [index, commit] of history.commits.entries()) {
+    assert.ok(commit.parents.every(parent => ids.indexOf(parent) > index))
+  }
+  assert.deepEqual(history.commits.find(commit => commit.id === unrelated)?.refs, [{ name: 'main', kind: 'branch' }])
+  assert.deepEqual(history.commits.find(commit => commit.id === merged)?.refs, [
+    { name: 'review/line,map', kind: 'branch' },
+  ])
+  assert.deepEqual(
+    history.commits.find(commit => commit.id === main)?.refs.toSorted((a, b) => a.kind.localeCompare(b.kind)),
+    [
+      { name: 'upstream/main', kind: 'remote' },
+      { name: 'v1,preview', kind: 'tag' },
+    ],
+  )
+  const compareMain = { kind: 'revision', base: feature, target: merged }
+  const changesFromFeature = await repoView.gitChanges(compareMain)
+  const outside = changesFromFeature.files[0]
+  assert.deepEqual(outside, { path: 'outside.txt', originalPath: null, status: 'A', additions: 1, deletions: 0 })
+  assert.deepEqual(await repoView.gitContents(compareMain, outside), {
+    before: '',
+    after: 'Main branch\n',
+    note: null,
+    available: true,
+  })
+  const compareFeature = { kind: 'revision', base: main, target: merged }
+  const changesFromMain = await repoView.gitChanges(compareFeature)
+  const renamed = changesFromMain.files[0]
+  assert.deepEqual(renamed, {
+    path: 'scope/new\tname.txt',
+    originalPath: 'scope/old.txt',
+    status: 'R',
+    additions: 0,
+    deletions: 0,
+  })
+  assert.deepEqual(await repoView.gitContents(compareFeature, renamed), {
+    before: 'Keep this line.\n',
+    after: 'Keep this line.\n',
+    note: null,
+    available: true,
+  })
+  const day = await repoView.gitChanges({ kind: 'revision', base: history.dayBase, target: merged })
+  assert.equal(day.additions, 1)
+  assert.deepEqual(
+    day.files.map(file => file.status),
+    ['A', 'R'],
+  )
+  const root = await repoView.gitChanges({ kind: 'revision', base: null, target: baseline })
+  assert.equal(root.additions, 1)
+  assert.equal(root.files[0]?.path, 'scope/old.txt')
+  await repo.write('scope/next-day.txt', 'Tomorrow\n')
+  const nextDay = await commitAt('Next day', '2026-11-17T00:00:00-08:00')
+  const earlierDay = await repoView.gitOverview(start, end)
+  assert.equal(earlierDay.head, nextDay)
+  assert.deepEqual(
+    earlierDay.today.map(commit => commit.id),
+    [merged, main, feature],
+  )
+})
+
+test('Git workspace compares index, disk, and HEAD independently and includes repo-wide untracked files', async t => {
+  const repo = await fixture(t)
+  await repo.write('scope/staged.txt', 'seed\n')
+  await repo.write('cancel.txt', 'before\n')
+  await repo.write('recreated.txt', 'before\n')
+  await repo.write('same.txt', 'same\n')
+  await repo.commit()
+  await repo.write('scope/staged.txt', 'seed\nstaged\n')
+  await repo.write('cancel.txt', 'staged\n')
+  await repo.git(['add', 'scope/staged.txt', 'cancel.txt'])
+  await repo.git(['rm', '--cached', 'recreated.txt', 'same.txt'])
+  await repo.write('scope/staged.txt', 'seed\nstaged\nloose\n')
+  await repo.write('cancel.txt', 'before\n')
+  await repo.write('recreated.txt', 'after\n')
+  await repo.write('untracked.txt', 'one\ntwo')
+  await repo.write('untracked.bin', Buffer.from([0, 10, 1, 2]))
+  const repoView = await Repository.open(path.join(repo.root, 'scope'))
+  const initialIndex = await repo.git(['diff', '--cached', '--raw', '-z'])
+
+  const headMode = { kind: 'working', mode: 'head' }
+  const stagedMode = { kind: 'working', mode: 'staged' }
+  const unstagedMode = { kind: 'working', mode: 'unstaged' }
+  const [head, staged, unstaged] = await Promise.all([
+    repoView.gitChanges(headMode),
+    repoView.gitChanges(stagedMode),
+    repoView.gitChanges(unstagedMode),
+  ])
+  const rows = head.files.map(file => [file.path, file.status, file.additions, file.deletions])
+  assert.deepEqual(rows, [
+    ['recreated.txt', 'M', 1, 1],
+    ['scope/staged.txt', 'M', 2, 0],
+    ['untracked.bin', '?', null, null],
+    ['untracked.txt', '?', 2, 0],
+  ])
+  assert.deepEqual([head.additions, head.deletions], [5, 1])
+  assert.deepEqual([staged.additions, staged.deletions], [2, 3])
+  assert.deepEqual([unstaged.additions, unstaged.deletions], [6, 1])
+  const stagedPath = staged.files.find(file => file.path === 'scope/staged.txt')
+  const unstagedPath = unstaged.files.find(file => file.path === 'scope/staged.txt')
+  assert.deepEqual(await repoView.gitContents(stagedMode, stagedPath), {
+    before: 'seed\n',
+    after: 'seed\nstaged\n',
+    note: null,
+    available: true,
+  })
+  assert.deepEqual(await repoView.gitContents(unstagedMode, unstagedPath), {
+    before: 'seed\nstaged\n',
+    after: 'seed\nstaged\nloose\n',
+    note: null,
+    available: true,
+  })
+  const recreated = await repoView.gitContents(headMode, head.files[0])
+  assert.equal(recreated.before, 'before\n')
+  assert.equal(recreated.after, 'after\n')
+  const binary = await repoView.gitContents(
+    headMode,
+    head.files.find(file => file.path === 'untracked.bin'),
+  )
+  assert.equal(binary.available, false)
+  assert.ok(binary.note)
+  assert.equal(await repo.git(['diff', '--cached', '--raw', '-z']), initialIndex)
+  await assert.rejects(
+    repoView.gitChanges({ kind: 'revision', base: null, target: '--all' }),
+    /Unknown Git comparison/u,
+  )
+  await assert.rejects(
+    repoView.gitContents(headMode, { path: '../outside', originalPath: null, status: '?' }),
+    /invalid repository-relative path/u,
+  )
+  await assert.rejects(
+    repoView.gitContents(headMode, { path: '.git/config', originalPath: null, status: '?' }),
+    /Git metadata/u,
+  )
+})
+
+test('Git workspace opens before the first commit and marks a detached checkout', async t => {
+  const repo = await fixture(t)
+  await repo.write('staged.txt', 'staged\n')
+  await repo.git(['add', 'staged.txt'])
+  await repo.write('working.txt', 'working\n')
+  const view = await repo.open()
+  const now = Date.now()
+  const unborn = await view.gitOverview(now - 60_000, now + 60_000)
+  assert.equal(unborn.head, null)
+  assert.equal(unborn.branch, 'main')
+  assert.deepEqual(unborn.commits, [])
+  const working = await view.gitChanges({ kind: 'working', mode: 'head' })
+  assert.deepEqual(
+    working.files.map(file => [file.path, file.status]),
+    [
+      ['staged.txt', 'A'],
+      ['working.txt', '?'],
+    ],
+  )
+  await repo.commit()
+  await repo.git(['checkout', '--detach', 'HEAD'])
+  const detached = await view.gitOverview(now - 60_000, Date.now() + 60_000)
+  assert.match(detached.branch, /^detached [a-f\d]{8}$/u)
+  assert.equal(detached.today[0]?.id, detached.head)
+})
 
 test('file inventory includes ignored directory placeholders without loading their children, including tracked exceptions', async t => {
   const repo = await fixture(t)

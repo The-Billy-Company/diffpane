@@ -1,0 +1,472 @@
+import assert from 'node:assert/strict'
+import { execFileSync, spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
+import { fileURLToPath } from 'node:url'
+
+// From the repository root, build the renderer and run:
+// node app/tests/interface/review/git.integration.ts
+const applicationRoot = fileURLToPath(new URL('../../../..', import.meta.url))
+const directory = realpathSync(mkdtempSync(path.join(tmpdir(), 'diffpane-git-integration-')))
+const repository = path.join(directory, 'project')
+const profile = path.join(directory, 'profile')
+const scattered = 'src/scattered.txt'
+const staged = 'src/staged.txt'
+const untracked = 'src/untracked file.txt'
+const cancelled = 'src/cancelled.txt'
+const dayCancelled = 'src/day-cancelled.txt'
+const branchFile = 'src/branch-note.txt'
+const mainFile = 'src/main-note.txt'
+const gitPanel = '#git-workspace'
+const gitToggle = '#git-workspace-toggle'
+const slider = `${gitPanel} [role="slider"][aria-label="Change map"]`
+
+const gitEnv = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+  GIT_TERMINAL_PROMPT: '0',
+}
+const git = (...args: string[]) =>
+  execFileSync('git', ['-C', repository, ...args], { env: gitEnv, encoding: 'utf8' }).trimEnd()
+const write = (file: string, data: string) => writeFileSync(path.join(repository, file), data)
+const head = () => git('rev-parse', 'HEAD')
+
+function createFixture() {
+  mkdirSync(path.join(repository, 'src'), { recursive: true })
+  git('init', '-q', '-b', 'main')
+  git('config', 'user.name', 'Diffpane Test')
+  git('config', 'user.email', 'diffpane@example.invalid')
+  git('config', 'commit.gpgsign', 'false')
+  const midnight = new Date()
+  midnight.setHours(0, 0, 0, 0)
+  const dated = (secondsAfterMidnight: number, ...args: string[]) => {
+    const date = new Date(midnight.getTime() + secondsAfterMidnight * 1000).toISOString()
+    execFileSync('git', ['-C', repository, ...args], {
+      env: { ...gitEnv, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
+    })
+    return head()
+  }
+  const commit = (secondsAfterMidnight: number, message: string) => {
+    git('add', '.')
+    return dated(secondsAfterMidnight, 'commit', '-qm', message)
+  }
+
+  const baseLines = Array.from({ length: 115 }, (_, index) => `context line ${index + 1}`)
+  write(scattered, `${baseLines.join('\n')}\n`)
+  write(cancelled, 'unchanged in the working tree\n')
+  write(dayCancelled, 'unchanged by the day’s commits\n')
+  const base = commit(-1, 'Last commit before midnight')
+
+  git('switch', '-qc', 'review/change-map')
+  write(branchFile, 'feature branch came first\nfeature branch line two\n')
+  write(dayCancelled, 'temporary committed churn\n')
+  const branch = commit(1, 'Feature commit before merge')
+
+  git('switch', '-q', 'main')
+  write(mainFile, 'main contributed this line\n')
+  const main = commit(2, 'Main commit before merge')
+  write('src/diverged.txt', 'main tip after the merge base\n')
+  const mainTip = commit(5, 'Main-only commit outside HEAD')
+  git('switch', '-q', 'review/change-map')
+  const merge = dated(3, 'merge', '-q', '--no-ff', '-m', 'Merge incoming main commit', main)
+  write(dayCancelled, 'unchanged by the day’s commits\n')
+  const current = commit(4, 'Cancel today’s temporary churn')
+  git('tag', 'review-demo', current)
+
+  write(staged, 'staged line one\nstaged line two\n')
+  write(cancelled, 'unchanged in the working tree\nstaged line cancelled on disk\n')
+  git('add', staged, cancelled)
+  write(cancelled, 'unchanged in the working tree\n')
+  const workingLines = baseLines.flatMap((line, index) => {
+    if (index === 11) return ['replacement in working tree']
+    if (index === 54) return ['standalone inserted work', line]
+    if (index === 92) return []
+    return [line]
+  })
+  write(scattered, `${workingLines.join('\n')}\n`)
+  write(untracked, 'untracked line one\nuntracked line two\n')
+  return { base, branch, main, mainTip, merge, current }
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+const rendererErrors: string[] = []
+let connection: WebSocket | undefined
+let nextMessage = 0
+
+async function until<T>(description: string, read: () => Promise<T>, remaining = 160): Promise<T> {
+  if (remaining === 0) throw new Error(`Timed out waiting for ${description}.`)
+  const value = await read()
+  if (value) return value
+  await delay(125)
+  return until(description, read, remaining - 1)
+}
+
+async function attach() {
+  const portFile = path.join(profile, 'DevToolsActivePort')
+  const port = await until('the isolated Electron debugger', async () =>
+    existsSync(portFile) ? readFileSync(portFile, 'utf8').split('\n')[0] : undefined,
+  )
+  const url = await until('the bundled workspace target', async () => {
+    // DevTools may become available before the workspace shows up in the targets list.
+    const targetList: unknown = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json())
+    if (!Array.isArray(targetList)) return undefined
+    const target: unknown = targetList.find(
+      (entry: unknown) => isRecord(entry) && typeof entry.url === 'string' && entry.url.endsWith('/dist/index.html'),
+    )
+    if (!isRecord(target)) return undefined
+    return typeof target.webSocketDebuggerUrl === 'string' ? target.webSocketDebuggerUrl : undefined
+  })
+  assert.ok(url)
+  const socket = new WebSocket(url)
+  connection = socket
+  socket.addEventListener('message', ({ data }) => {
+    if (typeof data !== 'string') return
+    const message: unknown = JSON.parse(data)
+    if (!isRecord(message)) return
+    if (
+      message.method === 'Runtime.exceptionThrown' &&
+      isRecord(message.params) &&
+      isRecord(message.params.exceptionDetails)
+    ) {
+      const details = message.params.exceptionDetails
+      const exception = isRecord(details.exception) ? details.exception.description : undefined
+      rendererErrors.push(String(exception ?? details.text))
+    }
+    if (typeof message.id !== 'number') return
+    const request = pending.get(message.id)
+    if (!request) return
+    pending.delete(message.id)
+    if (isRecord(message.error)) request.reject(new Error(String(message.error.message)))
+    else request.resolve(message.result)
+  })
+  socket.addEventListener('close', () => {
+    for (const request of pending.values()) request.reject(new Error('Electron disconnected during the test.'))
+    pending.clear()
+  })
+  await until('the Electron debugger connection', async () => socket.readyState === WebSocket.OPEN)
+  await send('Runtime.enable')
+}
+
+function send(method: string, params: object = {}) {
+  const socket = connection
+  assert.ok(socket)
+  const id = ++nextMessage
+  return new Promise<unknown>((resolve, reject) => {
+    pending.set(id, { resolve, reject })
+    socket.send(JSON.stringify({ id, method, params }))
+  })
+}
+
+async function evaluate(expression: string) {
+  const output = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+  const result = isRecord(output) && isRecord(output.result) ? output.result : undefined
+  if (isRecord(output) && isRecord(output.exceptionDetails))
+    throw new Error(String(result?.description ?? output.exceptionDetails.text))
+  return result?.value
+}
+
+const select = (selector: string) => `document.querySelector(${JSON.stringify(selector)})`
+const matches = async (expression: string) => (await evaluate(expression)) === true
+const visible = (selector: string) => matches(`Boolean(${select(selector)}?.getClientRects().length)`)
+const exists = (selector: string) => matches(`Boolean(${select(selector)})`)
+const content = async (selector: string) => {
+  const value = await evaluate(`${select(selector)}?.textContent ?? ''`)
+  assert.ok(typeof value === 'string')
+  return value
+}
+const attribute = (selector: string, name: string) =>
+  evaluate(`${select(selector)}?.getAttribute(${JSON.stringify(name)}) ?? null`)
+const gitFile = (name: string) => `${gitPanel} [data-git-file="${name}"]`
+const gitCommit = (sha: string) => `${gitPanel} [data-git-commit="${sha}"]`
+
+async function click(selector: string) {
+  await until(selector, () => visible(selector))
+  await evaluate(`${select(selector)}.click()`)
+}
+
+async function button(container: string, name: string) {
+  const buttons = `Array.from(document.querySelectorAll(${JSON.stringify(`${container} button`)}))`
+  const target = `${buttons}.find(button => button.getClientRects().length
+    && !button.disabled && (button.getAttribute('aria-label') ?? button.textContent.trim()) === ${JSON.stringify(name)})`
+  await until(`button ${name}`, () => matches(`Boolean(${target})`))
+  await evaluate(`${target}.click()`)
+}
+
+async function pick(name: string, value: string) {
+  const options = `Array.from(document.querySelectorAll(${JSON.stringify(`${gitPanel} select`)}))`
+  const target = `${options}.find(select => (select.getAttribute('aria-label') ?? select.labels?.[0]?.textContent.trim()) === ${JSON.stringify(name)}
+    && Array.from(select.options).some(option => option.value === ${JSON.stringify(value)}))`
+  await until(`${name} option ${value}`, () => matches(`Boolean(${target})`))
+  await evaluate(`(() => {
+    const control = ${target}
+    control.value = ${JSON.stringify(value)}
+    control.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+}
+
+async function counts(added: number, removed: number) {
+  await until(`${added} added and ${removed} removed`, async () => {
+    const result = await content(`${gitPanel} .git-line-totals`)
+    return result.match(new RegExp(`\\+${added}(?!\\d)\\D*[−-]${removed}(?!\\d)`))
+  })
+}
+
+async function hunkAt(index: number) {
+  await until(`hunk ${index} of 3`, async () => {
+    return (
+      (await attribute(slider, 'aria-valuenow')) === String(index) && (await attribute(slider, 'aria-valuemax')) === '3'
+    )
+  })
+}
+
+async function key(selector: string, value: string) {
+  await evaluate(`(() => {
+    const control = ${select(selector)}
+    control.focus()
+    control.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(value)}, bubbles: true, cancelable: true }))
+  })()`)
+}
+
+async function clickLastOriginalMark() {
+  const mark = `${gitPanel} .review-map-row.is-original .review-map-mark:last-child`
+  await until('the original-side change mark', () => visible(mark))
+  const point = await evaluate(`(() => {
+    const element = ${select(mark)}
+    const rect = element.getBoundingClientRect()
+    return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2}
+  })()`)
+  assert.ok(isRecord(point))
+  await send('Input.dispatchMouseEvent', { ...point, type: 'mousePressed', button: 'left', clickCount: 1 })
+  await send('Input.dispatchMouseEvent', { ...point, type: 'mouseReleased', button: 'left', clickCount: 1 })
+}
+
+async function seesPatch(text: string) {
+  await until(`patch line "${text}"`, () =>
+    matches(`Array.from(document.querySelectorAll(${JSON.stringify(`${gitPanel} .monaco-diff-editor .view-line`)}))
+        .some(line => line.textContent.replace(/\\s/g, ' ').includes(${JSON.stringify(text)}))`),
+  )
+}
+
+async function oneSidedChange(side: 'working' | 'original', range: string) {
+  const source = `${gitPanel} .review-map-row.is-${side}`
+  const other = side === 'working' ? 'original' : 'working'
+  await until(`change mark on the ${side} side`, () => visible(`${source} .review-map-mark`))
+  assert.equal(await content(`${source} .review-map-row-range`), range)
+  assert.equal(await exists(`${gitPanel} .review-map-row.is-${other} .review-map-mark`), false)
+}
+
+async function screenshot(name: string) {
+  const destination = process.env.DIFFPANE_GIT_TEST_SCREENSHOTS
+  if (!destination) return
+  const result = await send('Page.captureScreenshot', { format: 'png' })
+  assert.ok(isRecord(result) && typeof result.data === 'string')
+  mkdirSync(destination, { recursive: true })
+  writeFileSync(path.join(destination, `git-workspace-${name}.png`), Buffer.from(result.data, 'base64'))
+}
+
+function viewport(width: number, height: number) {
+  return send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+}
+
+async function run(fixture: ReturnType<typeof createFixture>) {
+  const originalIndex = git('ls-files', '-s')
+  await attach()
+  await viewport(1280, 900)
+  await until('the fixture’s nested workspace', async () => (await content('#project-name')) === 'src')
+  await click(gitToggle)
+  await until('the Git workspace', () => visible(gitPanel))
+  await counts(6, 2)
+  await until('today’s current HEAD', () => visible(gitCommit(fixture.current)))
+  assert.ok(await visible(`${gitFile(scattered)} .git-bar-removed`))
+  assert.equal(await attribute(`${gitFile(scattered)} .git-bar-removed`, 'style'), 'inline-size: 100%;')
+  assert.equal(await attribute(`${gitFile(staged)} .git-bar-added`, 'style'), 'inline-size: 100%;')
+
+  await Promise.all(
+    [fixture.current, fixture.merge, fixture.main, fixture.branch].map(async sha => {
+      assert.ok(await visible(gitCommit(sha)), `Expected Today to include ${sha}`)
+    }),
+  )
+  await Promise.all(
+    [fixture.base, fixture.mainTip].map(async sha => {
+      assert.equal(await exists(gitCommit(sha)), false, `Expected Today to exclude ${sha}`)
+    }),
+  )
+  assert.equal(await exists(gitFile(cancelled)), false)
+  assert.ok(await visible(gitFile(staged)))
+  assert.ok(await visible(gitFile(untracked)))
+  await click(gitFile(untracked))
+  await seesPatch('untracked line two')
+
+  await pick('Comparison', 'staged')
+  await counts(3, 0)
+  assert.ok(await visible(gitFile(cancelled)))
+  await click(gitFile(cancelled))
+  await seesPatch('staged line cancelled on disk')
+  assert.equal(await exists(gitFile(untracked)), false)
+
+  await pick('Comparison', 'unstaged')
+  await counts(4, 3)
+  assert.ok(await visible(gitFile(untracked)))
+  assert.equal(await exists(gitFile(staged)), false)
+  await click(gitFile(cancelled))
+  await seesPatch('staged line cancelled on disk')
+
+  await pick('Comparison', 'head')
+  await counts(6, 2)
+  await click(gitFile(scattered))
+  await hunkAt(1)
+  await seesPatch('replacement in working tree')
+  await screenshot('today')
+  await button(gitPanel, 'Full file')
+  assert.equal(await attribute(`${gitPanel} .git-diff`, 'data-review-scope'), 'full')
+  await button(gitPanel, 'Changes only')
+  assert.equal(await attribute(`${gitPanel} .git-diff`, 'data-review-scope'), 'focus')
+  await button(gitPanel, 'Replay change')
+  await until('the standalone change replay', () => visible('dialog.change-replay[open]'))
+  await button('dialog.change-replay', 'Close replay')
+  await click(`${gitPanel} .review-hunk-next`)
+  await hunkAt(2)
+  await seesPatch('standalone inserted work')
+  await key(slider, 'Home')
+  await hunkAt(1)
+  await clickLastOriginalMark()
+  await hunkAt(3)
+  await seesPatch('context line 93')
+  await click(`${gitPanel} .review-hunk-prev`)
+  await hunkAt(2)
+
+  const changed = readFileSync(path.join(repository, scattered), 'utf8')
+  write(scattered, changed.replace('standalone inserted work', 'updated work at the same hunk'))
+  await seesPatch('updated work at the same hunk')
+  await hunkAt(2)
+  write(staged, 'staged line one\nstaged line two\nlive line from disk\n')
+  await counts(7, 2)
+  assert.equal(await attribute(gitFile(scattered), 'aria-pressed'), 'true')
+  await hunkAt(2)
+  await seesPatch('updated work at the same hunk')
+  await click(gitFile(staged))
+  await seesPatch('live line from disk')
+
+  const outsideScope = 'outside-scope.txt'
+  write(outsideScope, 'created above the open folder\n')
+  await counts(8, 2)
+  await click(gitFile(outsideScope))
+  await seesPatch('created above the open folder')
+  write(outsideScope, 'updated above the open folder\n')
+  await seesPatch('updated above the open folder')
+  rmSync(path.join(repository, outsideScope))
+  await counts(7, 2)
+  assert.equal(await exists(gitFile(outsideScope)), false)
+
+  const deletedPath = path.join(repository, dayCancelled)
+  const deleted = readFileSync(deletedPath, 'utf8')
+  rmSync(deletedPath)
+  await counts(7, 3)
+  await click(gitFile(dayCancelled))
+  await seesPatch('unchanged by the day’s commits')
+  await oneSidedChange('original', 'Line 1')
+  write(dayCancelled, deleted)
+  await counts(7, 2)
+
+  await button(gitPanel, 'Compare day')
+  await counts(3, 0)
+  const comparison = await content(gitPanel)
+  assert.ok(comparison.includes(fixture.base.slice(0, 7)), 'Compare day identifies the pre-midnight baseline')
+  assert.equal(await exists(gitFile(dayCancelled)), false, 'Day comparison reports net changes')
+  assert.equal(await exists(gitFile(staged)), false, 'Day comparison excludes the working tree')
+  await click(gitFile(branchFile))
+  await seesPatch('feature branch came first')
+
+  await button(gitPanel, 'History')
+  await until('the diverged main branch tip', () => visible(gitCommit(fixture.mainTip)))
+  assert.ok(await visible(`${gitCommit(fixture.mainTip)} [data-git-ref="main"]`))
+  assert.ok(await visible(`${gitCommit(fixture.current)} [data-git-ref="review/change-map"]`))
+  assert.ok(await visible(`${gitCommit(fixture.current)} [data-git-ref="review-demo"]`))
+  assert.ok(await exists(`${gitPanel} [data-git-edge-from="working"][data-git-edge-to="${fixture.current}"]`))
+  await Promise.all(
+    [fixture.branch, fixture.main].map(async parent => {
+      assert.ok(await exists(`${gitPanel} [data-git-edge-from="${fixture.merge}"][data-git-edge-to="${parent}"]`))
+    }),
+  )
+  const graphOrder = await evaluate(
+    `Array.from(document.querySelectorAll(${JSON.stringify(`${gitPanel} [data-git-commit]`)})).map(row => row.dataset.gitCommit)`,
+  )
+  assert.ok(Array.isArray(graphOrder))
+  assert.ok(graphOrder.indexOf(fixture.merge) < graphOrder.indexOf(fixture.branch))
+  assert.ok(graphOrder.indexOf(fixture.merge) < graphOrder.indexOf(fixture.main))
+  await click(gitCommit(fixture.merge))
+  await counts(1, 0)
+  await click(gitFile(mainFile))
+  await seesPatch('main contributed this line')
+  await oneSidedChange('working', 'Line 1')
+  await screenshot('history')
+  await viewport(650, 900)
+  await until('inline Git diff at desktop minimum width', () =>
+    visible(`${gitPanel} .monaco-diff-editor:not(.side-by-side)`),
+  )
+  await screenshot('history-narrow')
+  await viewport(1280, 900)
+  await pick('Compare parent', fixture.main)
+  await counts(3, 1)
+  await click(gitFile(branchFile))
+  await seesPatch('feature branch line two')
+
+  await click(gitCommit(fixture.mainTip))
+  await counts(1, 0)
+  await click(gitFile('src/diverged.txt'))
+  await seesPatch('main tip after the merge base')
+  await button(gitPanel, 'Today')
+  await counts(7, 2)
+  assert.equal(await exists(gitCommit(fixture.mainTip)), false)
+  await key(`${gitPanel} [data-git-view="today"]`, 'Escape')
+  assert.equal(await visible(gitPanel), false)
+  assert.equal(await attribute(gitToggle, 'aria-pressed'), 'false')
+  await click(gitToggle)
+  await counts(7, 2)
+  await button(gitPanel, 'Review changes')
+  await until('the existing Changes queue', () => visible('#change-review'))
+  assert.equal(await visible(gitPanel), false)
+  const reviewRow = `#change-review .change-review-row[data-path="${scattered}"]`
+  await click(reviewRow)
+  await until('the existing review editor', () => visible('.workbench .monaco-diff-editor'))
+  await button('#change-review', 'Mark reviewed & next')
+  await until('the reviewed file leaves the pending queue', async () => !(await visible(reviewRow)))
+
+  assert.equal(head(), fixture.current, 'Inspection leaves HEAD in place')
+  assert.equal(git('ls-files', '-s'), originalIndex, 'Inspection leaves the Git index in place')
+  assert.deepEqual(rendererErrors, [], 'Inspecting changes does not raise renderer exceptions')
+}
+
+try {
+  const fixture = createFixture()
+  const executable: unknown = createRequire(import.meta.url)('electron')
+  assert.ok(typeof executable === 'string')
+  const electron = spawn(
+    executable,
+    [
+      applicationRoot,
+      path.join(repository, 'src'),
+      `--user-data-dir=${profile}`,
+      '--remote-debugging-port=0',
+      '--remote-debugging-address=127.0.0.1',
+    ],
+    { env: { ...process.env, DIFFPANE_DEV_SERVER_URL: '' }, stdio: 'inherit' },
+  )
+  const exited = once(electron, 'exit')
+  try {
+    await run(fixture)
+    console.info('Git workspace integration passed.')
+  } finally {
+    connection?.close()
+    if (electron.exitCode === null && electron.signalCode === null) electron.kill()
+    await exited
+  }
+} finally {
+  rmSync(directory, { recursive: true, force: true, maxRetries: 3 })
+}

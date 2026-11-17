@@ -43,6 +43,15 @@ import type { Idea, IdeaChange, IdeaLink } from '../../../shared/ideas/ideas.ts'
 import type { FileMenuAction } from '../../../shared/preferences/file-menu.ts'
 import type { ShortcutAction, ShortcutBinding, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts'
 import type { ErrorDetails } from '../../../shared/recovery/app-errors.ts'
+import type {
+  GitChanges,
+  GitCommit,
+  GitComparison,
+  GitFile,
+  GitFileContents,
+  GitOverview,
+  GitRef,
+} from '../../../shared/review/git.ts'
 import type { ReviewAnchor, ReviewNote, ReviewNoteChange } from '../../../shared/review/review-notes.ts'
 import type { RecentTarget } from '../../persistence/preferences/recent-targets.ts'
 import type {
@@ -622,6 +631,67 @@ function isCheckpoint(value: unknown): value is WorkspaceCheckpoint {
   )
 }
 
+function isGitId(value: unknown): value is string {
+  return typeof value === 'string' && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(value)
+}
+
+function isGitRef(value: unknown): value is GitRef {
+  return (
+    isRecord(value) &&
+    isString(value.name) &&
+    (value.kind === 'branch' || value.kind === 'remote' || value.kind === 'tag')
+  )
+}
+
+function isGitCommit(value: unknown): value is GitCommit {
+  return (
+    isRecord(value) &&
+    isGitId(value.id) &&
+    arrayOf(isGitId)(value.parents) &&
+    isString(value.subject) &&
+    typeof value.committedAt === 'number' &&
+    Number.isSafeInteger(value.committedAt) &&
+    arrayOf(isGitRef)(value.refs)
+  )
+}
+
+function isGitOverview(value: unknown): value is GitOverview {
+  return (
+    isRecord(value) &&
+    isString(value.branch) &&
+    nullable(isGitId)(value.head) &&
+    arrayOf(isGitCommit)(value.commits) &&
+    arrayOf(isGitCommit)(value.today) &&
+    nullable(isGitId)(value.dayBase) &&
+    isBoolean(value.historyHasMore)
+  )
+}
+
+function isGitFile(value: unknown): value is GitFile {
+  return (
+    isRecord(value) &&
+    isString(value.path) &&
+    nullable(isString)(value.originalPath) &&
+    isString(value.status) &&
+    nullable(isCount)(value.additions) &&
+    nullable(isCount)(value.deletions)
+  )
+}
+
+function isGitChanges(value: unknown): value is GitChanges {
+  return isRecord(value) && arrayOf(isGitFile)(value.files) && isCount(value.additions) && isCount(value.deletions)
+}
+
+function isGitFileContents(value: unknown): value is GitFileContents {
+  return (
+    isRecord(value) &&
+    isString(value.before) &&
+    isString(value.after) &&
+    optional(nullable(isString))(value.note) &&
+    optional(isBoolean)(value.available)
+  )
+}
+
 function isSnapshot(value: unknown): value is WorkspaceSnapshot {
   return (
     isRecord(value) &&
@@ -1116,6 +1186,13 @@ const API = {
   directoryExpanded: (path: string, expanded: boolean) => invoke('directory-expanded', isNull, path, expanded),
   document: (path: string, comparison: WorkspaceComparison = 'head') =>
     invoke('document', isWorkspaceDocument, path, comparison),
+  git: {
+    overview: (dayStart: number, dayEnd: number, historyLimit?: number) =>
+      invoke('git-overview', isGitOverview, dayStart, dayEnd, historyLimit),
+    changes: (comparison: GitComparison) => invoke('git-changes', isGitChanges, comparison),
+    contents: (comparison: GitComparison, file: GitFile) => invoke('git-contents', isGitFileContents, comparison, file),
+    onChange: (callback: () => void) => listen('git-change', isNull, callback),
+  },
   save: (path: string, text: string, expected: string) => invoke('save', isNull, path, text, expected),
   rename: (path: string, name: string) => invoke('rename', isString, path, name),
   fileAction: (action: string, path: string) => invoke('file-action', isVoid, action, path),

@@ -9,6 +9,8 @@ import './review-focus.css'
 
 /** @typedef {'focus' | 'full'} ReviewScope */
 /** @typedef {'first' | 'last'} ChangePosition */
+/** @typedef {import('monaco-editor').editor.IDiffEditorModel} DiffModel */
+/** @typedef {readonly import('monaco-editor').editor.ILineChange[]} Hunks */
 
 const positionFormat = new Intl.NumberFormat(undefined, { numberingSystem: 'latn' })
 
@@ -61,8 +63,8 @@ function inlineRemovalBounds(pane, nextLine) {
   return [pane.getBottomForLineNumber(nextLine - 1), bottom]
 }
 
-/** @param {{ onScope: (scope: ReviewScope) => void, onActionsChange?: () => void }} options */
-export function createReviewFocus({ onScope, onActionsChange }) {
+/** @param {{ onScope: (scope: ReviewScope) => void, onActionsChange?: () => void, lineCount?: (model: import('monaco-editor').editor.ITextModel) => number, normalizeHunks?: (hunks: Hunks, model: DiffModel) => Hunks }} options */
+export function createReviewFocus({ onScope, onActionsChange, lineCount, normalizeHunks }) {
   const bar = document.createElement('div')
   bar.className = 'review-hunk-bar'
   bar.setAttribute('role', 'group')
@@ -88,7 +90,7 @@ export function createReviewFocus({ onScope, onActionsChange }) {
   const previous = requireElement(bar, '.review-hunk-prev', HTMLButtonElement)
   const next = requireElement(bar, '.review-hunk-next', HTMLButtonElement)
   const replayButton = requireElement(bar, '.review-hunk-replay', HTMLButtonElement)
-  const changeMap = createReviewChangeMap(jump)
+  const changeMap = createReviewChangeMap(jump, lineCount)
   /** @type {import('monaco-editor').editor.IDiffEditor | null} */
   let editor = null
   /** @type {{ originalAriaLabel?: string, modifiedAriaLabel?: string }} */
@@ -99,9 +101,10 @@ export function createReviewFocus({ onScope, onActionsChange }) {
   let brackets = null
   /** @type {ReviewScope} */
   let scope = 'focus'
-  /** @type {readonly import('monaco-editor').editor.ILineChange[]} */
+  /** @type {Hunks} */
   let hunks = []
   let baseline = 'Git HEAD'
+  let modifiedLabel = 'Working file'
   let replayPending = false
   /** @type {HTMLDialogElement | undefined} */
   let replayDialog
@@ -212,7 +215,7 @@ export function createReviewFocus({ onScope, onActionsChange }) {
       return
     }
     const anchor = hunks[index]?.modifiedStartLineNumber
-    hunks = changes
+    hunks = normalizeHunks?.(changes, model) ?? changes
     index = 0
     if (anchor !== undefined) {
       let nearest = Infinity
@@ -284,7 +287,7 @@ export function createReviewFocus({ onScope, onActionsChange }) {
           model.modified.getVersionId() !== modifiedVersion
         )
           return
-        const dialog = showChangeReplay(model, hunk, baseline, announcement.textContent)
+        const dialog = showChangeReplay(model, hunk, baseline, announcement.textContent, modifiedLabel)
         replayDialog = dialog
         dialog.addEventListener(
           'close',
@@ -347,7 +350,14 @@ export function createReviewFocus({ onScope, onActionsChange }) {
     /** @param {'HEAD' | 'Checkpoint'} value */
     setBaseline(value) {
       baseline = value === 'HEAD' ? 'Git HEAD' : value
-      changeMap.setBaseline(value)
+      modifiedLabel = 'Working file'
+      changeMap.setVersions(baseline, modifiedLabel)
+    },
+    /** @param {string} original @param {string} modified */
+    setVersions(original, modified) {
+      baseline = original
+      modifiedLabel = modified
+      changeMap.setVersions(baseline, modifiedLabel)
     },
     workingLine() {
       const hunk = hunks[index]

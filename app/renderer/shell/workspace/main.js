@@ -57,7 +57,9 @@ import '../../explorer/tree/navigator.css'
 import { createBillyLanes } from '../../review/billy-lanes/lanes.ts'
 import { createBillyReviewContext } from '../../review/billy/context.ts'
 import { changedSymbolRanges } from '../../review/comparison/function-ranges.ts'
+import { createGitDiff } from '../../review/comparison/git-diff.ts'
 import { createReviewFocus } from '../../review/comparison/review-focus.js'
+import { createGitWorkspace } from '../../review/git/git-workspace.ts'
 import { createReviewNotes } from '../../review/notes/review-notes.ts'
 import { createChangeReview } from '../../review/queue/change-review.js'
 import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
@@ -192,7 +194,7 @@ app.innerHTML = `
     <div class="brand" role="img" aria-label="diffpane"><span class="brand-mark">${icons.mark}</span></div>
     <span class="title-divider"></span>
     <div class="project"><span id="project-name">Diffpane</span><span id="project-path"></span></div>
-    <span class="branch" hidden>${icons.branch}<span id="branch-name"></span></span>
+    <button type="button" class="branch titlebar-button" id="git-workspace-toggle" aria-label="Git workspace" aria-controls="git-workspace" aria-pressed="false" title="Inspect Git history and changes" hidden>${icons.branch}<span id="branch-name"></span></button>
     <div class="titlebar-actions">
       <button type="button" id="ideas-toggle" class="titlebar-button" aria-controls="ideas-panel" aria-expanded="false" hidden>${icons.idea}<span>Ideas</span></button>
       <button type="button" id="content-search-toggle" class="titlebar-button" aria-label="Search in project" aria-haspopup="dialog" aria-controls="content-search" hidden>${icons.search}<span>Search</span></button>
@@ -245,6 +247,7 @@ app.innerHTML = `
     <aside id="claude-panel" hidden></aside>
     <aside id="review-notes-panel" hidden></aside>
   </div>
+  <section id="git-workspace" aria-label="Git workspace" hidden></section>
   <section id="terminal-dock" aria-label="Workspace terminal" hidden></section>
   <footer class="statusbar"><span id="status-text">Opening workspace…</span><span class="statusbar-end" hidden><span class="current-only">Current file contents</span><span class="status-dot"></span><span id="save-state" role="status">Autosave on</span></span></footer>
   <main id="agent-threads" hidden></main>
@@ -252,6 +255,8 @@ app.innerHTML = `
 
 const ui = {
   workspace: requireElement(app, '#workspace', HTMLElement),
+  gitWorkspace: requireElement(app, '#git-workspace', HTMLElement),
+  gitToggle: requireElement(app, '#git-workspace-toggle', HTMLButtonElement),
   workbench: requireElement(app, '.workbench', HTMLElement),
   ideasPanel: requireElement(app, '#ideas-panel', HTMLElement),
   ideasToggle: requireElement(app, '#ideas-toggle', HTMLButtonElement),
@@ -384,6 +389,11 @@ ui.terminalToggle.addEventListener('click', event => {
 })
 /** @type {Set<string>} */
 const requestedEditorFonts = new Set()
+const gitDiff = createGitDiff({
+  load: api.git.contents,
+  resolveLanguage: (model, source) => syntax.resolve(model, source),
+  appearance: () => appearance.value,
+})
 const appearance = createAppearanceSettings(uiPreferences, (preferences, scheme) => {
   const themeChanged = activeScheme !== scheme
   if (themeChanged) {
@@ -393,6 +403,7 @@ const appearance = createAppearanceSettings(uiPreferences, (preferences, scheme)
     syncTerminalLayout()
   }
   const code = codeAppearance(preferences)
+  gitDiff.updateAppearance(preferences)
   const bundledFont = bundledEditorFont(preferences.font)
   if (bundledFont && !requestedEditorFonts.has(bundledFont)) {
     requestedEditorFonts.add(bundledFont)
@@ -905,6 +916,56 @@ let billyAvailable = false
 let billyLanesRefreshed = -Infinity
 ui.reviewToggle.addEventListener('click', toggleReview)
 
+const gitWorkspace = createGitWorkspace(ui.gitWorkspace, {
+  loadOverview: api.git.overview,
+  loadChanges: api.git.changes,
+  openFile: gitDiff.open,
+  openReview: openGitReviewQueue,
+})
+ui.gitToggle.addEventListener('click', () => {
+  if (!snapshot || closed || closingRequested) return
+  if (closeGitWorkspace()) {
+    ui.gitToggle.focus()
+    return
+  }
+  exitZenMode()
+  returnFromIdeas()
+  ui.workspace.hidden = true
+  app.dataset.gitWorkspace = 'open'
+  ui.gitToggle.setAttribute('aria-pressed', 'true')
+  gitWorkspace.show()
+})
+ui.gitWorkspace.addEventListener('keydown', event => {
+  if (event.key !== 'Escape' || event.defaultPrevented || event.target instanceof HTMLSelectElement) return
+  if (document.querySelector('dialog[open]')) return
+  event.preventDefault()
+  closeGitWorkspace()
+  ui.gitToggle.focus()
+})
+
+function closeGitWorkspace() {
+  if (ui.gitWorkspace.hidden) return false
+  gitWorkspace.hide()
+  ui.workspace.hidden = false
+  delete app.dataset.gitWorkspace
+  ui.gitToggle.setAttribute('aria-pressed', 'false')
+  return true
+}
+
+function openGitReviewQueue() {
+  closeGitWorkspace()
+  reviewVisible = true
+  setSidebarVisible(true)
+  review.focus()
+}
+
+function refreshGitWorkspace() {
+  if (!ui.gitWorkspace.hidden) gitWorkspace.refresh()
+}
+
+window.addEventListener('focus', refreshGitWorkspace)
+const unsubscribeGitChanges = api.git.onChange(refreshGitWorkspace)
+
 /** @param {string} path @param {number} [line] */
 async function openBillySource(path, line) {
   if (!snapshot) return false
@@ -1095,11 +1156,13 @@ const ideas =
 const workspaceLayout = createWorkspaceLayout(ui.workspace, uiPreferences)
 const unsubscribeIdeaVisibility = uiPreferences.onChange('ideasVisible', syncIdeasVisibility)
 ui.ideasToggle.addEventListener('click', () => {
+  closeGitWorkspace()
   if (!returnFromIdeas({ restoreFocus: true })) showIdeasNotebook()
 })
 ui.claudeToggle.addEventListener(
   'click',
   event => {
+    closeGitWorkspace()
     if (!returnFromIdeas()) return
     event.stopImmediatePropagation()
     assistant?.toggle(true)
@@ -1109,6 +1172,7 @@ ui.claudeToggle.addEventListener(
 ui.reviewNotesToggle.addEventListener(
   'click',
   () => {
+    closeGitWorkspace()
     exitZenMode()
     if (returnFromIdeas()) reviewNotes?.close()
   },
@@ -1222,6 +1286,7 @@ async function openFile(
     }
   }
   if (version !== navigationVersion || closingRequested || closed) return false
+  closeGitWorkspace()
   if (ideaMode === 'notebook') {
     try {
       await api.document(file.path, compare ? comparison : 'head')
@@ -1472,6 +1537,7 @@ function toggleNavigator() {
 }
 
 function showFileExplorer() {
+  closeGitWorkspace()
   exitZenMode()
   returnFromIdeas()
   reviewVisible = false
@@ -1500,6 +1566,10 @@ function switchToPreviousFile() {
 
 function toggleReview() {
   if (!snapshot) return
+  if (!ui.gitWorkspace.hidden) {
+    openGitReviewQueue()
+    return
+  }
   const wasZen = exitZenMode()
   reviewVisible = returnFromIdeas() || wasZen || ui.sidebar.hidden === true || !reviewVisible
   setSidebarVisible(true)
@@ -1522,6 +1592,7 @@ function exitZenMode() {
 
 function toggleZenMode() {
   if (exitZenMode()) return
+  closeGitWorkspace()
   returnFromIdeas()
   if (!ui.workbench.contains(document.activeElement)) {
     const editor = openedFile ? cards.get(openedFile.path)?.editor : undefined
@@ -1827,6 +1898,10 @@ function renderSnapshot(next) {
   const watchChanged = next.watchError !== snapshot?.watchError
   const searchChanged = next.revision !== snapshot?.revision || next.inventoryRevision !== snapshot?.inventoryRevision
   snapshot = next
+  if (rootChanged) {
+    closeGitWorkspace()
+    gitWorkspace.reset()
+  } else if (searchChanged || next.changedPaths.length) refreshGitWorkspace()
   ui.startError.replaceChildren()
   if (!workspaceFailure) clearErrorNotice('workspace')
   if (searchChanged) contentSearch?.refresh()
@@ -1852,7 +1927,7 @@ function renderSnapshot(next) {
   }
   if (first) {
     setSidebarVisible(true)
-    requireElement(document, '.branch', HTMLElement).hidden = false
+    ui.gitToggle.hidden = false
     requireElement(document, '.statusbar-end', HTMLElement).hidden = false
     ui.contentSearchToggle.hidden = !contentSearch
     ui.terminalToggle.hidden = !api.terminal
@@ -1873,6 +1948,7 @@ function renderSnapshot(next) {
   ui.projectPath.textContent = next.scope
   ui.projectPath.title = next.scope
   ui.branchName.textContent = next.branch || 'HEAD'
+  ui.gitToggle.setAttribute('aria-description', next.branch || 'Detached HEAD')
   document.title = `${ui.projectName.textContent} · diffpane`
   if (next.watchError && watchChanged) {
     reportError(next.watchError, {
@@ -3519,7 +3595,10 @@ Object.assign(window, {
       if (documentFrame !== null) cancelAnimationFrame(documentFrame)
       navigator.dispose()
       review.dispose()
+      gitWorkspace.destroy()
+      unsubscribeGitChanges()
       window.removeEventListener('focus', refreshBillyLanes)
+      window.removeEventListener('focus', refreshGitWorkspace)
       billyContext?.dispose()
       billyLanes?.dispose()
       unsubscribePaths()

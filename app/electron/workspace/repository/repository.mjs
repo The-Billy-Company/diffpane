@@ -13,6 +13,7 @@ import {
   MAX_CLAUDE_EDIT_FILES,
   MAX_CLAUDE_FILE_BYTES,
 } from '../../tools/assistant/claude-workspace.mjs'
+import { decorations } from '../comparison/changes.ts'
 import {
   encodeText,
   fileByteView,
@@ -21,11 +22,13 @@ import {
   readLimit,
   searchableText,
 } from '../documents/file-content.ts'
+import { gitWorkspaceChanges, gitWorkspaceOverview, isGitOid, parseGitComparison } from './git-workspace.mjs'
 
 /** @import { BigIntStats } from 'node:fs' */
 /** @import { FileHandle } from 'node:fs/promises' */
 /** @import { FileContent } from '../documents/file-content.ts' */
 /** @import { WorkspaceFile } from '../../runtime/session/workspace-types.ts' */
+/** @import { GitChanges, GitFile, GitFileContents } from '../../../shared/review/git.ts' */
 /** @typedef {Parameters<typeof fileContent>[0]} ContentBytes */
 /** @typedef {{bytes: Buffer, size: number}} BlobContents */
 /** @typedef {{value: Promise<BlobContents>, bytes: number}} CachedBlob */
@@ -275,6 +278,130 @@ export class Repository {
 
   snapshot() {
     return this.#status(true)
+  }
+
+  /** @param {readonly string[]} args */
+  #readGitWorkspace = args => git(this.root, args, MAX_STATUS_BYTES)
+
+  /** @param {unknown} dayStartMs @param {unknown} dayEndMs @param {unknown} [historyLimit] */
+  async gitOverview(dayStartMs, dayEndMs, historyLimit) {
+    const [revision, symbolic] = await Promise.all([
+      command(this.root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], 4096),
+      command(this.root, ['symbolic-ref', '--quiet', 'HEAD'], 4096),
+    ])
+    const head = revision.code === 1 ? null : successful(revision).toString('ascii').trim()
+    if (head !== null && !isGitOid(head)) throw new Error('Git returned an invalid HEAD revision.')
+    const branch =
+      symbolic.code === 1
+        ? `detached ${head?.slice(0, 8) ?? 'HEAD'}`
+        : decoder
+            .decode(successful(symbolic))
+            .trimEnd()
+            .replace(/^refs\/heads\//u, '')
+    return gitWorkspaceOverview(this.#readGitWorkspace, head, branch, dayStartMs, dayEndMs, historyLimit)
+  }
+
+  async #gitEmptyTree() {
+    const result = await command(this.root, ['hash-object', '-t', 'tree', '--stdin'], 4096, empty())
+    const tree = successful(result).toString('ascii').trim()
+    if (!isGitOid(tree)) throw new Error('Git returned an invalid empty tree revision.')
+    return tree
+  }
+
+  /** @param {unknown} selection @returns {Promise<GitChanges>} */
+  async gitChanges(selection) {
+    const comparison = parseGitComparison(selection)
+    if (comparison.kind === 'revision') {
+      const base = comparison.base ?? (await this.#gitEmptyTree())
+      return summarizeGitChanges(await gitWorkspaceChanges(this.#readGitWorkspace, [base, comparison.target]))
+    }
+
+    const status = parseStatus(await this.#readGitWorkspace(statusArguments))
+    const endpoints = comparison.mode === 'unstaged' ? [] : [status.head ?? (await this.#gitEmptyTree())]
+    if (comparison.mode === 'staged') endpoints.push('--cached')
+    const files = new Map((await gitWorkspaceChanges(this.#readGitWorkspace, endpoints)).map(file => [file.path, file]))
+    for (const file of status.files) {
+      if (!file.conflicted) continue
+      const change = files.get(file.path)
+      files.set(file.path, {
+        path: file.path,
+        originalPath: null,
+        status: 'U',
+        additions: comparison.mode === 'head' ? (change ? change.additions : 0) : null,
+        deletions: comparison.mode === 'head' ? (change ? change.deletions : 0) : null,
+      })
+    }
+    if (comparison.mode !== 'staged') {
+      const untracked = status.files.filter(file => file.worktree === '?')
+      const changes = await mapCheckpointReads(untracked, async file => {
+        const worktree = await this.#workingFile(file.path, true)
+        if (comparison.mode === 'head' && status.head && files.get(file.path)?.status === 'D') {
+          const head = await this.#blob(`${status.head}:`, file.path)
+          return this.#gitRecreatedChange(file.path, head, worktree)
+        }
+        const additions = untrackedGitLines(worktree)
+        return { path: file.path, originalPath: null, status: '?', additions, deletions: additions === null ? null : 0 }
+      })
+      for (const [index, file] of untracked.entries()) {
+        const change = changes[index]
+        if (change) files.set(file.path, change)
+        else files.delete(file.path)
+      }
+    }
+    return summarizeGitChanges([...files.values()])
+  }
+
+  /** @param {string} filename @param {ContentBytes} head @param {ContentBytes} worktree @returns {GitFile | null} */
+  #gitRecreatedChange(filename, head, worktree) {
+    const headBytes = completeBytes(head)
+    const workingBytes = completeBytes(worktree)
+    if (headBytes && workingBytes?.equals(headBytes)) return null
+    const contents = comparedContents(head, worktree, filename, filename)
+    if (!contents.note && !contents.preview && contents.before === contents.after) return null
+    const counts =
+      contents.preview || (contents.note && contents.before === contents.after)
+        ? { additions: null, deletions: null }
+        : decorations(contents.before, contents.after)
+    return { path: filename, originalPath: null, status: 'M', additions: counts.additions, deletions: counts.deletions }
+  }
+
+  /** @param {unknown} selection @param {unknown} file @returns {Promise<GitFileContents>} */
+  async gitContents(selection, file) {
+    const comparison = parseGitComparison(selection)
+    if (!file || typeof file !== 'object' || !('path' in file) || !('originalPath' in file) || !('status' in file)) {
+      throw new Error('Invalid Git change file.')
+    }
+    validateGitFilePath(file.path)
+    if (file.originalPath !== null) validateGitFilePath(file.originalPath)
+    if (file.status === 'S')
+      return unavailableGitContents('Git submodule. Open the submodule directory to inspect its files.')
+    if (file.status === 'U' && comparison.kind === 'working' && comparison.mode !== 'head') {
+      return unavailableGitContents(
+        'The index has unresolved merge stages. Choose HEAD → Working tree to see conflict markers.',
+      )
+    }
+    const oldPath = file.originalPath ?? file.path
+    /** @type {Promise<ContentBytes> | Buffer} */
+    let before
+    /** @type {Promise<ContentBytes> | Buffer} */
+    let after
+    if (comparison.kind === 'revision') {
+      before = comparison.base === null || file.status === 'A' ? empty() : this.#blob(`${comparison.base}:`, oldPath)
+      after = file.status === 'D' ? empty() : this.#blob(`${comparison.target}:`, file.path)
+    } else {
+      const { mode } = comparison
+      before = file.status === '?' ? empty() : this.#blob(mode === 'unstaged' ? ':' : 'HEAD:', oldPath)
+      after = mode === 'staged' ? this.#blob(':', file.path) : this.#workingFile(file.path, true)
+    }
+    const [beforeBytes, afterBytes] = await Promise.all([before, after])
+    const contents = comparedContents(beforeBytes, afterBytes, oldPath, file.path, file.status === 'U')
+    if (contents.preview) {
+      return unavailableGitContents(
+        contents.preview.after.note ?? contents.preview.before.note ?? 'This file has no text patch.',
+      )
+    }
+    if (contents.note && !contents.before && !contents.after) return unavailableGitContents(contents.note)
+    return { before: contents.before, after: contents.after, note: contents.note, available: true }
   }
 
   /** @param {string} filename */
@@ -1314,8 +1441,8 @@ export class Repository {
     }
   }
 
-  /** @param {string} filename @returns {Promise<ContentBytes>} */
-  async #workingFile(filename) {
+  /** @param {string} filename @param {boolean} [protectGit] @returns {Promise<ContentBytes>} */
+  async #workingFile(filename, protectGit = false) {
     const absolute = path.join(this.root, filename)
     let metadata
     try {
@@ -1333,6 +1460,16 @@ export class Repository {
     }
     if (!within(this.root, parent)) {
       return { note: 'The parent directory resolves outside this repository; preview skipped.' }
+    }
+    if (
+      protectGit &&
+      ([this.gitDir, this.commonDir].some(directory => within(directory, parent)) ||
+        path
+          .relative(this.root, parent)
+          .split(path.sep)
+          .some(part => part.toLowerCase() === '.git'))
+    ) {
+      return { note: 'The file resolves inside Git metadata; preview skipped.' }
     }
     // Git stores a symlink's target, never the contents reached through that link.
     if (metadata.isSymbolicLink()) return readlink(absolute, { encoding: 'buffer' })
@@ -1371,6 +1508,44 @@ export class Repository {
       await handle?.close()
     }
   }
+}
+
+/** @param {GitFile[]} files @returns {GitChanges} */
+function summarizeGitChanges(files) {
+  let additions = 0
+  let deletions = 0
+  for (const file of files) {
+    additions += file.additions ?? 0
+    deletions += file.deletions ?? 0
+  }
+  return { files: files.toSorted((a, b) => comparePaths(a.path, b.path)), additions, deletions }
+}
+
+/** @param {ContentBytes} input */
+function completeBytes(input) {
+  const bytes = Buffer.isBuffer(input) ? input : input.bytes
+  return bytes && (Buffer.isBuffer(input) || input.size === bytes.length) ? bytes : null
+}
+
+/** @param {ContentBytes} input */
+function untrackedGitLines(input) {
+  const bytes = completeBytes(input)
+  if (!bytes || bytes.subarray(0, 8_000).includes(0)) return null
+  let count = 0
+  for (let index = bytes.indexOf(10); index !== -1; index = bytes.indexOf(10, index + 1)) count += 1
+  return count + Number(bytes.length > 0 && bytes.at(-1) !== 10)
+}
+
+/** @param {string} note @returns {GitFileContents} */
+function unavailableGitContents(note) {
+  return { before: '', after: '', note, available: false }
+}
+
+/** @param {unknown} filename @returns {asserts filename is string} */
+function validateGitFilePath(filename) {
+  validatePath(filename)
+  if (filename.split('/').some(part => part.toLowerCase() === '.git'))
+    throw new Error('Git metadata cannot be previewed.')
 }
 
 /** @param {ContentBytes} beforeBytes @param {ContentBytes} afterBytes @param {string} beforePath @param {string} afterPath @param {boolean} [conflicted] @returns {RepositoryContents} */

@@ -640,6 +640,9 @@ async function performRefresh() {
           watchError === snapshot?.watchError
         ) {
           fallbackState = observed
+          // The editor poll tracks scoped documents. Git can also show other refs
+          // and files across the repository, so let its open view reconcile them.
+          port.postMessage({ event: 'git-change', value: null })
           return snapshot
         }
         if ((statusChanged || metadataChanged) && !all) {
@@ -909,6 +912,9 @@ async function receive({ id, method, args }) {
     let value
     if (method === 'snapshot') value = snapshot ?? (await refresh())
     else if (method === 'capture-checkpoint') value = await captureCheckpoint()
+    else if (method === 'git-overview') value = await repository.gitOverview(args[0], args[1], args[2])
+    else if (method === 'git-changes') value = await repository.gitChanges(args[0])
+    else if (method === 'git-contents') value = await repository.gitContents(args[0], args[1])
     else if (method === 'operation-path') {
       await files()
       const filename = sessionString(args[0], 'file path')
@@ -1126,7 +1132,7 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
     return
   }
   const { default: watcher } = watcherLoad.value
-  for (const watchPath of new Set([repository.scope, repository.gitDir, repository.commonDir])) {
+  for (const watchPath of new Set([repository.root, repository.gitDir, repository.commonDir])) {
     if (shuttingDown) break
     try {
       // oxlint-disable-next-line eslint/no-await-in-loop -- A shutdown may interrupt setup after any individual subscription.
@@ -1142,6 +1148,7 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
           documents.invalidate()
         }
         const livePaths = new Set()
+        let outsideScopeChanged = false
         for (const event of events) {
           const metadata = gitMetadata(event.path)
           if (metadata === true || event.path === repository.scope) {
@@ -1184,10 +1191,16 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
             if (languageChanges.size < 4096) languageChanges.set(event.path, event)
             if (changes.size < 4096) changes.add(event.path)
             else broadChanges = true
+          } else if (
+            metadata === null &&
+            (event.path === repository.root || event.path.startsWith(repository.root + path.sep))
+          ) {
+            outsideScopeChanged = true
           }
         }
         // Editor reads can proceed while status and inventory subprocesses run.
         if (force || livePaths.size) port.postMessage({ event: 'paths', value: force ? ['*'] : [...livePaths] })
+        if (outsideScopeChanged && !force) port.postMessage({ event: 'git-change', value: null })
         if (force || changes.size) schedule()
       })
       // Disposal joins setup before unsubscribing, including a subscription

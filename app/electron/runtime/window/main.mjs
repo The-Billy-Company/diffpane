@@ -477,6 +477,7 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
       }
       if (
         message.event === 'change' ||
+        message.event === 'git-change' ||
         message.event === 'language-event' ||
         message.event === 'howmany-event' ||
         message.event === 'paths'
@@ -1310,6 +1311,9 @@ for (const method of [
   'files-delta',
   'directory-expanded',
   'document',
+  'git-overview',
+  'git-changes',
+  'git-contents',
   'save',
   'rename',
   'refresh',

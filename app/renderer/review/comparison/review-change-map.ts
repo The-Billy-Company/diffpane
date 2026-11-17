@@ -51,7 +51,10 @@ function locateMark(mark: HTMLElement, start: number, end: number) {
   mark.style.setProperty('--mark-width', `${(100 * (end - start)) / TRACK_STEPS}%`)
 }
 
-export function createReviewChangeMap(onSelect: (index: number) => void) {
+export function createReviewChangeMap(
+  onSelect: (index: number) => void,
+  countLines = (model: editor.ITextModel) => model.getLineCount(),
+) {
   const element = document.createElement('div')
   const gradientId = `review-map-gradient-${++mapId}`
   element.className = 'review-change-map'
@@ -144,12 +147,12 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
   let selected = 0
   let previewed = -1
 
-  function setBaseline(baseline: 'HEAD' | 'Checkpoint') {
-    const original = lanes[0]
-    if (!original) return
-    const label = baseline === 'HEAD' ? 'Git HEAD' : baseline
-    if (original.label.textContent === label) return
-    original.label.textContent = original.versionLabel.textContent = label
+  function setVersions(original: string, modified: string) {
+    for (const [index, lane] of lanes.entries()) {
+      const label = index === 0 ? original : modified
+      lane.label.textContent = lane.versionLabel.textContent = label
+      lane.label.title = label
+    }
     const hunk = hunks[selected]
     if (hunk) describeSelection(selected, hunk)
   }
@@ -188,7 +191,7 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
 
     for (const lane of lanes) {
       const text = model?.[lane.side]
-      lane.lineCount = text?.getLineCount() ?? 1
+      lane.lineCount = text ? Math.max(1, countLines(text)) : 1
       lane.version = text?.getVersionId() ?? 0
       lane.targets = []
       const marks: HTMLSpanElement[] = []
@@ -234,8 +237,10 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
       const { height, contentWidth } = pane.getLayoutInfo()
       const text = pane.getModel()
       // Inline diffs have no original code pane. Its editor is only as wide as the gutter.
-      const ranges = height > 0 && contentWidth > 0 && text?.getValueLength() ? pane.getVisibleRanges() : []
-      const lineCount = text?.getLineCount() ?? 1
+      const ranges =
+        height > 0 && contentWidth > 0 && text?.getValueLength()
+          ? pane.getVisibleRanges().filter(range => range.startLineNumber <= lane.lineCount)
+          : []
       const segments = lane.viewportSegments
       while (segments.length > ranges.length) segments.pop()?.remove()
       for (const [index, { startLineNumber, endLineNumber }] of ranges.entries()) {
@@ -245,8 +250,9 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
           segments.push(segment)
           lane.viewport.append(segment)
         }
-        segment.style.setProperty('--viewport-start', `${(100 * (startLineNumber - 1)) / lineCount}%`)
-        segment.style.setProperty('--viewport-size', `${(100 * (endLineNumber - startLineNumber + 1)) / lineCount}%`)
+        const end = Math.min(endLineNumber, lane.lineCount)
+        segment.style.setProperty('--viewport-start', `${(100 * (startLineNumber - 1)) / lane.lineCount}%`)
+        segment.style.setProperty('--viewport-size', `${(100 * (end - startLineNumber + 1)) / lane.lineCount}%`)
       }
     }
     viewportKey.hidden = !lanes.some(lane => lane.viewportSegments.length)
@@ -442,5 +448,5 @@ export function createReviewChangeMap(onSelect: (index: number) => void) {
     showPreview(target)
   })
 
-  return { element, update, updateViewport, select, setBaseline }
+  return { element, update, updateViewport, select, setVersions }
 }
