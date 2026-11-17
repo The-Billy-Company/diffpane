@@ -107,7 +107,7 @@ function fileRow(file: GitFile, maximum: number) {
     `${file.path}, ${status}, ${known ? linesLabel(file.additions ?? 0, file.deletions ?? 0) : 'line counts unavailable'}`,
   )
   row.title = file.originalPath ? `${file.originalPath} → ${file.path}` : file.path
-  const symbol = projectIcon({ name, kind: 'file' })
+  const symbol = projectIcon({ name, kind: 'file', path: file.path })
   const identifier = element('span', 'git-file-identity')
   if (symbol) {
     const icon = element('img', 'git-file-icon')

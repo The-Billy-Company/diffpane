@@ -92,7 +92,7 @@ export function createGitDiff({ load, resolveLanguage, appearance }: GitDiffOpti
     identity.title = file.path
     const separator = file.path.lastIndexOf('/')
     const name = file.path.slice(separator + 1)
-    const symbol = projectIcon({ name, kind: 'file' })
+    const symbol = projectIcon({ name, kind: 'file', path: file.path })
     if (symbol) {
       const icon = document.createElement('img')
       icon.alt = ''

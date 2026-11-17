@@ -278,6 +278,7 @@ export function createFilePicker(
     const source = projectIcon({
       kind: file.directory ? 'directory' : 'file',
       name: filename,
+      path: file.path,
     })
     if (source) icon.src = source
     icon.alt = ''

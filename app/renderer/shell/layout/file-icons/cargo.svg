@@ -1,0 +1,17 @@
+<!-- Cargo logo adapted from the Rust Foundation artwork. See legal/NOTICE. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path fill="#946642" d="m1.3 16.6 10.7 5.3 10.7-5.3v1.8L12 23.7 1.3 18.4z"/>
+  <path fill="#bb9166" d="m1.3 16.6 10.7 5.3 10.7-5.3v.9L12 22.8 1.3 17.5z"/>
+  <path fill="#c58827" d="m1.5 10.5 5 2.5v6.2l-5-2.5z"/>
+  <path fill="#ffd77a" d="m1.5 10.5 5-2.5 5 2.5-5 2.5z"/>
+  <path fill="#db9b2e" d="m6.5 12.7 5.5 2.75v6.5L6.5 19.2z"/>
+  <path fill="#ebaa41" d="m12 15.45 10.5-5.25v6.5L12 21.95z"/>
+  <path fill="#d2922a" d="M6.5 2.4 12 5.15l-5.5 2.3z"/>
+  <path fill="#edb64f" d="M6.5 2.4 11.3 0l5.7 1.15-5 4z"/>
+  <path fill="#dda12f" d="m6.5 6.4 5.5 2.75v6.3L6.5 12.7z"/>
+  <path fill="#f5bd56" d="m12 9.15 10.5-5.25v6.3L12 15.45z"/>
+  <path fill="#ffda7f" d="M6.5 6.4 17 1.15l5.5 2.75L12 9.15z"/>
+  <path fill="#fff0b5" d="m3.2 11.4 3.3-1.65v.8L4 11.8V13l-.8-.4zm5.2-4.05L18.9 2.1l.8.4L9.2 7.75V9l-.8-.4z"/>
+  <path fill="none" stroke="#a36e24" stroke-width=".8" d="m6.5 12.7 5.5 2.75 10.5-5.25"/>
+  <path fill="none" stroke="#ac7421" stroke-width="1.1" d="M9.25 16.3c.7.35 1.15 1.1 1.15 1.8s-.45 1-1.15.65-1.15-1.1-1.15-1.8.45-1 1.15-.65zm7.25-5.55c.7-.35 1.2-.1 1.2.6s-.5 1.45-1.2 1.8-1.2.1-1.2-.6.5-1.45 1.2-1.8zm1.8 5.2c.7-.35 1.2-.1 1.2.6s-.5 1.45-1.2 1.8-1.2.1-1.2-.6.5-1.45 1.2-1.8z"/>
+</svg>

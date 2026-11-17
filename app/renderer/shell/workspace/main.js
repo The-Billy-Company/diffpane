@@ -1772,7 +1772,7 @@ function createCard(file, openedAt) {
       runTask('Load file outline', () => showSymbols(card))
   })
   const fileIcon = document.createElement('img')
-  const icon = projectIcon({ kind: 'file', name: file.path.slice(slash + 1) })
+  const icon = projectIcon({ kind: 'file', name: file.path.slice(slash + 1), path: file.path })
   if (icon) fileIcon.src = icon
   fileIcon.alt = ''
   requireElement(element, '.file-icon', HTMLElement).replaceChildren(fileIcon)

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 120">
+  <!-- Vale's mark and theme colors from https://vale.sh/brand -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      path { fill: #90d454; }
+    }
+  </style>
+  <path fill="#62a527" d="M0 40 32 40 72 120 40 120ZM96 0 128 0 86 84 70 52Z"/>
+</svg>

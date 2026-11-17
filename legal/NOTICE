@@ -16,6 +16,80 @@ The Zoning icon adapts the upstream mark for both color schemes:
 https://github.com/The-Billy-Company/zoning/tree/main/assets
 Zoning copyright 2026 The Billy Company, licensed under the Apache License, Version 2.0.
 
+Anchore and Aqua Security file icons
+Syft and Grype logos by Anchore, optimized and framed as square icons:
+https://anchore.com/wp-content/uploads/2024/11/syft-logo.svg
+https://anchore.com/wp-content/uploads/2024/11/grype-logo.svg
+Trivy logo by Aqua Security. Diffpane extracts the cube and uses its light and dark palettes:
+https://github.com/aquasecurity/trivy/tree/main/brand
+These logos are licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+
+Cargo file icon
+Cargo artwork by the Rust Foundation, simplified from the original stacked boxes:
+https://github.com/rust-lang/cargo/blob/master/doc/book/src/images/Cargo-Logo-Small.png
+Licensed under Creative Commons Attribution 4.0 International:
+https://rustfoundation.org/policy/rust-trademark-policy/#art-license
+https://creativecommons.org/licenses/by/4.0/
+
+Atlas and Vale file icons
+Atlas mark by Ariga, from https://atlasgo.io/u/logo-atlas.svg.
+Vale mark from https://vale.sh/brand, with the official light and dark colors in one SVG.
+
+golangci-lint file icon
+Optimized from the golangci-lint favicon:
+https://github.com/golangci/golangci-lint/blob/319b86d903b57a53a34b6b41a0968d6145b1ed5a/docs/static/favicon.svg
+The source project is licensed under GPL-3.0. See GPL-3.0 in this directory.
+The logo is inspired by Renée French's Go gopher, CC BY 3.0:
+https://golangci-lint.run/docs/product/thanks/
+https://creativecommons.org/licenses/by/3.0/
+
+Spectral and OSV-Scanner file icons
+Spectral copyright 2018 Stoplight, Inc. Diffpane redraws the extension icon for small sizes:
+https://github.com/stoplightio/vscode-spectral/blob/HEAD/icon.png
+OSV-Scanner by Google. Diffpane extracts the radar dial and combines the official color variants:
+https://github.com/google/osv-scanner/tree/main/docs/images
+Both are licensed under the Apache License, Version 2.0. The license text appears below.
+
+zizmor file icon
+Rainbow artwork from https://github.com/zizmorcore/zizmor/blob/main/docs/assets/rainbow.svg.
+The artwork uses the palette of the Twemoji rainbow by Twitter, Inc. and contributors:
+https://github.com/twitter/twemoji/blob/master/assets/svg/1f308.svg
+Twemoji graphics are licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+
+MIT-licensed file icons
+Gitleaks copyright (c) 2019 Zachary Rice. Diffpane redraws the project mark as an SVG:
+https://github.com/gitleaks
+Lychee copyright (c) 2022 The lychee maintainers. Diffpane replaces the shadow with an outline:
+https://lychee.cli.rs/favicon.svg
+mise copyright (c) 2025 Jeff Dickey. Diffpane optimizes the favicon:
+https://github.com/jdx/mise/blob/main/docs/public/favicon.svg
+SQLFluff extension copyright (c) 2020 dorzey. Diffpane redraws the paint roller for small sizes:
+https://github.com/sqlfluff/vscode-sqlfluff/blob/master/images/icon.png
+Taplo copyright (c) 2020 Ferenc Tamás. Diffpane optimizes the artwork:
+https://github.com/tamasfe/taplo/blob/master/taplo-icon.svg
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
 Starry Night grammar notices
 THIRD-PARTY SOFTWARE NOTICES AND INFORMATION
 

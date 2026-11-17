@@ -340,7 +340,7 @@ export function createChangeReview(
         element.innerHTML = `<img class="change-review-file-icon" alt=""><div class="change-review-label"><span class="change-review-name"></span><span class="change-review-location"></span></div><span class="change-review-reviewed" aria-hidden="true">${icon(GLYPHS.check)}</span><span class="change-review-status" aria-hidden="true"><span class="change-review-status-symbol"></span><span class="change-review-status-label"></span></span>`
         const name = file.path.slice(file.path.lastIndexOf('/') + 1)
         const image = requireElement(element, 'img', HTMLImageElement)
-        const source = projectIcon({ kind: 'file', name })
+        const source = projectIcon({ kind: 'file', name, path: file.path })
         if (source) image.src = source
         requireElement(element, '.change-review-name', HTMLSpanElement).textContent = name
         row = {

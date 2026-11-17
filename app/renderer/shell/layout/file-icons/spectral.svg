@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <!-- Stoplight's Spectral mark, redrawn from https://github.com/stoplightio/vscode-spectral/blob/HEAD/icon.png -->
+  <path d="M45 29v35m18-52v104m19-52v34" fill="none" stroke="#f8eefa" stroke-width="12"/>
+  <path d="M45 29v35m18-52v104m19-52v34" fill="none" stroke="#a464ab" stroke-width="6.5"/>
+  <g fill="#a464ab" stroke="#f8eefa" stroke-width="2.6">
+    <circle cx="11" cy="64" r="3.4"/>
+    <circle cx="28" cy="46.5" r="5.7"/>
+    <circle cx="28" cy="81.5" r="5"/>
+    <circle cx="45" cy="29" r="8.3"/>
+    <circle cx="45" cy="64" r="8.3"/>
+    <circle cx="45" cy="98" r="5.7"/>
+    <circle cx="63" cy="12" r="8.3"/>
+    <circle cx="63" cy="46.5" r="8.3"/>
+    <circle cx="63" cy="81.5" r="8.3"/>
+    <circle cx="63" cy="116" r="8.3"/>
+    <circle cx="81" cy="29" r="5.7"/>
+    <circle cx="82" cy="64" r="8.3"/>
+    <circle cx="82" cy="98" r="8.3"/>
+    <circle cx="99" cy="46.5" r="5"/>
+    <circle cx="99" cy="81.5" r="5.7"/>
+    <circle cx="116" cy="64" r="3.4"/>
+  </g>
+</svg>

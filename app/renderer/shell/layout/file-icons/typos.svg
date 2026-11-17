@@ -1,0 +1,9 @@
+<!-- Original Diffpane artwork for the Typos spell checker. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      path { stroke: #9dc9ff; }
+    }
+  </style>
+  <path d="m3 15 5-12 5 12M5 11h6m2 7 3 3 5-6" fill="none" stroke="#3e71bb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
