@@ -1,43 +1,74 @@
 .billy-lanes {
   display: grid;
   flex: 0 0 auto;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
-  margin: 0 var(--queue-inset, 15px) 10px;
+  margin-inline: var(--queue-inset, 12px);
   color: var(--muted);
   font-size: var(--text-caption);
 }
 
+@container review-queue (max-width: 228px) {
+  .billy-lanes {
+    --queue-inset: 9px;
+  }
+}
+
 .billy-lanes-controls,
 .billy-lanes-controls label {
-  display: flex;
+  display: grid;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
 }
 
-.billy-lanes-controls label,
-.billy-lanes-controls select {
-  flex: 1 1 auto;
+.billy-lanes-controls {
+  grid-template-columns: minmax(0, 1fr) 26px;
+}
+
+.billy-lanes-controls label {
+  grid-template-columns: 48px minmax(0, 1fr);
 }
 
 .billy-lanes-controls select,
 .billy-lanes-refresh {
   min-width: 0;
-  min-height: 27px;
-  padding: 2px 5px;
-  border: 1px solid var(--control-border);
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
   border-radius: 5px;
-  background: var(--surface-raised);
-  color: var(--text);
+  background: transparent;
+  color: var(--muted);
   font: inherit;
+}
+
+.billy-lanes-controls select {
+  text-overflow: ellipsis;
+}
+
+@container review-queue (max-width: 196px) {
+  .billy-lanes-controls label {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .billy-lanes-controls label > span {
+    display: none;
+  }
+
+  .billy-lanes-controls select {
+    padding-inline-start: 0;
+  }
+}
+
+.billy-lanes-controls select:has(option:checked:not([value=''])) {
+  color: var(--accent);
+  font-weight: var(--weight-medium);
 }
 
 .billy-lanes-refresh {
   display: inline-grid;
-  flex: 0 0 27px;
+  padding: 0;
   place-items: center;
-  color: var(--muted);
 }
 
 .billy-lanes-refresh svg {
@@ -45,7 +76,7 @@
   height: 14px;
 }
 
-.billy-lanes-refresh:hover:enabled {
+.billy-lanes-controls :is(select, button):hover:enabled {
   background: var(--hover);
   color: var(--text);
 }
@@ -55,35 +86,107 @@
   line-height: 1.35;
 }
 
+.billy-lanes-status {
+  padding-inline-start: 59px;
+  color: var(--subtle);
+}
+
+@container review-queue (max-width: 228px) {
+  .billy-lanes-status {
+    padding-inline-start: 5px;
+  }
+}
+
+.billy-lanes-status .billy-status-art {
+  --billy-art-ink: var(--subtle);
+  width: 15px;
+  height: 12px;
+}
+
+.billy-lanes-status[data-warning] {
+  color: var(--warning);
+}
+
 .billy-lanes-checks {
   min-width: 0;
-  padding: 4px 6px;
-  border: 1px solid var(--line);
-  border-radius: 5px;
 }
 
 .billy-lanes-checks summary {
-  color: var(--text);
   cursor: pointer;
-  font-weight: var(--weight-medium);
+}
+
+.billy-lanes-checks > summary {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding-inline: 4px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.billy-lanes-checks > summary::-webkit-details-marker {
+  display: none;
+}
+
+.billy-lanes-checks > summary::before {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-inline-end: 1px solid currentColor;
+  border-block-end: 1px solid currentColor;
+  content: '';
+  transform: rotate(-45deg);
+}
+
+.billy-lanes-checks[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+@container review-queue (max-width: 196px) {
+  .billy-lanes-checks > summary {
+    gap: 4px;
+    padding-inline: 2px;
+  }
+}
+
+.billy-lanes-checks > summary:hover {
+  background: var(--hover);
+}
+
+.billy-lanes-checks-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.billy-lanes-checks-failed,
+.billy-lanes-checks:is([data-state='incomplete'], [data-state='unavailable']) > summary {
+  color: var(--warning);
+}
+
+.billy-lanes-checks-failed {
+  flex: none;
 }
 
 .billy-lanes-checks summary:focus-visible {
   outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.billy-lanes-checks:is([data-state='incomplete'], [data-state='unavailable']) summary {
-  color: var(--warning);
+  outline-offset: -2px;
 }
 
 .billy-lanes-evidence {
   display: grid;
-  gap: 6px;
-  max-height: min(18vh, 132px);
-  padding-block: 5px 1px;
+  gap: 5px;
+  max-height: min(16vh, 120px);
+  padding: 5px 6px;
   overflow: auto;
   overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-inset);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar) transparent;
   user-select: text;
 }
 

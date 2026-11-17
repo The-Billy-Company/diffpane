@@ -46,7 +46,7 @@ import './change-review.css'
  * }} ReviewRow
  */
 
-const ROW_HEIGHT = 48
+const ROW_HEIGHT = 40
 const OVERSCAN = 4
 const MAX_PROGRESS_SEGMENTS = 40
 const CHECKPOINT_TIME = new Intl.DateTimeFormat(undefined, {
@@ -59,8 +59,8 @@ const CHECKPOINT_TIME = new Intl.DateTimeFormat(undefined, {
 let instance = 0
 
 /** @param {string} path */
-function icon(path, className = '') {
-  return `<svg class="${className}" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="${path}" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+function icon(path) {
+  return `<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="${path}" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
 }
 
 const GLYPHS = {
@@ -107,25 +107,29 @@ export function createChangeReview(
   container.innerHTML = `
     <header class="change-review-heading">
       <h2 id="${id}-title">Review queue</h2>
-      <button type="button" class="change-review-back" aria-label="Back to files" title="Back to files">${icon(GLYPHS.back)} Files</button>
+      <button type="button" class="change-review-back" aria-label="Back to files" title="Back to files">${icon(GLYPHS.back)}<span>Files</span></button>
     </header>
-    <div class="change-review-baseline">
-      <div class="change-review-baseline-actions">
-        <select class="change-review-baseline-select" aria-label="Compare against" aria-describedby="${id}-checkpoint-time" hidden>
-          <option value="head">Git HEAD</option>
-          <option value="checkpoint">Checkpoint</option>
-        </select>
-        <button type="button" class="change-review-capture">${icon(GLYPHS.checkpoint)}<span></span></button>
-      </div>
-      <time class="change-review-checkpoint-time" id="${id}-checkpoint-time" aria-live="polite" hidden></time>
-      <p class="change-review-error change-review-checkpoint-error" role="status" hidden></p>
-    </div>
-    <div class="change-review-lane" hidden></div>
     <div class="change-review-progress" hidden>
+      <div class="change-review-progress-strip" aria-hidden="true"></div>
       <span class="change-review-count" aria-hidden="true"><span></span></span>
       <span class="change-review-progress-announcement" role="status"></span>
       <progress aria-label="Review progress" max="1" value="0"></progress>
-      <div class="change-review-progress-strip" aria-hidden="true"></div>
+    </div>
+    <div class="change-review-context">
+      <div class="change-review-baseline">
+        <div class="change-review-baseline-actions">
+          <label for="${id}-baseline">Compare</label>
+          <span class="change-review-baseline-default">Git HEAD</span>
+          <select id="${id}-baseline" class="change-review-baseline-select" aria-label="Compare against" aria-describedby="${id}-checkpoint-time" hidden>
+            <option value="head">Git HEAD</option>
+            <option value="checkpoint">Checkpoint</option>
+          </select>
+          <button type="button" class="change-review-capture">${icon(GLYPHS.checkpoint)}<span></span></button>
+        </div>
+        <time class="change-review-checkpoint-time" id="${id}-checkpoint-time" aria-live="polite" hidden></time>
+        <p class="change-review-error change-review-checkpoint-error" role="status" hidden></p>
+      </div>
+      <div class="change-review-lane" hidden></div>
     </div>
     <div class="change-review-filters" role="group" aria-label="Review filter" hidden>
       <button type="button" data-filter="pending" aria-label="Pending" aria-describedby="${id}-pending" aria-pressed="true">Pending <span id="${id}-pending"></span></button>
@@ -154,11 +158,11 @@ export function createChangeReview(
       <button class="change-review-mark" type="button">
         <span class="change-review-mark-icon"></span>
         <span class="change-review-mark-label"></span>
-        ${icon(GLYPHS.next, 'change-review-mark-next')}
       </button>
     </footer>`
 
   const laneHost = requireElement(container, '.change-review-lane', HTMLDivElement)
+  const baselineDefault = requireElement(container, '.change-review-baseline-default', HTMLSpanElement)
   const baselineSelect = requireElement(container, '.change-review-baseline-select', HTMLSelectElement)
   const captureButton = requireElement(container, '.change-review-capture', HTMLButtonElement)
   const captureLabel = requireElement(captureButton, 'span', HTMLSpanElement)
@@ -192,7 +196,6 @@ export function createChangeReview(
   const mark = requireElement(container, '.change-review-mark', HTMLButtonElement)
   const markIcon = requireElement(mark, '.change-review-mark-icon', HTMLSpanElement)
   const markLabel = requireElement(mark, '.change-review-mark-label', HTMLSpanElement)
-  const markNext = requireElement(mark, '.change-review-mark-next', SVGElement)
   /** @type {Map<string, number>} */
   const headReviewed = new Map()
   /** @type {Map<string, number>} */
@@ -239,29 +242,26 @@ export function createChangeReview(
 
   function renderBaseline() {
     baselineSelect.hidden = !checkpoint
+    baselineDefault.hidden = Boolean(checkpoint)
     baselineSelect.disabled = capturing
     if (baselineSelect.value !== baseline) baselineSelect.value = baseline
+    baselineSelect.toggleAttribute('data-active', baseline === 'checkpoint')
     captureButton.setAttribute('aria-disabled', String(capturing))
-    captureButton.title = checkpoint
-      ? 'Replace the checkpoint and start a new review'
-      : 'Capture the current working tree for review'
-    captureButton.setAttribute(
-      'aria-label',
-      capturing ? 'Capturing checkpoint' : checkpoint ? 'Replace checkpoint' : 'Capture checkpoint',
-    )
     const action = capturing ? 'Capturing…' : checkpoint ? 'Replace checkpoint' : 'Capture checkpoint'
+    captureButton.setAttribute('aria-label', capturing ? 'Capturing checkpoint' : action)
     if (captureLabel.textContent !== action) captureLabel.textContent = action
     captureButton.toggleAttribute('data-loading-status', capturing)
-    capturedTime.hidden = !checkpoint
     const timestamp = checkpoint ? new Date(checkpoint.capturedAt) : null
-    if (timestamp && Number.isFinite(timestamp.getTime())) {
-      const label = `Captured ${CHECKPOINT_TIME.format(timestamp)}`
-      capturedTime.dateTime = timestamp.toISOString()
-      if (capturedTime.textContent !== label) capturedTime.textContent = label
-    } else {
-      capturedTime.removeAttribute('datetime')
-      capturedTime.textContent = ''
-    }
+    const validTime = timestamp && Number.isFinite(timestamp.getTime()) ? timestamp : null
+    const timeLabel = validTime ? CHECKPOINT_TIME.format(validTime) : ''
+    capturedTime.hidden = !validTime
+    if (validTime) capturedTime.dateTime = validTime.toISOString()
+    else capturedTime.removeAttribute('datetime')
+    if (capturedTime.textContent !== timeLabel) capturedTime.textContent = timeLabel
+    captureButton.title =
+      checkpoint && !capturing
+        ? `Replace checkpoint and start a new review${timeLabel ? ` · Captured ${timeLabel}` : ''}`
+        : action
     const message = captureError || (baseline === 'checkpoint' ? (checkpoint?.error ?? '') : '')
     checkpointError.hidden = !message
     if (checkpointError.textContent !== message) checkpointError.textContent = message
@@ -449,10 +449,9 @@ export function createChangeReview(
     next.disabled = !canNavigate
     const state = openingPath ? 'loading' : index === undefined ? null : currentState
     const positionText =
-      index === undefined
-        ? `${entries.length.toLocaleString()} ${entries.length === 1 ? 'file' : 'files'}`
-        : `File ${(index + 1).toLocaleString()} of ${entries.length.toLocaleString()}`
+      index === undefined ? '' : `File ${(index + 1).toLocaleString()} of ${entries.length.toLocaleString()}`
     if (position.textContent !== positionText) position.textContent = positionText
+    position.hidden = !positionText
 
     const reviewable = canMark()
     const advance = reviewable && filter === 'pending' && entries.length > 1
@@ -486,7 +485,6 @@ export function createChangeReview(
       markIcon.dataset.icon = symbol
       markIcon.innerHTML = icon(GLYPHS[symbol])
     }
-    markNext.toggleAttribute('hidden', !advance)
   }
 
   let lastTotal = -1

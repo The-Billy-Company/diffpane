@@ -604,6 +604,49 @@ button svg,
   content: '·' / '';
   margin-inline-end: 4px;
 }
+.file-card[data-review-scope] {
+  .file-header {
+    flex-wrap: wrap;
+    gap: 3px 7px;
+    min-height: 42px;
+    padding-block: 4px;
+  }
+
+  .file-path {
+    flex-basis: 140px;
+  }
+
+  .file-actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: end;
+    gap: 2px;
+    max-inline-size: 100%;
+    margin-inline-start: auto;
+  }
+
+  .diff-toggle[aria-pressed='true']:not(:hover) {
+    background: var(--surface-inset);
+    color: var(--text);
+  }
+
+  .markdown-toggle {
+    margin-inline-start: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .markdown-toggle button {
+    min-height: 24px;
+    padding: 2px 6px;
+  }
+
+  .markdown-toggle button[aria-pressed='true'] {
+    border-color: transparent;
+    background: var(--surface-inset);
+    color: var(--text);
+  }
+}
 .file-card[data-view='source'][data-diff='false'] {
   .file-header {
     min-height: 36px;
@@ -1126,6 +1169,17 @@ button svg,
   .file-header {
     gap: 6px;
     padding-inline: 10px 8px;
+  }
+
+  .file-card[data-review-scope]:has(> .review-change-map:not([hidden])) {
+    .diff-toggle {
+      width: 26px;
+      padding: 0;
+    }
+
+    .diff-toggle span {
+      display: none;
+    }
   }
 }
 @container (max-width: 360px) {

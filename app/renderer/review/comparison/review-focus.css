@@ -456,6 +456,71 @@
   }
 }
 
+.file-card[data-review-scope] {
+  .review-hunk-bar {
+    margin-inline-start: 3px;
+    padding-inline-start: 5px;
+    border-inline-start: 1px solid var(--editor-separator);
+  }
+
+  .review-hunk-position {
+    color: var(--text);
+  }
+
+  .review-hunk-replay {
+    background: transparent;
+    color: var(--muted);
+    font-weight: var(--weight-medium);
+  }
+
+  .review-hunk-replay:is(:hover, :focus-visible) {
+    background: var(--accent-surface);
+    color: var(--accent);
+  }
+
+  .review-change-map {
+    --map-padding: 4px;
+    --map-viewport-ink: color-mix(in oklab, var(--focus-ring) 60%, var(--editor-chrome));
+    margin-block-end: 4px;
+  }
+
+  .review-map-control {
+    padding-block: 3px;
+    border-inline-color: transparent;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .review-map-heading {
+    gap: 6px;
+    margin-block-end: 3px;
+  }
+
+  .review-map-hint,
+  .review-map-viewport-key {
+    color: var(--subtle);
+  }
+
+  .review-map-row-label {
+    overflow: hidden;
+    color: var(--muted);
+    font-weight: var(--weight-medium);
+    text-overflow: ellipsis;
+  }
+
+  .review-map-ribbon-track {
+    height: 8px;
+  }
+
+  .review-map-ribbon {
+    opacity: 0.18;
+  }
+
+  .review-map-mark {
+    background: color-mix(in oklab, var(--map-ink) 76%, var(--workbench-background));
+  }
+}
+
 @container (max-width: 420px) {
   .review-map-control,
   .review-map-preview-track {

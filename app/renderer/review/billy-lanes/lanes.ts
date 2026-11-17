@@ -47,22 +47,26 @@ export function createBillyLanes(
   host.classList.add('billy-lanes')
   host.innerHTML = `
     <div class="billy-lanes-controls">
-      <label>Follow <select aria-label="Follow agent lane"><option value="">All changes</option></select></label>
+      <label><span>Follow</span><select aria-label="Follow agent lane"><option value="">All changes</option></select></label>
       <button class="billy-lanes-refresh" type="button" aria-label="Refresh agent lanes" title="Refresh agent lanes">
         <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13 4v4H9M3 12V8h4m6-.8A5 5 0 0 0 4.5 4.4M3 8.8a5 5 0 0 0 8.5 2.8" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
     <p class="billy-lanes-status" role="status" hidden></p>
     <details class="billy-lanes-checks" hidden>
-      <summary></summary>
+      <summary><span class="billy-lanes-checks-label"></span> <span class="billy-lanes-checks-failed" hidden></span></summary>
       <div class="billy-lanes-evidence"></div>
     </details>`
   const select = requireElement(host, 'select', HTMLSelectElement)
   const refreshButton = requireElement(host, 'button', HTMLButtonElement)
   const statusLine = requireElement(host, '.billy-lanes-status', HTMLParagraphElement)
   const details = requireElement(host, 'details', HTMLDetailsElement)
-  const summary = requireElement(details, 'summary', HTMLElement)
+  const checksLabel = requireElement(details, '.billy-lanes-checks-label', HTMLSpanElement)
+  const checksFailed = requireElement(details, '.billy-lanes-checks-failed', HTMLSpanElement)
   const evidence = requireElement(details, '.billy-lanes-evidence', HTMLDivElement)
+  details.addEventListener('toggle', () => {
+    if (details.open) details.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  })
 
   let page: BillyLanePage | undefined
   let lanesFor = indexLanePaths(emptyPage)
@@ -88,6 +92,7 @@ export function createBillyLanes(
   }
 
   function renderStatus() {
+    select.title = select.selectedOptions[0]?.textContent ?? ''
     const visible = paths.filter(includes)
     const shared = visible.filter(path => status(path) === 'shared').length
     const unrecorded = visible.filter(path => status(path) === 'unrecorded').length
@@ -101,6 +106,7 @@ export function createBillyLanes(
           : selection !== ALL && visible.length === 0
             ? 'No changes match this lane.'
             : counts.join(' · ')
+    statusLine.toggleAttribute('data-warning', failed || page?.truncated === true)
     statusLine.hidden = !label
     if (statusLine.textContent === label) return
     statusLine.textContent = label
@@ -111,7 +117,7 @@ export function createBillyLanes(
     const choices = [new Option('All changes', ALL)]
     if (page?.rows.length) {
       for (const lane of page.rows)
-        choices.push(new Option(lane.current ? `Current · ${lane.slug}` : lane.slug, laneKey(lane.slug)))
+        choices.push(new Option(lane.current ? `${lane.slug} · current` : lane.slug, laneKey(lane.slug)))
       choices.push(new Option('Unrecorded changes', UNRECORDED))
     }
     if (!choices.some(choice => choice.value === selection)) selection = ALL
@@ -175,22 +181,24 @@ export function createBillyLanes(
     details.hidden = selection === ALL || selection === UNRECORDED
     evidence.replaceChildren()
     if (details.hidden) return
+    const failureCount = checks.kind === 'saved' ? checks.counts.failed : 0
+    checksFailed.hidden = failureCount === 0
+    checksFailed.textContent = failureCount ? `· ${failureCount} failed` : ''
     details.dataset.state = checks.kind === 'saved' ? (checks.conclusive ? 'saved' : 'incomplete') : checks.kind
     switch (checks.kind) {
       case 'loading':
-        summary.textContent = 'Reading saved checks…'
+        checksLabel.textContent = 'Reading saved checks…'
         break
       case 'missing':
-        summary.textContent = 'No saved checks'
+        checksLabel.textContent = 'No saved checks'
         break
       case 'unavailable':
-        summary.textContent = 'Saved checks unavailable'
+        checksLabel.textContent = 'Saved checks unavailable'
         break
       case 'saved': {
         const { capture, capturedAt, conclusive, counts, failedChecks, findings, findingsComplete, findingsTotal } =
           checks
-        summary.textContent = conclusive ? 'Saved checks' : 'Saved checks incomplete'
-        if (counts.failed) summary.textContent += ` · ${counts.failed} failed`
+        checksLabel.textContent = conclusive ? 'Saved checks' : 'Checks incomplete'
         const info = document.createElement('p')
         const outcome = [
           `${counts.passed} passed`,
@@ -253,6 +261,7 @@ export function createBillyLanes(
         break
       }
     }
+    checksLabel.title = checksLabel.textContent ?? ''
     if (checks.kind !== 'saved') {
       const message = document.createElement('p')
       message.textContent =
