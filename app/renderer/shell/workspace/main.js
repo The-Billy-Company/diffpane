@@ -169,7 +169,6 @@ const syntax = configureSyntax(monaco)
 const documentProcessor = createDocumentProcessor()
 
 const icons = {
-  mark: '<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14" stroke="currentColor" stroke-width="1.2" opacity=".5"/><path d="M4 9h4" stroke="var(--removed-edge)" stroke-width="1.7"/><path d="M16 15h4m-2-2v4" stroke="var(--added-edge)" stroke-width="1.7"/></svg>',
   branch:
     '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="4" cy="3" r="1.7" stroke="currentColor"/><circle cx="4" cy="13" r="1.7" stroke="currentColor"/><circle cx="12" cy="3" r="1.7" stroke="currentColor"/><path d="M4 5v6m8-6v1a4 4 0 0 1-4 4H4" stroke="currentColor" stroke-width="1.2"/></svg>',
   down: '<svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 3v10m-4-4 4 4 4-4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -193,7 +192,7 @@ const app = document.getElementById('app') ?? document.body.appendChild(document
 const workspaceOpening = document.getElementById('workspace-opening')
 app.innerHTML = `
   <header class="titlebar">
-    <span class="brand-mark" aria-hidden="true">${icons.mark}</span>
+    <span class="brand-mark" aria-hidden="true"></span>
     <div class="project"><span id="project-name">Diffpane</span></div>
     <button type="button" class="branch titlebar-button" id="git-workspace-toggle" aria-label="Git workspace" aria-controls="git-workspace" aria-pressed="false" title="Inspect Git history and changes" hidden>${icons.branch}<span id="branch-name"></span></button>
     <span id="project-path"></span>
