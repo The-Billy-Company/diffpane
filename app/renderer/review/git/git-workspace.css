@@ -270,6 +270,85 @@
   background: var(--accent-surface);
 }
 
+.git-commit-timeline {
+  margin: 1px 16px 10px;
+}
+
+.git-timeline-plot {
+  display: grid;
+  grid-template-columns: repeat(24, minmax(0, 1fr));
+  height: 52px;
+  border-inline-end: 1px dashed var(--line);
+  border-block-end: 1px solid var(--control-border);
+  background: linear-gradient(
+    to top,
+    var(--surface-inset),
+    color-mix(in srgb, var(--accent-surface) 55%, var(--surface-inset))
+  );
+}
+
+.git-timeline-hour {
+  position: relative;
+  min-width: 0;
+}
+
+.git-timeline-hour:nth-child(6n + 1) {
+  border-inline-start: 1px dashed var(--line);
+}
+
+.git-timeline-hour::after {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: calc(50% - 1px);
+  width: 2px;
+  height: 3px;
+  background: var(--control-border);
+  content: '';
+  pointer-events: none;
+}
+
+.git-timeline-bin {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.git-timeline-bin:is(:hover, :focus-visible, [aria-current='true']) {
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+}
+
+.git-timeline-bin:focus-visible {
+  outline-offset: -1px;
+}
+
+.git-timeline-bar {
+  position: absolute;
+  inset-inline: 2px;
+  inset-block-end: 0;
+  height: clamp(4px, var(--git-hour-height), calc(100% - 4px));
+  border-radius: 2px 2px 0 0;
+  background: linear-gradient(to top, color-mix(in srgb, var(--accent) 40%, var(--accent-surface)), var(--accent));
+  pointer-events: none;
+}
+
+.git-timeline-bin:is(:hover, :focus-visible, [aria-current='true']) .git-timeline-bar {
+  background: var(--accent);
+}
+
+.git-timeline-ticks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding-block-start: 3px;
+  color: var(--subtle);
+  font: var(--text-caption) / var(--leading-ui) var(--font-mono);
+  white-space: nowrap;
+}
+
 .git-working-row::before,
 .git-today-commits .git-activity-row::before {
   position: absolute;

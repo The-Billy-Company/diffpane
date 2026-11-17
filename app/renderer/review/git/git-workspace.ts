@@ -41,6 +41,7 @@ const MAX_HISTORY = 1000
 const DISPLAY_DATE = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'short', day: 'numeric' })
 const SHORT_DATE = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
 const DISPLAY_TIME = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+const DISPLAY_HOUR = new Intl.DateTimeFormat(undefined, { hour: 'numeric', timeZone: 'UTC' })
 const STATUS: Readonly<Record<string, string>> = {
   A: 'Added',
   C: 'Copied',
@@ -189,6 +190,47 @@ function workingRow(rail: SVGSVGElement | null, headOutside: boolean) {
   return row
 }
 
+function commitTimeline(commits: readonly GitCommit[]) {
+  const hours = new Map<number, { count: number; latest: GitCommit }>()
+  let peak = 1
+  for (const commit of commits) {
+    const hour = new Date(commit.committedAt).getHours()
+    const previous = hours.get(hour)
+    const count = (previous?.count ?? 0) + 1
+    const latest = previous && previous.latest.committedAt >= commit.committedAt ? previous.latest : commit
+    hours.set(hour, { count, latest })
+    peak = Math.max(peak, count)
+  }
+
+  const timeline = element('div', 'git-commit-timeline')
+  const plot = element('div', 'git-timeline-plot')
+  plot.setAttribute('role', 'group')
+  plot.setAttribute('aria-label', 'Commits by local hour')
+  plot.setAttribute('aria-hidden', String(!commits.length))
+  const ticks = element('div', 'git-timeline-ticks')
+  ticks.setAttribute('aria-hidden', 'true')
+  for (let hour = 0; hour < 24; hour++) {
+    const label = DISPLAY_HOUR.format(Date.UTC(2000, 0, 1, hour))
+    if (hour % 6 === 0) ticks.append(element('span', '', label))
+    const cell = element('div', 'git-timeline-hour')
+    plot.append(cell)
+    const entry = hours.get(hour)
+    if (!entry) continue
+    const bin = button('git-timeline-bin')
+    bin.dataset.gitHour = String(hour)
+    bin.dataset.gitHourTarget = entry.latest.id
+    const count = `${printNumber(entry.count)} ${entry.count === 1 ? 'commit' : 'commits'}`
+    bin.title = `${label} · ${count}`
+    bin.setAttribute('aria-label', `${label}, ${count}. Go to the latest commit for this hour.`)
+    const bar = element('span', 'git-timeline-bar')
+    bar.style.setProperty('--git-hour-height', `${(entry.count / peak) * 100}%`)
+    bin.append(bar)
+    cell.append(bin)
+  }
+  timeline.append(plot, ticks)
+  return timeline
+}
+
 function beforeAfter(before: string, after: string) {
   return `${before} → ${after}`
 }
@@ -306,6 +348,13 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     for (const row of activity.querySelectorAll<HTMLButtonElement>('[data-git-commit]')) {
       row.setAttribute('aria-pressed', String(row.dataset.gitCommit === key))
     }
+    if (view === 'today') {
+      const commit = overview?.today.find(item => item.id === key)
+      const hour = commit ? String(new Date(commit.committedAt).getHours()) : undefined
+      for (const bin of activity.querySelectorAll<HTMLButtonElement>('[data-git-hour]')) {
+        bin.setAttribute('aria-current', String(bin.dataset.gitHour === hour))
+      }
+    }
   }
 
   function renderActivity() {
@@ -327,8 +376,7 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
     }
     activityKey = key
     const focused = document.activeElement
-    const focusedCommit =
-      focused instanceof HTMLButtonElement && activity.contains(focused) ? focused.dataset.gitCommit : undefined
+    const focusedRow = focused instanceof HTMLButtonElement && activity.contains(focused) ? focused.dataset : undefined
     const graph = history ? layoutCommitGraph(commits, overview?.head ?? null) : null
     activity.classList.toggle('git-history-list', history)
     activity.style.setProperty('--git-graph-width', `${graph?.width ?? 0}px`)
@@ -346,25 +394,26 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
       }
     } else if (overview) {
       const header = element('div', 'git-today-selection')
-      const label = `${printNumber(commits.length)} ${commits.length === 1 ? 'commit' : 'commits'} from HEAD today`
+      const label = `${printNumber(commits.length)} ${commits.length === 1 ? 'commit' : 'commits'} from HEAD`
       header.append(element('span', '', label))
       if (commits.length > 0 && overview.head && overview.head !== overview.dayBase) {
         const compare = button('git-compare-day', 'Compare day')
         compare.dataset.gitCommit = 'day'
         header.append(compare)
       }
-      content.push(header)
+      content.push(header, commitTimeline(commits))
       const list = element('div', 'git-today-commits')
       for (const commit of commits) list.append(commitRow(commit, overview.head, todayStart, todayEnd, null))
       content.push(list)
     }
     activity.replaceChildren(...content)
     renderSelections()
-    if (focusedCommit) {
-      activity
-        .querySelector<HTMLButtonElement>(`[data-git-commit="${CSS.escape(focusedCommit)}"]`)
-        ?.focus({ preventScroll: true })
-    }
+    const focusSelector = focusedRow?.gitCommit
+      ? `[data-git-commit="${CSS.escape(focusedRow.gitCommit)}"]`
+      : focusedRow?.gitHour
+        ? `[data-git-hour="${CSS.escape(focusedRow.gitHour)}"]`
+        : null
+    if (focusSelector) activity.querySelector<HTMLButtonElement>(focusSelector)?.focus({ preventScroll: true })
   }
 
   function details(): ComparisonDetails {
@@ -651,7 +700,8 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
       if (!(event.target instanceof Element)) return
       const control = event.target.closest('button')
       if (!control) return
-      const { gitView, gitCommit, gitFile } = control.dataset
+      const { gitView, gitCommit: commit, gitFile, gitHourTarget } = control.dataset
+      const gitCommit = commit ?? gitHourTarget
       if (gitView === 'today' || gitView === 'history') {
         if (view === gitView) return
         view = gitView
@@ -665,6 +715,11 @@ export function createGitWorkspace(root: HTMLElement, { loadOverview, loadChange
         parent = null
         renderSelections()
         requestChanges()
+        if (gitHourTarget) {
+          const row = activity.querySelector<HTMLButtonElement>(`[data-git-commit="${CSS.escape(gitHourTarget)}"]`)
+          row?.focus({ preventScroll: true })
+          row?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+        }
       } else if (gitFile !== undefined) {
         selectedFile = gitFile
         renderFileSelection()

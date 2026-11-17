@@ -44,38 +44,39 @@ function createFixture() {
   git('config', 'commit.gpgsign', 'false')
   const midnight = new Date()
   midnight.setHours(0, 0, 0, 0)
-  const dated = (secondsAfterMidnight: number, ...args: string[]) => {
-    const date = new Date(midnight.getTime() + secondsAfterMidnight * 1000).toISOString()
+  const at = (hour: number, minute: number) => new Date(midnight).setHours(hour, minute, 0, 0)
+  const dated = (timestamp: number, ...args: string[]) => {
+    const date = new Date(timestamp).toISOString()
     execFileSync('git', ['-C', repository, ...args], {
       env: { ...gitEnv, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date },
     })
     return head()
   }
-  const commit = (secondsAfterMidnight: number, message: string) => {
+  const commit = (timestamp: number, message: string) => {
     git('add', '.')
-    return dated(secondsAfterMidnight, 'commit', '-qm', message)
+    return dated(timestamp, 'commit', '-qm', message)
   }
 
   const baseLines = Array.from({ length: 115 }, (_, index) => `context line ${index + 1}`)
   write(scattered, `${baseLines.join('\n')}\n`)
   write(cancelled, 'unchanged in the working tree\n')
   write(dayCancelled, 'unchanged by the day’s commits\n')
-  const base = commit(-1, 'Last commit before midnight')
+  const base = commit(midnight.getTime() - 1000, 'Last commit before midnight')
 
   git('switch', '-qc', 'review/change-map')
   write(branchFile, 'feature branch came first\nfeature branch line two\n')
   write(dayCancelled, 'temporary committed churn\n')
-  const branch = commit(1, 'Feature commit before merge')
+  const branch = commit(at(8, 5), 'Feature commit before merge')
 
   git('switch', '-q', 'main')
   write(mainFile, 'main contributed this line\n')
-  const main = commit(2, 'Main commit before merge')
+  const main = commit(at(8, 20), 'Main commit before merge')
   write('src/diverged.txt', 'main tip after the merge base\n')
-  const mainTip = commit(5, 'Main-only commit outside HEAD')
+  const mainTip = commit(at(18, 0), 'Main-only commit outside HEAD')
   git('switch', '-q', 'review/change-map')
-  const merge = dated(3, 'merge', '-q', '--no-ff', '-m', 'Merge incoming main commit', main)
+  const merge = dated(at(12, 15), 'merge', '-q', '--no-ff', '-m', 'Merge incoming main commit', main)
   write(dayCancelled, 'unchanged by the day’s commits\n')
-  const current = commit(4, 'Cancel today’s temporary churn')
+  const current = commit(at(17, 20), 'Cancel today’s temporary churn')
   git('tag', 'review-demo', current)
 
   write(staged, 'staged line one\nstaged line two\n')
@@ -184,6 +185,7 @@ const attribute = (selector: string, name: string) =>
   evaluate(`${select(selector)}?.getAttribute(${JSON.stringify(name)}) ?? null`)
 const gitFile = (name: string) => `${gitPanel} [data-git-file="${name}"]`
 const gitCommit = (sha: string) => `${gitPanel} [data-git-commit="${sha}"]`
+const gitHour = (sha: string) => `${gitPanel} button[data-git-hour-target="${sha}"]`
 
 async function click(selector: string) {
   await until(selector, () => visible(selector))
@@ -297,6 +299,10 @@ async function run(fixture: ReturnType<typeof createFixture>) {
       assert.equal(await exists(gitCommit(sha)), false, `Expected Today to exclude ${sha}`)
     }),
   )
+  const hourTargets = await evaluate(
+    `Array.from(document.querySelectorAll(${JSON.stringify(`${gitPanel} button[data-git-hour-target]`)}), hour => hour.dataset.gitHourTarget)`,
+  )
+  assert.deepEqual(hourTargets, [fixture.main, fixture.merge, fixture.current])
   assert.equal(await exists(gitFile(cancelled)), false)
   assert.ok(await visible(gitFile(staged)))
   assert.ok(await visible(gitFile(untracked)))
@@ -373,6 +379,14 @@ async function run(fixture: ReturnType<typeof createFixture>) {
   await oneSidedChange('original', 'Line 1')
   write(dayCancelled, deleted)
   await counts(7, 2)
+
+  await click(gitHour(fixture.main))
+  assert.equal(await attribute(gitCommit(fixture.main), 'aria-pressed'), 'true')
+  assert.equal(await attribute(gitHour(fixture.main), 'aria-current'), 'true')
+  assert.ok(await matches(`document.activeElement === ${select(gitCommit(fixture.main))}`))
+  await counts(1, 0)
+  await seesPatch('main contributed this line')
+  await screenshot('today-timeline')
 
   await button(gitPanel, 'Compare day')
   await counts(3, 0)
