@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import path from 'node:path'
+import { setImmediate as nextTurn } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { Worker } from 'node:worker_threads'
 import {
@@ -34,6 +35,7 @@ import { formatReviewHandoff } from '../../../shared/review/review-notes.ts'
 import { LocalState } from '../../persistence/database/local-state.ts'
 import { localStateKeys } from '../../persistence/database/secure-storage.mjs'
 import { RecentTargets } from '../../persistence/preferences/recent-targets.ts'
+import { SavedWorkspaces } from '../../persistence/preferences/saved-workspaces.ts'
 import { ShortcutPreferences } from '../../persistence/preferences/shortcut-preferences.ts'
 import {
   applyUiPreferencePatch,
@@ -55,10 +57,12 @@ import { sampleAgentMemory } from '../diagnostics/agent-memory.ts'
 import { startDesktopMetrics } from '../diagnostics/desktop-metrics.ts'
 import { createDiagnosticLog } from '../diagnostics/diagnostic-log.ts'
 import { createTerminalDock, terminalScheme } from '../terminal/dock.ts'
-import { openPickerOptions, pickMacTarget } from './open-picker.ts'
+import { openPickerOptions, pickMacFolders, pickMacTarget } from './open-picker.ts'
+import { WorkspaceWindows } from './workspace-windows.ts'
 
 /** @import { IpcMainEvent, IpcMainInvokeEvent, SaveDialogOptions, WebContents } from 'electron' */
-/** @import { OpenKind } from './open-picker.ts' */
+/** @import { OpenKind, OpenPickerKind } from './open-picker.ts' */
+/** @import { WorkspaceNavigation } from './workspace-windows.ts' */
 /** @import { SessionLaunch } from '../session/session-protocol.ts' */
 /** @import { AppError } from '../../../shared/recovery/app-errors.ts' */
 /** @import { IdeaChange } from '../../../shared/ideas/ideas.ts' */
@@ -67,7 +71,7 @@ import { openPickerOptions, pickMacTarget } from './open-picker.ts'
 /** @typedef {{root: string, scope: string}} WorkspaceLocation */
 /** @typedef {{root: string, path: string, type: string}} WorkspaceMedia */
 /** @typedef {{resolve: (value: unknown) => void, reject: (error: unknown) => void}} WorkerRequest */
-/** @typedef {{directory: string | null, contents: WebContents, claude: ClaudeSession, mediaToken: string, hasPendingSaves: boolean, rendererReady: boolean, settingsRequested: boolean, repositoryRoot?: string, repositoryScope?: string, flushing?: {id: number, promise: Promise<boolean>}, finishFlush?: (success: boolean) => void, stopping?: Promise<void>, restarting?: Promise<unknown>, root: () => Promise<string>, reviewWorkspace: () => Promise<WorkspaceLocation>, flush: () => Promise<boolean>, call: (method: string, args?: readonly unknown[]) => Promise<unknown>, restart: () => Promise<unknown>, announceFatal: () => void, stop: () => Promise<void>}} WindowSession */
+/** @typedef {{directory: string | null, workspace?: WorkspaceNavigation['workspace'], contents: WebContents, claude: ClaudeSession, mediaToken: string, hasPendingSaves: boolean, rendererReady: boolean, settingsRequested: boolean, repositoryRoot?: string, repositoryScope?: string, flushing?: {id: number, promise: Promise<boolean>}, finishFlush?: (success: boolean) => void, stopping?: Promise<void>, restarting?: Promise<unknown>, root: () => Promise<string>, reviewWorkspace: () => Promise<WorkspaceLocation>, flush: () => Promise<boolean>, call: (method: string, args?: readonly unknown[]) => Promise<unknown>, restart: () => Promise<unknown>, announceFatal: () => void, stop: () => Promise<void>, canNavigate: () => boolean, navigate: (target: WorkspaceNavigation) => void, resume: () => void}} WindowSession */
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 /** @type {Set<string>} */
@@ -152,6 +156,13 @@ let preferenceRevision = 0
 const storageOperations = new Set()
 /** @type {Set<Promise<unknown>>} */
 const mutationOperations = new Set()
+const workspaceWindows = new WorkspaceWindows(new SavedWorkspaces(localState), {
+  changed: () => {
+    for (const session of sessions.values()) if (session.rendererReady) send(session.contents, 'workspaces-changed')
+  },
+  track: pending => trackOperation(storageOperations, pending),
+  log: error => logError(error, 'workspaces-storage'),
+})
 
 /** @template T @param {Set<Promise<unknown>>} operations @param {Promise<T>} pending */
 async function trackOperation(operations, pending) {
@@ -393,7 +404,10 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
   let workerExited = Promise.resolve()
   /** @type {Map<number, WorkerRequest>} */
   const requests = new Map()
-  const versions = { revision: 0, catalogRevision: 0, reviewVersion: 0, checkpointId: 0 }
+  let versions = { revision: 0, catalogRevision: 0, reviewVersion: 0, checkpointId: 0 }
+  let changingWorkspace = false
+  /** @type {string | undefined} */
+  let rememberedFile
   /** @type {AppError | undefined} */
   let fatal
   let remembered = false
@@ -432,7 +446,8 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
     if (typeof message !== 'object' || message === null) throw new Error('Invalid workspace worker message.')
     if ('event' in message) {
       if (message.event === 'error' && 'failure' in message) {
-        send(session.contents, 'backend-error', serializeAppError(message.failure))
+        if (!changingWorkspace || session.rendererReady)
+          send(session.contents, 'backend-error', serializeAppError(message.failure))
         return
       }
       if (!('value' in message)) throw new Error('Invalid workspace worker event.')
@@ -454,7 +469,7 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
         }
         session.repositoryRoot = location.root
         session.repositoryScope = location.scope
-        if (!remembered && directory) {
+        if (!remembered && directory && !session.workspace) {
           remembered = true
           rememberTarget(initialFile ?? directory)
         }
@@ -476,11 +491,12 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
         if (status === 'stopped') languageProcesses.delete(pid)
       }
       if (
-        message.event === 'change' ||
-        message.event === 'git-change' ||
-        message.event === 'language-event' ||
-        message.event === 'howmany-event' ||
-        message.event === 'paths'
+        (!changingWorkspace || session.rendererReady) &&
+        (message.event === 'change' ||
+          message.event === 'git-change' ||
+          message.event === 'language-event' ||
+          message.event === 'howmany-event' ||
+          message.event === 'paths')
       )
         send(session.contents, message.event, value)
     } else if ('id' in message && typeof message.id === 'number') {
@@ -501,7 +517,7 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
     const result = attempt(
       () =>
         new Worker(new URL('../session/session.mjs', import.meta.url), {
-          workerData: { directory, versions, initialFile, initialLine },
+          workerData: { directory, versions, initialFile, initialLine, rememberedFile },
         }),
     )
     if (!result.ok) {
@@ -562,6 +578,7 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
       // Startup and empty windows have no editable buffers to flush. Their close
       // action must not depend on a worker or a renderer that failed to initialize.
       if (window.isDestroyed()) return Promise.resolve(true)
+      if (this.stopping && !this.hasPendingSaves) return Promise.resolve(true)
       const unavailable =
         fatal !== undefined ||
         !this.rendererReady ||
@@ -602,6 +619,8 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
     },
     call(method, args = []) {
       if (this.stopping) return Promise.reject(appError('This window is closing.', { code: 'WINDOW_UNAVAILABLE' }))
+      if (changingWorkspace && !this.rendererReady && method !== 'language-dispose')
+        return Promise.reject(appError('This window is changing folders.', { code: 'WORKSPACE_NAVIGATION_PENDING' }))
       if (fatal) return Promise.reject(fatal)
       const current = worker
       if (!current)
@@ -645,6 +664,46 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
     },
     announceFatal() {
       if (fatal) send(this.contents, 'backend-error', serializeAppError(fatal))
+    },
+    canNavigate() {
+      return quitPhase === 'running' && !window.isDestroyed() && !allowClose && !changingWorkspace
+    },
+    navigate(target) {
+      if (!this.canNavigate()) {
+        this.resume()
+        return
+      }
+      changingWorkspace = true
+      this.rendererReady = false
+      if (window.isFocused()) syncFileMenu(this)
+      runBackground('change-workspace', async () => {
+        try {
+          // Send the IPC acknowledgement before starting to unload its renderer.
+          await nextTurn()
+          await background('stop-previous-workspace', () => this.stop())
+          if (window.isDestroyed() || quitPhase === 'draining' || quitPhase === 'quitting') return
+          worker = undefined
+          fatal = undefined
+          versions = { revision: 0, catalogRevision: 0, reviewVersion: 0, checkpointId: 0 }
+          this.stopping = undefined
+          this.restarting = undefined
+          this.repositoryRoot = this.repositoryScope = undefined
+          mediaSessions.delete(this.mediaToken)
+          this.mediaToken = randomUUID()
+          mediaSessions.set(this.mediaToken, this)
+          directory = this.directory = target.directory
+          this.workspace = target.workspace
+          rememberedFile = target.rememberedFile
+          initialFile = initialLine = undefined
+          if (directory) startWorker()
+          await loadWindow()
+        } finally {
+          changingWorkspace = false
+        }
+      })
+    },
+    resume() {
+      send(this.contents, 'resume-editing')
     },
     stop() {
       if (this.stopping) return this.stopping
@@ -930,29 +989,39 @@ function refreshShortcuts() {
 /** @type {AbortController | undefined} */
 let openPicker
 
-/** @param {BrowserWindow | null} window @param {OpenKind} kind */
-async function chooseTarget(window, kind) {
-  if (quitPhase !== 'running' || openPicker || window?.isDestroyed()) return false
+/** @param {BrowserWindow | null} window @param {OpenPickerKind} kind */
+async function choosePaths(window, kind) {
+  if (quitPhase !== 'running' || openPicker || window?.isDestroyed()) return []
   const picker = new AbortController()
   const abort = () => picker.abort()
   openPicker = picker
   window?.once('closed', abort)
   try {
-    let target
+    let targets
     if (process.platform === 'darwin') {
-      target = await trackOperation(shutdowns, pickMacTarget(kind, picker.signal))
+      if (kind === 'folders') targets = await trackOperation(shutdowns, pickMacFolders(picker.signal))
+      else {
+        const target = await trackOperation(shutdowns, pickMacTarget(kind, picker.signal))
+        targets = target ? [target] : []
+      }
     } else {
       const options = openPickerOptions(kind)
       const result = await (window ? dialog.showOpenDialog(window, options) : dialog.showOpenDialog(options))
-      target = result.canceled ? null : result.filePaths[0]
+      targets = result.canceled ? [] : result.filePaths
     }
-    if (!target || picker.signal.aborted || quitPhase !== 'running') return false
-    openTarget(target, window)
-    return true
+    return picker.signal.aborted || quitPhase !== 'running' ? [] : (targets ?? [])
   } finally {
     window?.off('closed', abort)
     openPicker = undefined
   }
+}
+
+/** @param {BrowserWindow | null} window @param {OpenKind} kind */
+async function chooseTarget(window, kind) {
+  const [target] = await choosePaths(window, kind)
+  if (!target || quitPhase !== 'running') return false
+  openTarget(target, window)
+  return true
 }
 
 // Finder can supply files before Electron has finished creating its first window.
@@ -1463,6 +1532,23 @@ handle('preferences-set', (_session, _event, key, input) =>
 
 for (const kind of /** @type {const} */ (['folder', 'file']))
   handle(`open-${kind}`, (_session, event) => chooseTarget(BrowserWindow.fromWebContents(event.sender), kind))
+handle('workspaces-list', () => workspaceWindows.list())
+handle('workspaces-current', session => workspaceWindows.current(session))
+handle('workspaces-pick-folders', async (session, event) =>
+  workspaceWindows.approvePickedFolders(
+    session,
+    await choosePaths(BrowserWindow.fromWebContents(event.sender), 'folders'),
+  ),
+)
+handle('workspaces-save', (session, _event, input, options) => workspaceWindows.save(session, input, options))
+handle('workspaces-open', (session, _event, id) => workspaceWindows.open(session, id))
+handle('workspaces-switch-folder', (session, _event, folder) => workspaceWindows.switchFolder(session, folder))
+handle('workspaces-remove', (session, _event, id) => workspaceWindows.remove(session, id))
+handle('workspaces-close', session => workspaceWindows.close(session))
+onRenderer('workspaces-remember-file', (session, filename) => {
+  if (!session.stopping && quitPhase !== 'draining' && quitPhase !== 'quitting')
+    workspaceWindows.rememberFile(session, filename)
+})
 handle('recent-targets', () =>
   trackOperation(
     storageOperations,

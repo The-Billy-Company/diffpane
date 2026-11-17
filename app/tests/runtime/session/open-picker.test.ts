@@ -6,8 +6,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { beforeEach, test, vi } from 'vite-plus/test'
-import { openPickerFlag, pickMacTarget } from '../../../electron/runtime/window/open-picker.ts'
-import type { OpenKind } from '../../../electron/runtime/window/open-picker.ts'
+import {
+  openPickerFlag,
+  openPickerOptions,
+  pickMacFolders,
+  pickMacTarget,
+} from '../../../electron/runtime/window/open-picker.ts'
+import type { OpenPickerKind } from '../../../electron/runtime/window/open-picker.ts'
 
 const mocks = vi.hoisted(() => ({
   app: { isPackaged: false, getAppPath: vi.fn<() => string>() },
@@ -42,7 +47,7 @@ beforeEach(() => {
   mocks.rm.mockReset().mockResolvedValue(undefined)
 })
 
-async function startPicker(kind: OpenKind, signal = new AbortController().signal) {
+async function startPicker(kind: OpenPickerKind, signal = new AbortController().signal) {
   const child = new EventEmitter()
   const execution = Promise.withResolvers<{ stdout: string }>()
   const started = Promise.withResolvers<void>()
@@ -50,10 +55,19 @@ async function startPicker(kind: OpenKind, signal = new AbortController().signal
     started.resolve()
     return Object.assign(execution.promise, { child })
   })
-  const result = pickMacTarget(kind, signal)
+  const result = kind === 'folders' ? pickMacFolders(signal) : pickMacTarget(kind, signal)
   await started.promise
   return { child, execution, result }
 }
+
+test('the workspace picker returns all selected directories', async () => {
+  const { child, execution, result } = await startPicker('folders')
+  assert.deepEqual(openPickerOptions('folders').properties, ['openDirectory', 'multiSelections'])
+  const folders = [path.join(profile, 'first'), path.join(profile, 'second')]
+  execution.resolve({ stdout: JSON.stringify(folders) })
+  child.emit('close')
+  assert.deepEqual(await result, folders)
+})
 
 test('returns a selected path from the development picker and removes its temporary profile', async () => {
   const { child, execution, result } = await startPicker('file')

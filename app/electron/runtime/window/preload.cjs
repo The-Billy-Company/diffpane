@@ -445,6 +445,25 @@ function isRecentTarget(value) {
     (value.kind === 'folder' || value.kind === 'file')
   )
 }
+function isSavedWorkspace(value) {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.name) &&
+    arrayOf(isString)(value.folders) &&
+    isString(value.activeFolder) &&
+    value.folders.includes(value.activeFolder) &&
+    isTimestamp(value.updatedAt)
+  )
+}
+function isWorkspaceContext(value) {
+  return (
+    isRecord(value) &&
+    isSavedWorkspace(value.workspace) &&
+    nullable(isString)(value.folder) &&
+    arrayOf(isString)(value.unavailableFolders)
+  )
+}
 function isInventoryFile(value) {
   return (
     isRecord(value) &&
@@ -1017,6 +1036,18 @@ const API = {
   openFile: () => invoke('open-file', isBoolean),
   recentTargets: () => invoke('recent-targets', arrayOf(isRecentTarget)),
   openRecent: path => invoke('open-recent', isBoolean, path),
+  workspaces: {
+    list: () => invoke('workspaces-list', arrayOf(isSavedWorkspace)),
+    current: () => invoke('workspaces-current', nullable(isWorkspaceContext)),
+    pickFolders: () => invoke('workspaces-pick-folders', arrayOf(isString)),
+    save: (input, options) => invoke('workspaces-save', isSavedWorkspace, input, options),
+    open: id => invoke('workspaces-open', isBoolean, id),
+    switchFolder: folder => invoke('workspaces-switch-folder', isBoolean, folder),
+    remove: id => invoke('workspaces-remove', isBoolean, id),
+    close: () => invoke('workspaces-close', isBoolean),
+    rememberFile: filename => electron_1.ipcRenderer.send('workspaces-remember-file', filename),
+    onChange: callback => listen('workspaces-changed', isVoid, callback),
+  },
   openExternal: url => invoke('open-external', isVoid, url),
   onChange: callback => listen('change', isSnapshot, callback),
   onPaths: callback => listen('paths', arrayOf(isString), callback),

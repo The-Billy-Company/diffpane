@@ -41,6 +41,12 @@ import type { BillySiblingExcerpt, BillySiblingMatch, BillySiblingResult } from 
 import type { DiagnosticEvent } from '../../../shared/diagnostics/diagnostics.ts'
 import type { Idea, IdeaChange, IdeaLink } from '../../../shared/ideas/ideas.ts'
 import type { FileMenuAction } from '../../../shared/preferences/file-menu.ts'
+import type {
+  SavedWorkspace,
+  WorkspaceContext,
+  WorkspaceDraft,
+  WorkspaceSaveOptions,
+} from '../../../shared/preferences/saved-workspaces.ts'
 import type { ShortcutAction, ShortcutBinding, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts'
 import type { ErrorDetails } from '../../../shared/recovery/app-errors.ts'
 import type {
@@ -583,6 +589,27 @@ function isRecentTarget(value: unknown): value is RecentTarget {
     isString(value.name) &&
     isTimestamp(value.openedAt) &&
     (value.kind === 'folder' || value.kind === 'file')
+  )
+}
+
+function isSavedWorkspace(value: unknown): value is SavedWorkspace {
+  return (
+    isRecord(value) &&
+    isString(value.id) &&
+    isString(value.name) &&
+    arrayOf(isString)(value.folders) &&
+    isString(value.activeFolder) &&
+    value.folders.includes(value.activeFolder) &&
+    isTimestamp(value.updatedAt)
+  )
+}
+
+function isWorkspaceContext(value: unknown): value is WorkspaceContext {
+  return (
+    isRecord(value) &&
+    isSavedWorkspace(value.workspace) &&
+    nullable(isString)(value.folder) &&
+    arrayOf(isString)(value.unavailableFolders)
   )
 }
 
@@ -1214,6 +1241,19 @@ const API = {
   openFile: () => invoke('open-file', isBoolean),
   recentTargets: () => invoke('recent-targets', arrayOf(isRecentTarget)),
   openRecent: (path: string) => invoke('open-recent', isBoolean, path),
+  workspaces: {
+    list: () => invoke('workspaces-list', arrayOf(isSavedWorkspace)),
+    current: () => invoke('workspaces-current', nullable(isWorkspaceContext)),
+    pickFolders: () => invoke('workspaces-pick-folders', arrayOf(isString)),
+    save: (input: WorkspaceDraft, options?: WorkspaceSaveOptions) =>
+      invoke('workspaces-save', isSavedWorkspace, input, options),
+    open: (id: string) => invoke('workspaces-open', isBoolean, id),
+    switchFolder: (folder: string) => invoke('workspaces-switch-folder', isBoolean, folder),
+    remove: (id: string) => invoke('workspaces-remove', isBoolean, id),
+    close: () => invoke('workspaces-close', isBoolean),
+    rememberFile: (filename: string | null) => ipcRenderer.send('workspaces-remember-file', filename),
+    onChange: (callback: () => void) => listen('workspaces-changed', isVoid, callback),
+  },
   openExternal: (url: string) => invoke('open-external', isVoid, url),
   onChange: (callback: (value: WorkspaceSnapshot) => void) => listen('change', isSnapshot, callback),
   onPaths: (callback: (paths: string[]) => void) => listen('paths', arrayOf(isString), callback),

@@ -10,8 +10,16 @@ import { appError } from '../../../shared/recovery/app-errors.ts'
 const execute = promisify(execFile)
 export const openPickerFlag = '--diffpane-open-picker'
 export type OpenKind = 'file' | 'folder'
+export type OpenPickerKind = OpenKind | 'folders'
 
-export function openPickerOptions(kind: OpenKind): OpenDialogOptions {
+export function openPickerOptions(kind: OpenPickerKind): OpenDialogOptions {
+  if (kind === 'folders') {
+    return {
+      properties: ['openDirectory', 'multiSelections'],
+      title: 'Choose workspace folders',
+      buttonLabel: 'Add Folders',
+    }
+  }
   return {
     properties: [kind === 'file' ? 'openFile' : 'openDirectory'],
     title: kind === 'file' ? 'Open a file' : 'Open a folder',
@@ -19,17 +27,19 @@ export function openPickerOptions(kind: OpenKind): OpenDialogOptions {
 }
 
 export async function runOpenPicker(kind: string | undefined) {
-  if (kind !== 'file' && kind !== 'folder') throw new Error('Invalid picker type.')
+  if (kind !== 'file' && kind !== 'folder' && kind !== 'folders') throw new Error('Invalid picker type.')
   await app.whenReady()
   app.setActivationPolicy('accessory')
   const selection = dialog.showOpenDialog(openPickerOptions(kind))
   app.focus({ steal: true })
   const result = await selection
-  const selected = result.canceled ? null : (result.filePaths[0] ?? null)
+  const selected = result.canceled ? null : kind === 'folders' ? result.filePaths : (result.filePaths[0] ?? null)
   process.stdout.write(JSON.stringify(selected), error => app.exit(error ? 1 : 0))
 }
 
-export async function pickMacTarget(kind: OpenKind, signal: AbortSignal): Promise<string | null> {
+function pickMacSelection(kind: OpenKind, signal: AbortSignal): Promise<string | null>
+function pickMacSelection(kind: 'folders', signal: AbortSignal): Promise<string[] | null>
+async function pickMacSelection(kind: OpenPickerKind, signal: AbortSignal): Promise<string | string[] | null> {
   const profile = await mkdtemp(path.join(tmpdir(), 'diffpane-picker-'))
   try {
     if (signal.aborted) return null
@@ -44,7 +54,14 @@ export async function pickMacTarget(kind: OpenKind, signal: AbortSignal): Promis
     if (signal.aborted) return null
     if (result.status === 'rejected') throw new Error('The picker process failed.', { cause: result.reason })
     const selected: unknown = JSON.parse(result.value.stdout)
-    if (selected === null || (typeof selected === 'string' && path.isAbsolute(selected))) return selected
+    if (selected === null) return null
+    if (
+      kind === 'folders' &&
+      Array.isArray(selected) &&
+      selected.every((value: unknown): value is string => typeof value === 'string' && path.isAbsolute(value))
+    )
+      return selected
+    if (kind !== 'folders' && typeof selected === 'string' && path.isAbsolute(selected)) return selected
     throw new Error('Invalid picker response.')
   } catch {
     if (signal.aborted) return null
@@ -55,4 +72,12 @@ export async function pickMacTarget(kind: OpenKind, signal: AbortSignal): Promis
   } finally {
     await rm(profile, { recursive: true, force: true })
   }
+}
+
+export function pickMacTarget(kind: OpenKind, signal: AbortSignal) {
+  return pickMacSelection(kind, signal)
+}
+
+export function pickMacFolders(signal: AbortSignal) {
+  return pickMacSelection('folders', signal)
 }

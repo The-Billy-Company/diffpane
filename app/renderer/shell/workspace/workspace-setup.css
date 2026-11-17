@@ -1,0 +1,198 @@
+.workspace-setup {
+  --workspace-ink: var(--violet);
+  width: min(460px, calc(100% - 32px));
+  max-height: calc(100% - 48px);
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--control-border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 18px 64px color-mix(in oklab, var(--shadow) 75%, transparent);
+}
+
+.workspace-setup::backdrop {
+  background: color-mix(in oklab, var(--canvas) 75%, transparent);
+}
+
+.workspace-setup form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 22px;
+}
+
+.workspace-setup-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-block-end: 6px;
+}
+
+.workspace-setup-glyph {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in oklab, var(--workspace-ink) 32%, var(--line));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--workspace-ink) 11%, var(--surface));
+  color: var(--workspace-ink);
+}
+
+.workspace-setup-glyph svg {
+  width: 23px;
+  height: 23px;
+}
+
+.workspace-setup-heading h2 {
+  margin: 0;
+  font-size: var(--text-heading);
+  line-height: 1.2;
+}
+
+.workspace-setup-heading p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  font-size: var(--text-content);
+}
+
+.workspace-setup-name {
+  display: grid;
+  gap: 5px;
+  font-size: var(--text-content);
+  font-weight: var(--weight-medium);
+}
+
+.workspace-setup input {
+  min-width: 0;
+  min-height: 34px;
+  padding: 5px 9px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text);
+  font-weight: var(--weight-regular);
+}
+
+.workspace-setup-folders,
+.workspace-setup footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-setup-folders {
+  justify-content: space-between;
+}
+
+.workspace-setup h3 {
+  margin: 0;
+  font-size: var(--text-content);
+  font-weight: var(--weight-medium);
+}
+
+.workspace-setup button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  font-size: var(--text-content);
+}
+
+.workspace-setup button:hover:enabled {
+  background: var(--hover);
+}
+
+.workspace-setup :is(button, input):focus-visible {
+  outline: 2px solid var(--workspace-ink);
+  outline-offset: 1px;
+}
+
+.workspace-setup ul {
+  max-height: 176px;
+  margin: -6px 0 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  list-style: none;
+}
+
+.workspace-setup ul:empty {
+  display: none;
+}
+
+.workspace-setup li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 6px 8px 6px 10px;
+  gap: 8px;
+}
+
+.workspace-setup li + li {
+  border-block-start: 1px solid var(--line);
+}
+
+.workspace-setup li :is(strong, span > span) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-setup li strong {
+  font-size: var(--text-content);
+  font-weight: var(--weight-medium);
+}
+
+.workspace-setup li span > span {
+  color: var(--subtle);
+  font-size: var(--text-caption);
+}
+
+.workspace-setup li button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-size: var(--text-body);
+}
+
+.workspace-setup-error {
+  margin: 0;
+  color: var(--removed);
+  font-size: var(--text-content);
+}
+
+.workspace-setup footer {
+  justify-content: flex-end;
+  margin-block-start: 3px;
+}
+
+.workspace-setup button[type='submit'] {
+  border-color: color-mix(in oklab, var(--workspace-ink) 46%, var(--line));
+  background: color-mix(in oklab, var(--workspace-ink) 16%, var(--surface-raised));
+  font-weight: var(--weight-semibold);
+}
+
+.workspace-setup button[type='submit']:hover:enabled {
+  background: color-mix(in oklab, var(--workspace-ink) 23%, var(--surface-raised));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-setup[open] {
+    animation: workspace-setup-in 160ms ease-out both;
+  }
+
+  @keyframes workspace-setup-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px) scale(0.99);
+    }
+  }
+}

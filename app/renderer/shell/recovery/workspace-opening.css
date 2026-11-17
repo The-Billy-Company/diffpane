@@ -200,11 +200,24 @@
 }
 
 .workspace-opening h1 {
+  overflow-wrap: anywhere;
   margin: 15px 0 0;
   font-size: clamp(21px, 4vw, 24px);
   font-weight: var(--weight-semibold);
   line-height: 1.2;
   letter-spacing: -0.025em;
+}
+
+.workspace-opening[data-saved-workspace] {
+  --accent: var(--violet);
+  --accent-surface: var(--violet-surface);
+}
+
+.workspace-opening__folder {
+  margin: 7px 0 0;
+  color: var(--muted);
+  font-size: var(--text-content);
+  overflow-wrap: anywhere;
 }
 
 .workspace-opening__scene {

@@ -58,9 +58,22 @@ const { repository, initialPath, initialLine, versions } = await diagnostics.run
     (!isFile || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
   )
     throw new Error('The initial file is outside this workspace.')
+  let restoredPath
+  if (!isFile && launch.rememberedFile) {
+    // A remembered file may have disappeared after the window started opening.
+    const filename = await realpath(launch.rememberedFile).catch(() => undefined)
+    if (filename) {
+      const rel = path.relative(opened.scope, filename)
+      if (rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
+        const info = await lstat(filename).catch(() => undefined)
+        if (info?.isFile()) restoredPath = filename
+      }
+    }
+  }
+  const filename = isFile ? launchPath : restoredPath
   return {
     repository: opened,
-    initialPath: isFile ? path.relative(opened.root, launchPath).split(path.sep).join('/') : null,
+    initialPath: filename ? path.relative(opened.root, filename).split(path.sep).join('/') : null,
     initialLine: isFile ? launch.initialLine : undefined,
     versions: launch.versions,
   }

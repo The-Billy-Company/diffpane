@@ -1,0 +1,379 @@
+.project[data-workspace-switcher='workspace'] {
+  max-width: min(37vw, 340px);
+}
+
+.workspace-switcher-toggle {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 28px;
+  gap: 7px;
+  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-content);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.02em;
+}
+
+.workspace-switcher-toggle:is(:hover, [aria-expanded='true']):enabled {
+  background: var(--hover);
+}
+
+.workspace-switcher-toggle :is(.workspace-switcher-name, .workspace-switcher-root) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.workspace-switcher-glyph {
+  display: none;
+  flex: none;
+  line-height: 0;
+}
+
+.workspace-switcher-toggle :is(.workspace-switcher-glyph, .workspace-switcher-chevron) svg {
+  width: 14px;
+  height: 14px;
+}
+
+.workspace-switcher-chevron {
+  flex: none;
+  color: var(--subtle);
+  line-height: 0;
+  transition: rotate 140ms ease;
+}
+
+.workspace-switcher-toggle[aria-expanded='true'] .workspace-switcher-chevron {
+  rotate: 180deg;
+}
+
+[data-workspace-switcher='workspace'] .workspace-switcher-toggle {
+  gap: 6px;
+  padding: 2px 5px 2px 2px;
+  border-color: color-mix(in oklab, var(--violet) 23%, var(--line));
+  background: var(--surface-inset);
+  font-size: var(--text-label);
+}
+
+[data-workspace-switcher='workspace'] .workspace-switcher-identity {
+  max-width: 100%;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: var(--violet-surface);
+  color: var(--violet);
+}
+
+[data-workspace-switcher='workspace'] .workspace-switcher-glyph {
+  display: inline-flex;
+}
+
+.workspace-switcher-root {
+  flex: 0 0 auto;
+  max-width: 38%;
+  color: var(--muted);
+  font-weight: var(--weight-medium);
+}
+
+.workspace-switcher-panel {
+  position: fixed;
+  inset: auto;
+  position-area: block-end span-inline-end;
+  position-try-fallbacks: flip-inline;
+  justify-self: start;
+  width: min(344px, calc(100vw - 16px));
+  max-height: min(460px, calc(100dvh - 56px));
+  margin: 7px 0 0;
+  padding: 5px;
+  overflow: auto;
+  border: 1px solid color-mix(in oklab, var(--control-border) 45%, var(--line));
+  border-radius: 9px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 10px 28px var(--shadow);
+  opacity: 0;
+  translate: 0 -4px;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  transition:
+    opacity 135ms ease,
+    translate 135ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    display 135ms allow-discrete,
+    overlay 135ms allow-discrete;
+}
+
+.workspace-switcher-panel:popover-open {
+  opacity: 1;
+  translate: 0 0;
+  pointer-events: auto;
+}
+
+@starting-style {
+  .workspace-switcher-panel:popover-open {
+    opacity: 0;
+    translate: 0 -4px;
+  }
+}
+
+.workspace-switcher-panel[data-kind='standalone'] {
+  width: min(240px, calc(100vw - 16px));
+}
+
+.workspace-switcher-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border-radius: 5px;
+  background: var(--violet-surface);
+}
+
+.workspace-switcher-header-glyph {
+  display: grid;
+  flex: 0 0 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid color-mix(in oklab, var(--violet) 26%, transparent);
+  border-radius: 7px;
+  background: color-mix(in oklab, var(--violet) 7%, transparent);
+  color: var(--violet);
+}
+
+.workspace-switcher-header-glyph svg {
+  width: 17px;
+  height: 17px;
+}
+
+.workspace-switcher-header-copy {
+  min-width: 0;
+}
+
+.workspace-switcher-header-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-header-count {
+  color: var(--violet);
+  font-size: var(--text-caption);
+}
+
+.workspace-switcher-folders {
+  display: grid;
+  gap: 2px;
+  max-height: min(238px, 40dvh);
+  margin: 5px 0 4px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-color: var(--scrollbar) transparent;
+}
+
+.workspace-switcher-folder {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+  padding-inline-end: 3px;
+  border-radius: 5px;
+}
+
+.workspace-switcher-folder[data-active] {
+  background: color-mix(in oklab, var(--violet-surface) 72%, var(--surface-raised));
+}
+
+.workspace-switcher-panel :is(.workspace-switcher-action, .workspace-switcher-open, .workspace-switcher-remove) {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-label);
+  text-align: start;
+}
+
+.workspace-switcher-panel :is(.workspace-switcher-action, .workspace-switcher-open):hover:enabled {
+  background: var(--hover);
+}
+
+.workspace-switcher-panel button:focus-visible {
+  outline-offset: -2px;
+}
+
+.workspace-switcher-panel button svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+}
+
+.workspace-switcher-panel .workspace-switcher-open {
+  flex: 1;
+  min-width: 0;
+  min-height: 42px;
+}
+
+.workspace-switcher-panel .workspace-switcher-open:disabled {
+  color: var(--subtle);
+  opacity: 1;
+}
+
+.workspace-switcher-folder[data-active] :is(.workspace-switcher-open > svg, .workspace-switcher-folder-status) {
+  color: var(--violet);
+}
+
+.workspace-switcher-folder-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.workspace-switcher-folder-copy > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-folder-name {
+  font-weight: var(--weight-medium);
+}
+
+.workspace-switcher-folder-path {
+  color: var(--subtle);
+  font-size: var(--text-caption);
+}
+
+.workspace-switcher-folder-status {
+  display: flex;
+  align-items: center;
+  color: var(--warning);
+  font-size: var(--text-caption);
+}
+
+.workspace-switcher-panel .workspace-switcher-folder-status svg {
+  color: inherit;
+}
+
+.workspace-switcher-panel .workspace-switcher-remove {
+  flex: none;
+  min-height: 25px;
+  padding: 5px;
+  opacity: 0.55;
+}
+
+.workspace-switcher-panel .workspace-switcher-remove:disabled {
+  visibility: hidden;
+}
+
+.workspace-switcher-panel .workspace-switcher-remove:is(:hover, :focus-visible) {
+  background: var(--removed-surface);
+  opacity: 1;
+}
+
+.workspace-switcher-remove:is(:hover, :focus-visible) svg {
+  color: var(--removed);
+}
+
+.workspace-switcher-actions {
+  display: grid;
+}
+
+.workspace-switcher-folders + .workspace-switcher-actions {
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.workspace-switcher-action[data-edit='delete']:hover,
+.workspace-switcher-action[data-edit='delete']:hover svg {
+  color: var(--removed);
+}
+
+.workspace-switcher-edit {
+  display: grid;
+  gap: 9px;
+  padding: 8px;
+}
+
+.workspace-switcher-edit h2,
+.workspace-switcher-edit p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.workspace-switcher-edit h2 {
+  font-size: var(--text-content);
+  font-weight: var(--weight-semibold);
+}
+
+.workspace-switcher-edit p {
+  color: var(--muted);
+  font-size: var(--text-label);
+}
+
+.workspace-switcher-edit input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  background: var(--surface-inset);
+  color: var(--text);
+  -webkit-app-region: no-drag;
+  user-select: text;
+}
+
+.workspace-switcher-edit-actions {
+  display: flex;
+  justify-content: end;
+  gap: 5px;
+}
+
+.workspace-switcher-confirm {
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  font-size: var(--text-label);
+}
+
+.workspace-switcher-confirm:hover:enabled {
+  border-color: var(--control-border);
+}
+
+.workspace-switcher-primary {
+  border-color: color-mix(in oklab, var(--violet) 24%, var(--line));
+  background: var(--violet-surface);
+  color: var(--violet);
+}
+
+.workspace-switcher-danger {
+  border-color: color-mix(in oklab, var(--removed) 24%, var(--line));
+  background: var(--removed-surface);
+  color: var(--removed);
+}
+
+@media (max-width: 700px) {
+  .titlebar:has(.project[data-workspace-switcher='workspace']) #review-toggle > span:first-of-type {
+    display: none;
+  }
+}

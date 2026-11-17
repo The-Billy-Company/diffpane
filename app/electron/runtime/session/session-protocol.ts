@@ -10,6 +10,7 @@ export interface SessionLaunch {
   versions?: SessionVersions
   initialFile?: string
   initialLine?: number
+  rememberedFile?: string
 }
 
 export interface SessionRequest {
@@ -39,12 +40,14 @@ export function parseSessionLaunch(input: unknown): SessionLaunch {
   if (!isSessionRecord(input) || typeof input.directory !== 'string' || !input.directory) {
     throw new Error('Invalid workspace worker configuration')
   }
-  const { initialFile, initialLine } = input
+  const { initialFile, initialLine, rememberedFile } = input
   if (initialFile !== undefined && (typeof initialFile !== 'string' || !initialFile))
     throw new Error('Invalid workspace initial file')
   if (initialLine !== undefined && (!isSessionRevision(initialLine) || initialLine < 1))
     throw new Error('Invalid workspace initial line')
-  const launch = { directory: input.directory, initialFile, initialLine }
+  if (rememberedFile !== undefined && (typeof rememberedFile !== 'string' || !rememberedFile))
+    throw new Error('Invalid workspace remembered file')
+  const launch = { directory: input.directory, initialFile, initialLine, rememberedFile }
   if (input.versions === undefined) return launch
   if (!isSessionRecord(input.versions)) throw new Error('Invalid workspace worker versions')
   const versions: SessionVersions = {}

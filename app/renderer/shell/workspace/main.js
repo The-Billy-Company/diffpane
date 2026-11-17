@@ -11,6 +11,7 @@ import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import { mediaType } from '../../../shared/documents/media-types.ts'
 import { fileMenuLabels, isFileMenuAction } from '../../../shared/preferences/file-menu.ts'
+import { workspaceFolderLabel } from '../../../shared/preferences/saved-workspaces.ts'
 import {
   ariaBinding,
   bindingLabel,
@@ -70,12 +71,16 @@ import { clearErrorNotice, guard, renderFailure, reportError, runTask, setErrorN
 import { drawRecentTargetArt, drawWelcomeArt, drawWorkbenchArt } from './art/workspace-art.ts'
 import { requireElement } from './dom.js'
 import { FileHistory } from './file-history.ts'
+import { createHomeWorkspaces, homeWorkspacesMarkup } from './home-workspaces.ts'
 import { getWorkspacePreferences } from './preferences.ts'
+import { createWorkspaceController } from './workspace-controller.ts'
+import { createWorkspaceSwitcher } from './workspace-switcher.ts'
 
 /** @import { WorkspaceComparison, WorkspaceDocument, WorkspaceFile, WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
 /** @import { IdeaLink } from '../../../shared/ideas/ideas.ts' */
 /** @import { ReviewAnchor } from '../../../shared/review/review-notes.ts' */
 /** @import { FileMenuAction } from '../../../shared/preferences/file-menu.ts' */
+/** @import { WorkspaceContext } from '../../../shared/preferences/saved-workspaces.ts' */
 /** @import { ShortcutAction, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts' */
 /** @import { ContentMatch } from '../../explorer/project-search/content-search.ts' */
 /** @import { FunctionRange } from '../../review/comparison/function-ranges.ts' */
@@ -190,6 +195,8 @@ const icons = {
 
 const app = document.getElementById('app') ?? document.body.appendChild(document.createElement('div'))
 const workspaceOpening = document.getElementById('workspace-opening')
+const openingTitle = document.getElementById('workspace-opening-title')
+const openingFolder = document.getElementById('workspace-opening-folder')
 app.innerHTML = `
   <header class="titlebar">
     <span class="brand-mark" aria-hidden="true"></span>
@@ -226,11 +233,17 @@ app.innerHTML = `
             <button type="button" id="open-folder">${icons.folder}Open Folder…</button>
             <button type="button" id="open-file">${icons.file}Open File…</button>
           </div>
+          <div class="start-actions" id="workspace-recovery-actions" hidden>
+            <button type="button" data-action="choose" hidden>${icons.folder}Choose Folder</button>
+            <button type="button" data-action="add">${icons.folder}Add Folders…</button>
+            <button type="button" data-action="home">Go to Home</button>
+          </div>
         </div>
         <span class="workspace-art start-mark" aria-hidden="true">
           <svg viewBox="0 0 152 78" stroke-linecap="round" stroke-linejoin="round"></svg>
         </span>
       </div>
+      ${homeWorkspacesMarkup}
       <section class="recent-targets" id="recent-targets" aria-labelledby="recent-title" hidden>
         <h2 id="recent-title">Recently opened</h2>
         <ul class="recent-list" id="recent-list"></ul>
@@ -254,7 +267,7 @@ app.innerHTML = `
   </div>
   <section id="git-workspace" aria-label="Git workspace" hidden></section>
   <section id="terminal-dock" aria-label="Workspace terminal" hidden></section>
-  <footer class="statusbar"><span id="status-text">Opening workspace…</span><span class="statusbar-end" hidden><span class="current-only">Current file contents</span><span class="status-dot"></span><span id="save-state" role="status">Autosave on</span></span></footer>
+  <footer class="statusbar"><span id="status-text">Opening Diffpane…</span><span class="statusbar-end" hidden><span class="current-only">Current file contents</span><span class="status-dot"></span><span id="save-state" role="status">Autosave on</span></span></footer>
   <main id="agent-threads" hidden></main>
 `
 
@@ -291,6 +304,8 @@ const ui = {
   startDescription: requireElement(app, '#start-description', HTMLElement),
   startError: requireElement(app, '#start-error', HTMLElement),
   startActions: requireElement(app, '#start-actions', HTMLElement),
+  workspaceRecoveryActions: requireElement(app, '#workspace-recovery-actions', HTMLElement),
+  chooseRecoveryFolder: requireElement(app, '#workspace-recovery-actions [data-action="choose"]', HTMLButtonElement),
   openFile: requireElement(app, '#open-file', HTMLButtonElement),
   openFolder: requireElement(app, '#open-folder', HTMLButtonElement),
   recentTargets: requireElement(app, '#recent-targets', HTMLElement),
@@ -345,9 +360,36 @@ const fileHistory = new FileHistory()
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 let initialInventoryReady = false
 let initialDocumentReady = false
+let workspaceContextReady = false
 let recentVersion = 0
 let recentSignature = ''
+let homeWorkspacesVersion = 0
 let targetOpening = false
+const homeWorkspaces = createHomeWorkspaces(ui.startScreen, {
+  create() {
+    runTask('Create workspace', () => workspaceController.create(), { title: 'Couldn’t create a workspace' })
+  },
+  open(id) {
+    const open = () => workspaceController.open(id)
+    runTask('Open saved workspace', open, { title: 'Couldn’t open this workspace', retry: open })
+  },
+})
+const workspaceController = createWorkspaceController({
+  api: api.workspaces,
+  standaloneFolder: () => snapshot?.scope ?? null,
+  isBlocked: () => targetOpening || closed || closingRequested,
+  setOpening: setTargetOpening,
+  render: renderWorkspaceChrome,
+})
+const workspaceSwitcher = createWorkspaceSwitcher(ui.projectName.parentElement, {
+  onCreate: workspaceController.create,
+  onSelect: workspaceController.select,
+  onAdd: workspaceController.add,
+  onRemove: workspaceController.remove,
+  onRename: workspaceController.rename,
+  onClose: workspaceController.close,
+  onDelete: workspaceController.delete,
+})
 /** @type {Set<string>} */
 const applyingAssistantPaths = new Set()
 /** @type {Promise<void> | null} */
@@ -563,6 +605,21 @@ const assistant =
     },
   })
 
+/** @param {WorkspaceContext | null} context @param {boolean} busy */
+function renderWorkspaceChrome(context, busy) {
+  const workspace = context?.workspace ?? null
+  const rootPath = context ? context.folder : (snapshot?.scope ?? null)
+  const projectName = rootPath ? workspaceFolderLabel(rootPath) : 'Diffpane'
+  workspaceSwitcher.update({ workspace, rootPath, projectName, unavailableFolders: context?.unavailableFolders, busy })
+  document.title = workspace ? `${workspace.name} · Diffpane` : rootPath ? `${projectName} · Diffpane` : 'Diffpane'
+  if (workspaceOpening && !workspaceOpening.hidden && openingTitle && openingFolder) {
+    workspaceOpening.toggleAttribute('data-saved-workspace', Boolean(workspace))
+    openingTitle.textContent = workspace ? `Opening ${workspace.name}…` : 'Opening Diffpane…'
+    openingFolder.textContent = rootPath && workspace ? projectName : ''
+    openingFolder.hidden = !openingFolder.textContent || projectName === workspace?.name
+  }
+}
+
 function finishWorkspaceOpening() {
   if (workspaceOpening) workspaceOpening.hidden = true
   app.inert = false
@@ -570,15 +627,25 @@ function finishWorkspaceOpening() {
 }
 
 function revealWorkspaceWhenReady() {
-  if (closed || workspaceOpening?.hidden !== false || !initialInventoryReady || !initialDocumentReady) return
+  if (
+    closed ||
+    workspaceOpening?.hidden !== false ||
+    !workspaceContextReady ||
+    !initialInventoryReady ||
+    !initialDocumentReady
+  )
+    return
   finishWorkspaceOpening()
   rendererDiagnostics.measure('renderer.workspace-first-render', 0)
 }
 
 function showStartScreen(failed = false) {
+  const context = workspaceController.context
+  const missingWorkspace = context?.folder === null
+  const canReconnect = missingWorkspace && context.unavailableFolders.length < context.workspace.folders.length
   ui.startScreen.hidden = false
   ui.startScreen.setAttribute('aria-busy', 'false')
-  ui.startTitle.textContent = 'Welcome to Diffpane'
+  ui.startTitle.textContent = missingWorkspace ? context.workspace.name : 'Welcome to Diffpane'
   ui.startTitle.hidden = ui.startDescription.hidden = failed
   ui.startError.hidden = !failed
   const startMark = requireElement(ui.startScreen, '.start-mark', HTMLElement)
@@ -588,28 +655,65 @@ function showStartScreen(failed = false) {
     if (!art.hasChildNodes()) drawWelcomeArt(art)
     ui.startScreen.setAttribute('aria-labelledby', 'start-title')
   }
-  ui.startDescription.textContent = 'Open a file or folder in a Git working tree to get started.'
-  ui.startActions.hidden = !api
+  ui.startDescription.textContent = canReconnect
+    ? 'Choose a folder to continue in this workspace.'
+    : missingWorkspace
+      ? 'The folders in this workspace are unavailable. Add a folder or reconnect one to continue.'
+      : 'Open a file or folder in a Git working tree to get started.'
+  ui.startActions.hidden = missingWorkspace
+  ui.workspaceRecoveryActions.hidden = !missingWorkspace
+  ui.chooseRecoveryFolder.hidden = !canReconnect
   ui.statusText.textContent = !api
     ? 'Desktop connection unavailable'
     : failed
       ? 'Choose another file or folder'
-      : 'No project open'
-  document.title = 'Diffpane'
+      : missingWorkspace
+        ? 'No workspace folder open'
+        : 'No project open'
+  document.title = context ? `${context.workspace.name} · Diffpane` : 'Diffpane'
   finishWorkspaceOpening()
   if (!failed && !welcomeRendered) {
     welcomeRendered = true
     rendererDiagnostics.measure('renderer.welcome-first-render', 0)
   }
-  runTask('Load recent projects', loadRecentTargets)
+  homeWorkspaces.setVisible(!missingWorkspace)
+  if (missingWorkspace) {
+    ui.recentTargets.hidden = true
+    clearErrorNotice('home-workspaces')
+  } else {
+    runTask('Load recent projects', loadRecentTargets)
+    refreshHomeWorkspaces()
+  }
+}
+
+function refreshHomeWorkspaces() {
+  runTask('Load saved workspaces', loadHomeWorkspaces, {
+    key: 'home-workspaces',
+    title: 'Couldn’t load saved workspaces',
+    retry: loadHomeWorkspaces,
+  })
+}
+
+async function loadHomeWorkspaces() {
+  if (closed || ui.startScreen.hidden || !homeWorkspaces.visible) return
+  const version = ++homeWorkspacesVersion
+  const current = () => version === homeWorkspacesVersion && !closed && !ui.startScreen.hidden && homeWorkspaces.visible
+  try {
+    const workspaces = await api.workspaces.list()
+    if (!current()) return
+    homeWorkspaces.setWorkspaces(workspaces)
+    clearErrorNotice('home-workspaces')
+  } catch (cause) {
+    if (current()) throw cause
+  }
 }
 
 async function loadRecentTargets() {
-  if (!api) return
+  if (!api || workspaceController.context?.folder === null) return
   const version = ++recentVersion
   try {
     const targets = await api.recentTargets()
-    if (version !== recentVersion || closed || snapshot) return
+    if (version !== recentVersion || closed || snapshot || workspaceController.context?.folder === null) return
     const signature = JSON.stringify(targets.map(target => [target.path, target.name, target.kind]))
     if (signature === recentSignature) return
     recentSignature = signature
@@ -655,6 +759,8 @@ function setTargetOpening(opening) {
   targetOpening = opening
   ui.openFile.disabled = ui.openFolder.disabled = opening
   for (const button of ui.recentList.querySelectorAll('button')) button.disabled = opening
+  for (const button of ui.workspaceRecoveryActions.querySelectorAll('button')) button.disabled = opening
+  homeWorkspaces.setOpening(opening)
 }
 
 /** @param {string} pathname */
@@ -693,9 +799,28 @@ function openTarget(kind) {
 }
 ui.openFile.addEventListener('click', () => openTarget('file'))
 ui.openFolder.addEventListener('click', () => openTarget('folder'))
+ui.chooseRecoveryFolder.addEventListener('click', workspaceSwitcher.open)
+requireElement(ui.workspaceRecoveryActions, '[data-action="add"]', HTMLButtonElement).addEventListener('click', () =>
+  runTask('Add workspace folders', workspaceController.add),
+)
+requireElement(ui.workspaceRecoveryActions, '[data-action="home"]', HTMLButtonElement).addEventListener('click', () =>
+  runTask('Go to Home', workspaceController.close),
+)
+function refreshWorkspaceContext() {
+  runTask('Refresh workspace folders', async () => {
+    const wasMissing = workspaceController.context?.folder === null
+    await workspaceController.refresh()
+    const missing = workspaceController.context?.folder === null
+    if (!closed && !snapshot && !ui.startScreen.hidden && ui.startError.hidden && (wasMissing || missing))
+      showStartScreen()
+  })
+}
 window.addEventListener('focus', () => {
-  if (!snapshot && ui.startScreen.getAttribute('aria-busy') === 'false')
+  if (workspaceController.context) refreshWorkspaceContext()
+  if (!snapshot && ui.startScreen.getAttribute('aria-busy') === 'false') {
     runTask('Load recent projects', loadRecentTargets)
+    refreshHomeWorkspaces()
+  }
 })
 
 function syncSaveState() {
@@ -1914,6 +2039,7 @@ function renderSnapshot(next) {
   assistant?.setContext(true, next.root)
   ui.startScreen.setAttribute('aria-busy', 'false')
   ui.startScreen.hidden = true
+  clearErrorNotice('home-workspaces')
   ui.feedScroll.hidden = false
   if (rootChanged && api.billy) {
     settings?.setBillyWorkspace(null)
@@ -1947,17 +2073,14 @@ function renderSnapshot(next) {
   }
   navigator.update(next)
   updateReviewBaseline(undefined, next.changedPaths.includes('contracts/operate/codegen/generators.toml'))
-  ui.projectName.textContent =
-    next.scope.split('/').findLast(segment => segment !== '') ??
-    next.root.split('/').findLast(segment => segment !== '') ??
-    'Working tree'
+  ui.projectName.textContent = workspaceFolderLabel(next.scope)
   ui.projectPath.textContent = next.scope
   ui.projectPath.title = next.scope
   ui.projectName.title = next.scope
   ui.branchName.textContent = next.branch || 'HEAD'
   ui.gitToggle.title = `Inspect Git history and changes · ${next.branch || 'Detached HEAD'}`
   ui.gitToggle.setAttribute('aria-description', next.branch || 'Detached HEAD')
-  document.title = `${ui.projectName.textContent} · diffpane`
+  if (first || rootChanged) workspaceController.update()
   if (next.watchError && watchChanged) {
     reportError(next.watchError, {
       key: 'watcher',
@@ -2047,6 +2170,7 @@ async function loadDocument(card, retry = false) {
     if (rendered) await rendered
     if (!card.active || generation !== card.generation) return
     clearDocumentFailure(card)
+    if (!document.workingMissing && !card.file.submodule) workspaceController.rememberFile(card.file.path)
     if (card.focusOnLoad) {
       card.focusOnLoad = false
       if (globalThis.document.activeElement === ui.workbench) card.editor?.focus()
@@ -3550,6 +3674,10 @@ Object.assign(window, {
     }),
   )
   const unsubscribeIdeas = api.ideas?.onChange(change => ideas?.applyChange(change))
+  const unsubscribeWorkspaces = api.workspaces.onChange(() => {
+    refreshHomeWorkspaces()
+    if (workspaceController.context) refreshWorkspaceContext()
+  })
   workspaceDialogs.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['open'] })
   api.rendererReady()
   syncFileMenu()
@@ -3595,13 +3723,24 @@ Object.assign(window, {
   })
   const unsubscribeErrors = api.onError(showWorkspaceFailure)
   runTask('Load workspace', async () => {
-    const result = await attemptAsync(async () => applySnapshot(await api.snapshot()))
-    if (!result.ok) showWorkspaceFailure(result.error)
+    const [context, result] = await Promise.all([
+      attemptAsync(workspaceController.refresh),
+      attemptAsync(() => api.snapshot()),
+    ])
+    workspaceContextReady = true
+    if (closed) return
+    if (!context.ok)
+      reportError(context.error, { operation: 'Load saved workspace', retry: workspaceController.refresh })
+    const rendered = result.ok ? attempt(() => applySnapshot(result.value)) : result
+    if (!rendered.ok) showWorkspaceFailure(rendered.error)
+    else revealWorkspaceWhenReady()
   })
   window.addEventListener(
     'pagehide',
     () => {
       closed = true
+      workspaceController.dispose()
+      unsubscribeWorkspaces()
       terminalBounds.disconnect()
       workspaceDialogs.disconnect()
       unsubscribeTerminal?.()
