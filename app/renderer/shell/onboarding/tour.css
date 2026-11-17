@@ -1,13 +1,12 @@
 .onboarding-tour {
-  --tour-scrim: light-dark(rgb(0 0 0 / 30%), rgb(0 0 0 / 50%));
-  --tour-panel: light-dark(#fff, #161616);
-  --tour-ink: light-dark(#222, #f5f5f5);
-  --tour-secondary: light-dark(#585858, #bcbcbc);
-  --tour-subtle: light-dark(#666, #a1a1a1);
-  --tour-control: light-dark(rgb(0 0 0 / 7%), rgb(255 255 255 / 9%));
-  --tour-control-hover: light-dark(rgb(0 0 0 / 11%), rgb(255 255 255 / 14%));
+  --tour-scrim: light-dark(rgb(31 29 26 / 44%), rgb(9 9 9 / 65%));
+  --tour-paper: light-dark(#fdfcf9, #242322);
+  --tour-footer: light-dark(#f4f2ed, #1e1d1c);
+  --tour-ink: light-dark(#242321, #f4f1ed);
+  --tour-secondary: light-dark(#5b5751, #c4bfb9);
+  --tour-line: light-dark(#dedad2, #41403d);
+  --tour-spot-radius: 10px;
   --tour-motion: cubic-bezier(0.22, 0.72, 0.29, 1);
-  box-sizing: border-box;
   position: fixed;
   inset: 0;
   width: 100%;
@@ -29,144 +28,174 @@
 
 .onboarding-tour-spotlight {
   position: absolute;
-  top: 0;
-  left: 0;
+  inset: 0 auto auto 0;
   width: var(--tour-spot-width, 0px);
   height: var(--tour-spot-height, 0px);
   transform: translate(var(--tour-spot-x, 0px), var(--tour-spot-y, 0px));
-  border-radius: var(--tour-spot-radius, 0px);
+  border-radius: var(--tour-spot-radius);
   box-shadow: 0 0 0 150vmax var(--tour-scrim);
   pointer-events: none;
 }
 
 .onboarding-tour-spotlight::after {
   position: absolute;
-  inset: -3px;
-  border: 1.5px solid rgb(255 255 255 / 70%);
-  border-radius: calc(var(--tour-spot-radius, 0px) + 3px);
+  inset: 0;
+  border: 2px solid var(--focus-ring);
+  border-radius: inherit;
+  box-shadow: 0 0 0 1px var(--tour-paper);
   opacity: 0;
   content: '';
 }
 
 .onboarding-tour-spotlight[data-anchored='true']::after {
-  opacity: 0.8;
+  opacity: 1;
+}
+
+.onboarding-tour-halo {
+  position: absolute;
+  inset: -4px;
+  border: 2px solid var(--accent);
+  border-radius: calc(var(--tour-spot-radius) + 4px);
+  opacity: 0;
 }
 
 .onboarding-tour-card {
-  box-sizing: border-box;
   position: absolute;
-  top: 0;
-  left: 0;
-  width: min(296px, calc(100% - 24px));
+  inset: 0 auto auto 0;
+  width: min(326px, calc(100% - 24px));
   max-height: calc(100% - 24px);
-  padding: 16px;
   overflow: auto;
   transform: translate(var(--tour-card-x, 0px), var(--tour-card-y, 0px));
-  border: 1px solid light-dark(rgb(0 0 0 / 9%), rgb(255 255 255 / 17%));
-  border-radius: 16px;
-  background: var(--tour-panel);
+  border: 1px solid var(--tour-line);
+  border-radius: 14px;
+  background: var(--tour-paper);
   box-shadow:
-    0 16px 42px rgb(0 0 0 / 25%),
-    0 4px 12px rgb(0 0 0 / 12%);
+    0 12px 35px rgb(0 0 0 / 25%),
+    0 2px 6px rgb(0 0 0 / 12%);
 }
 
 .onboarding-tour-copy {
-  display: grid;
-  gap: 8px;
+  padding: 18px 20px 20px;
 }
 
-.onboarding-tour-copy > * {
-  margin: 0;
+.onboarding-tour-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-block-end: 12px;
+  color: var(--tour-secondary);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  line-height: 1.3;
+}
+
+.onboarding-tour-progress > :first-child {
+  margin-inline-end: auto;
+}
+
+.onboarding-tour-ticks {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.onboarding-tour-ticks > span {
+  width: 8px;
+  height: 3px;
+  border-radius: 4px;
+  background: var(--tour-line);
+}
+
+.onboarding-tour-ticks > [data-state='seen'] {
+  background: color-mix(in oklab, var(--action) 52%, var(--tour-paper));
+}
+
+.onboarding-tour-ticks > [data-state='current'] {
+  width: 14px;
+  background: var(--action);
 }
 
 .onboarding-tour-count {
-  color: var(--tour-subtle);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  line-height: 1.3;
-  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
 }
 
 #onboarding-tour-title {
-  font-size: 17px;
-  font-weight: 600;
+  margin: 0;
+  font-size: var(--text-heading);
+  font-weight: var(--weight-semibold);
   line-height: 1.2;
+  letter-spacing: -0.025em;
 }
 
 #onboarding-tour-description {
+  margin: 7px 0 0;
   color: var(--tour-secondary);
-  font-size: 13px;
-  line-height: 1.48;
+  font-size: var(--text-body);
+  line-height: 1.55;
 }
 
 .onboarding-tour-actions {
-  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 16px;
-}
-
-.onboarding-tour-card[data-final='true'] .onboarding-tour-actions::before {
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 56px;
-  background: repeating-radial-gradient(
-    ellipse at -4px 130%,
-    transparent 0 4px,
-    light-dark(rgb(0 0 0 / 19%), rgb(255 255 255 / 27%)) 4px 5px
-  );
-  mask-image: linear-gradient(90deg, #000, transparent);
-  pointer-events: none;
-  content: '';
+  padding: 10px 15px;
+  border-block-start: 1px solid var(--tour-line);
+  background: var(--tour-footer);
 }
 
 .onboarding-tour-actions button {
-  min-height: 28px;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 20px;
-  background: var(--tour-control);
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
   color: var(--tour-ink);
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--text-label);
+  font-weight: var(--weight-medium);
   white-space: nowrap;
 }
 
-.onboarding-tour-actions button:hover {
-  background: var(--tour-control-hover);
+.onboarding-tour-actions button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.onboarding-tour-actions button:hover:enabled {
+  background: color-mix(in oklab, var(--tour-line) 55%, transparent);
 }
 
 .onboarding-tour-actions .onboarding-tour-skip {
   margin-inline-end: auto;
-  padding-inline: 3px;
-  background: transparent;
-  color: var(--tour-subtle);
-  font-weight: 400;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.onboarding-tour-actions .onboarding-tour-skip:hover {
-  background: transparent;
-  color: var(--tour-ink);
+  padding-inline: 5px;
+  color: var(--tour-secondary);
 }
 
 .onboarding-tour-actions .onboarding-tour-next {
-  min-width: 54px;
-  background: light-dark(#282828, #dedede);
-  color: var(--tour-panel);
+  min-width: 72px;
+  background: var(--action);
+  color: var(--action-text);
+  font-weight: var(--weight-semibold);
 }
 
-.onboarding-tour-actions .onboarding-tour-next:hover {
-  background: light-dark(#111, #f2f2f2);
+.onboarding-tour-actions .onboarding-tour-next:hover:enabled {
+  background: var(--action-hover);
+}
+
+.onboarding-tour-actions [aria-hidden='true'] {
+  font-size: var(--text-content);
+  line-height: 1;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .onboarding-tour[open][data-placed='true'] {
-    animation: onboarding-tour-enter 300ms var(--tour-motion) both;
+    animation: onboarding-tour-enter 200ms ease-out both;
   }
 
   .onboarding-tour[open][data-leaving='true'] {
@@ -175,24 +204,17 @@
 
   .onboarding-tour[data-placed='true'] .onboarding-tour-spotlight {
     transition:
-      width 420ms var(--tour-motion),
-      height 420ms var(--tour-motion),
-      transform 420ms var(--tour-motion),
-      border-radius 420ms var(--tour-motion);
+      width 310ms var(--tour-motion),
+      height 310ms var(--tour-motion),
+      transform 310ms var(--tour-motion);
   }
 
   .onboarding-tour[data-placed='true'] .onboarding-tour-card {
-    transition: transform 410ms var(--tour-motion);
+    transition: transform 280ms var(--tour-motion);
   }
 
   .onboarding-tour-spotlight::after {
-    transition:
-      border-radius 420ms var(--tour-motion),
-      opacity 180ms ease;
-  }
-
-  .onboarding-tour-spotlight[data-anchored='true']::after {
-    animation: onboarding-tour-pulse 1200ms ease-in-out infinite alternate;
+    transition: opacity 180ms ease;
   }
 }
 
@@ -200,22 +222,10 @@
   from {
     opacity: 0;
   }
-  to {
-    opacity: 1;
-  }
 }
 
 @keyframes onboarding-tour-exit {
   to {
     opacity: 0;
-  }
-}
-
-@keyframes onboarding-tour-pulse {
-  from {
-    opacity: 0.45;
-  }
-  to {
-    opacity: 1;
   }
 }

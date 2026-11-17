@@ -4,9 +4,8 @@ import './tour.css'
 export interface OnboardingTourStop {
   title: string
   body: string
-  anchor?: string
-  placement?: 'beside' | 'below' | 'above' | 'inside'
-  pad?: number
+  anchor?: string | readonly string[]
+  placement?: 'beside' | 'below' | 'above'
   nextLabel?: string
 }
 
@@ -14,7 +13,7 @@ export const homeTourStops: readonly OnboardingTourStop[] = [
   {
     anchor: '#open-folder',
     title: 'Open a Git folder',
-    body: 'Open a folder to see its files and live changes. Open File takes you straight to a file in its working tree.',
+    body: 'Open Folder brings in a working tree. Open File jumps straight to one of its files.',
   },
   {
     anchor: '.home-workspaces-create',
@@ -30,9 +29,9 @@ export const homeTourStops: readonly OnboardingTourStop[] = [
 
 export const workspaceTourStops: readonly OnboardingTourStop[] = [
   {
-    anchor: '#navigator .navigator-heading',
+    anchor: ['#navigator button[data-action="open-file"]', '#navigator .navigator-heading'],
     title: 'Find a file',
-    body: 'Browse your working tree here. Use Search files in the explorer to jump to a file by name.',
+    body: 'Use Search files to jump to a file by name, or browse the working tree in the explorer.',
     placement: 'beside',
   },
   {
@@ -41,11 +40,9 @@ export const workspaceTourStops: readonly OnboardingTourStop[] = [
     body: 'Changes collects the files that differ from Git HEAD. Open one to review its diff and track your progress.',
   },
   {
-    anchor: '.workbench',
-    title: 'Read the live file',
-    body: 'The editor follows changes on disk. Use Diff in the file header to compare the working file with Git HEAD.',
-    placement: 'inside',
-    pad: 0,
+    anchor: ['.file-header .diff-toggle:not(:disabled)', '.file-header', '#empty-state h2', '.workbench'],
+    title: 'Compare a working file',
+    body: 'Open a file to follow saves on disk. Use Diff in its header to compare the working file with Git HEAD.',
   },
   {
     anchor: '#review-notes-toggle',
@@ -71,16 +68,21 @@ interface Box {
 }
 
 const margin = 12
-const gap = 14
+const gap = 18
 const exitDuration = 160
 
-function findAnchor(selector: string) {
-  return [...document.querySelectorAll<HTMLElement>(selector)].find(
-    element => element.checkVisibility({ visibilityProperty: true }) && element.getClientRects().length > 0,
-  )
+function findAnchor(selectors: string | readonly string[]) {
+  for (const selector of typeof selectors === 'string' ? [selectors] : selectors) {
+    const anchor = [...document.querySelectorAll<HTMLElement>(selector)].find(
+      element => element.checkVisibility({ visibilityProperty: true }) && element.getClientRects().length > 0,
+    )
+    if (anchor) return anchor
+  }
+  return undefined
 }
 
-function getSpotlight(anchor: HTMLElement, pad: number, viewportWidth: number, viewportHeight: number): Box | null {
+function getSpotlight(anchor: HTMLElement, viewportWidth: number, viewportHeight: number): Box | null {
+  const pad = 4
   const { left, top, right, bottom } = anchor.getBoundingClientRect()
   if (right <= 0 || left >= viewportWidth || bottom <= 0 || top >= viewportHeight || right <= left || bottom <= top)
     return null
@@ -104,28 +106,23 @@ function placeCard(
 ) {
   const maxX = Math.max(margin, viewportWidth - width - margin)
   const maxY = Math.max(margin, viewportHeight - height - margin)
-  const clamp = (x: number, y: number) => ({
-    x: Math.min(maxX, Math.max(margin, x)),
-    y: Math.min(maxY, Math.max(margin, y)),
-  })
-  if (!spot) return clamp((viewportWidth - width) / 2, viewportHeight * 0.62 - height / 2)
+  const clampX = (x: number) => Math.min(maxX, Math.max(margin, x))
+  const clampY = (y: number) => Math.min(maxY, Math.max(margin, y))
+  if (!spot) return { x: clampX((viewportWidth - width) / 2), y: clampY((viewportHeight - height) / 2) }
 
   const centerX = spot.x + spot.width / 2
-  const centered = centerX - width / 2
-  if (stop.placement === 'inside') return clamp(centered, spot.y + spot.height * 0.7 - height / 2)
-  if (stop.placement === 'beside') {
-    const left = spot.x - gap - width
-    const right = spot.x + spot.width + gap
-    const sides = centerX > viewportWidth / 2 ? [left, right] : [right, left]
-    const x = sides.find(side => side >= margin && side <= maxX)
-    if (x !== undefined) return clamp(x, spot.y + spot.height / 2 - 36)
-  }
-
-  const above = spot.y - height - gap
-  const below = spot.y + spot.height + gap
+  const centerY = spot.y + spot.height / 2
+  const left = { x: spot.x - gap - width, y: clampY(centerY - 26) }
+  const right = { x: spot.x + spot.width + gap, y: left.y }
+  const sides = centerX > viewportWidth / 2 ? [left, right] : [right, left]
+  const above = { x: clampX(centerX - width / 2), y: spot.y - height - gap }
+  const below = { x: above.x, y: spot.y + spot.height + gap }
   const preferred = stop.placement === 'above' ? [above, below] : [below, above]
-  const y = preferred.find(side => side >= margin && side <= maxY) ?? (spot.y < viewportHeight / 2 ? below : above)
-  return clamp(spot.width < width / 2 ? spot.x - 10 : centered, y)
+  const positions = stop.placement === 'beside' ? [...sides, ...preferred] : [...preferred, ...sides]
+  const position = positions.find(({ x, y }) => x >= margin && x <= maxX && y >= margin && y <= maxY)
+  if (position) return position
+
+  return { x: above.x, y: clampY(centerY <= viewportHeight / 2 ? below.y : above.y) }
 }
 
 export function startOnboardingTour({ stops, onFinish }: TourOptions): { close: () => void } {
@@ -138,34 +135,46 @@ export function startOnboardingTour({ stops, onFinish }: TourOptions): { close: 
   dialog.setAttribute('aria-labelledby', 'onboarding-tour-title')
   dialog.setAttribute('aria-describedby', 'onboarding-tour-description')
   dialog.innerHTML = `
-    <div class="onboarding-tour-spotlight" aria-hidden="true"></div>
+    <div class="onboarding-tour-spotlight" aria-hidden="true"><div class="onboarding-tour-halo"></div></div>
     <section class="onboarding-tour-card">
       <div class="onboarding-tour-copy" aria-live="polite" aria-atomic="true">
-        <p class="onboarding-tour-count"></p>
+        <header class="onboarding-tour-progress">
+          <span>Guided tour</span>
+          <span class="onboarding-tour-ticks" aria-hidden="true"></span>
+          <span class="onboarding-tour-count"></span>
+        </header>
         <h2 id="onboarding-tour-title"></h2>
         <p id="onboarding-tour-description"></p>
       </div>
-      <div class="onboarding-tour-actions">
-        <button type="button" class="onboarding-tour-skip">Skip Tour</button>
-        <button type="button" class="onboarding-tour-back">Back</button>
-        <button type="button" class="onboarding-tour-next" autofocus>Next</button>
-      </div>
+      <footer class="onboarding-tour-actions">
+        <button type="button" class="onboarding-tour-skip">Skip tour</button>
+        <button type="button" class="onboarding-tour-back"><span aria-hidden="true">←</span> Back</button>
+        <button type="button" class="onboarding-tour-next" autofocus><span>Next</span><span aria-hidden="true">→</span></button>
+      </footer>
     </section>
   `
   const spotlight = requireElement(dialog, '.onboarding-tour-spotlight', HTMLElement)
+  const halo = requireElement(spotlight, '.onboarding-tour-halo', HTMLElement)
   const card = requireElement(dialog, '.onboarding-tour-card', HTMLElement)
   const count = requireElement(card, '.onboarding-tour-count', HTMLElement)
+  const ticks = requireElement(card, '.onboarding-tour-ticks', HTMLElement)
   const title = requireElement(card, '#onboarding-tour-title', HTMLElement)
   const description = requireElement(card, '#onboarding-tour-description', HTMLElement)
   const skip = requireElement(card, '.onboarding-tour-skip', HTMLButtonElement)
   const back = requireElement(card, '.onboarding-tour-back', HTMLButtonElement)
   const next = requireElement(card, '.onboarding-tour-next', HTMLButtonElement)
+  const nextLabel = requireElement(next, 'span:first-child', HTMLElement)
+  const nextIcon = requireElement(next, 'span:last-child', HTMLElement)
+  const markers = Array.from({ length: available.length }, () => document.createElement('span'))
+  ticks.append(...markers)
   const listeners = new AbortController()
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   const resize = new ResizeObserver(schedulePlacement)
   let frame: number | undefined
   let exitTimer: number | undefined
   let anchor: HTMLElement | undefined
+  let placedIndex: number | undefined
+  let emphasis: Animation | undefined
 
   function place() {
     frame = undefined
@@ -174,18 +183,26 @@ export function startOnboardingTour({ stops, onFinish }: TourOptions): { close: 
     if (!stop) return
     const width = dialog.clientWidth
     const height = dialog.clientHeight
-    const pad = stop.pad ?? 4
-    const spot = anchor && getSpotlight(anchor, pad, width, height)
+    const spot = anchor && getSpotlight(anchor, width, height)
     const { x, y, width: spotWidth, height: spotHeight } = spot ?? { x: width / 2, y: height / 2, width: 0, height: 0 }
     spotlight.style.setProperty('--tour-spot-x', `${x}px`)
     spotlight.style.setProperty('--tour-spot-y', `${y}px`)
     spotlight.style.setProperty('--tour-spot-width', `${spotWidth}px`)
     spotlight.style.setProperty('--tour-spot-height', `${spotHeight}px`)
-    spotlight.style.setProperty('--tour-spot-radius', `${spot ? 6 + pad : 0}px`)
     spotlight.dataset.anchored = String(Boolean(spot))
     const position = placeCard(stop, spot ?? null, width, height, card.offsetWidth, card.offsetHeight)
     card.style.setProperty('--tour-card-x', `${position.x}px`)
     card.style.setProperty('--tour-card-y', `${position.y}px`)
+    if (placedIndex !== index) {
+      emphasis?.cancel()
+      if (spot && !reducedMotion.matches)
+        emphasis = halo.animate([{ opacity: 0 }, { opacity: 0.8, offset: 0.4 }, { opacity: 0 }], {
+          duration: 520,
+          delay: placedIndex === undefined ? 40 : 180,
+          easing: 'ease-out',
+        })
+      placedIndex = index
+    }
   }
 
   function schedulePlacement() {
@@ -198,12 +215,16 @@ export function startOnboardingTour({ stops, onFinish }: TourOptions): { close: 
     const last = index === available.length - 1
     const focusMoved = back === document.activeElement
     count.textContent = `${index + 1} of ${available.length}`
+    markers.forEach((marker, position) => {
+      marker.dataset.state = position === index ? 'current' : position < index ? 'seen' : 'upcoming'
+    })
     title.textContent = stop.title
     description.textContent = stop.body
     card.dataset.final = String(last)
     skip.hidden = last
     back.hidden = index === 0 || last
-    next.textContent = stop.nextLabel ?? (last ? 'Done' : 'Next')
+    nextLabel.textContent = stop.nextLabel ?? (last ? 'Done' : 'Next')
+    nextIcon.textContent = last ? '✓' : '→'
     if (back.hidden && focusMoved) next.focus()
 
     if (anchor) resize.unobserve(anchor)
@@ -218,6 +239,7 @@ export function startOnboardingTour({ stops, onFinish }: TourOptions): { close: 
   function close() {
     listeners.abort()
     resize.disconnect()
+    emphasis?.cancel()
     if (frame !== undefined) cancelAnimationFrame(frame)
     if (exitTimer !== undefined) window.clearTimeout(exitTimer)
     if (dialog.open) dialog.close()
@@ -235,6 +257,7 @@ export function startOnboardingTour({ stops, onFinish }: TourOptions): { close: 
       return
     }
     dialog.dataset.leaving = 'true'
+    for (const button of [skip, back, next]) button.disabled = true
     exitTimer = window.setTimeout(complete, exitDuration)
   }
 

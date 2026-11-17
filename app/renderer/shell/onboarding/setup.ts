@@ -3,13 +3,15 @@ import type { Appearance } from '../../../electron/persistence/preferences/ui-pr
 import { bindingLabel, effectiveBinding } from '../../../shared/preferences/shortcuts.ts'
 import { runTask } from '../recovery/errors.ts'
 import { requireElement } from '../workspace/dom.js'
-import { appIcon, comparisonArt, introArt, postcardArt } from './setup-art.ts'
+import { appIcon, comparisonArt, introArt } from './setup-art.ts'
 import './setup.css'
 
 const steps = ['intro', 'welcome', 'appearance', 'ready'] as const
+const stepLabels = ['Welcome', 'Appearance', 'Ready']
 export type { OnboardingStep }
 type SetupAppearance = Pick<Appearance, 'theme' | 'layout'>
 type SetupShortcut = 'searchFiles' | 'reviewChanges' | 'reviewNotes'
+type PreviewWidth = 'wide' | 'narrow'
 
 interface SetupOptions {
   appearance: SetupAppearance
@@ -37,82 +39,93 @@ const shortcutExamples: ReadonlyArray<{ action: SetupShortcut; label: string }> 
   { action: 'reviewChanges', label: 'Review changes' },
   { action: 'reviewNotes', label: 'Open review notes' },
 ]
-const introHold = 2200
+const introHold = 1400
 
 function introMarkup() {
   return `<div class="onboarding-intro">
     ${introArt()}
     <div class="onboarding-intro-mark">
       <img src="${appIcon}" alt="" width="96" height="96">
-      <h1 id="onboarding-setup-title" tabindex="-1" aria-label="DiffPane">${Array.from(
-        'DiffPane',
-        (letter, index) => `<span aria-hidden="true" style="--onboarding-letter: ${index}">${letter}</span>`,
-      ).join('')}</h1>
+      <h1 id="onboarding-setup-title" tabindex="-1">Diffpane</h1>
       <p>A quiet, live view of your working tree</p>
     </div>
-    <button class="onboarding-quiet onboarding-intro-skip" type="button" data-action="next" aria-label="Skip intro animation">Skip</button>
+    <button class="onboarding-intro-skip" type="button" data-action="next" aria-label="Skip intro animation">Skip</button>
   </div>`
 }
 
 function progressMarkup(index: number) {
-  const count = steps.length - 1
-  return `<div class="onboarding-progress">
-    <div aria-hidden="true">${Array.from({ length: count }, (_, dot) => `<i${dot < index ? ' class="is-filled"' : ''}></i>`).join('')}</div>
-    <span>Step ${index} of ${count}</span>
-  </div>`
+  return `<ol class="onboarding-progress" aria-label="Setup progress">
+    ${stepLabels.map((label, item) => `<li${item + 1 === index ? ' aria-current="step"' : ''}${item + 1 < index ? ' class="is-complete"' : ''}>${label}</li>`).join('')}
+  </ol>`
 }
 
 function choicesMarkup(key: keyof SetupAppearance, label: string, draft: SetupAppearance) {
   const choices = key === 'theme' ? themeChoices : layoutChoices
-  return `<fieldset class="onboarding-choices">
+  return `<fieldset class="onboarding-choices"${key === 'layout' ? ' aria-describedby="onboarding-layout-help"' : ''}>
     <legend>${label}</legend>
     <div>${choices
       .map(
         choice =>
           `<label><input type="radio" name="${key}" value="${choice.value}"${
             choice.value === draft[key] ? ' checked' : ''
-          }><span>${choice.label}</span></label>`,
+          }><span class="onboarding-choice"><i aria-hidden="true" data-choice="${choice.value}"></i>${choice.label}</span></label>`,
       )
       .join('')}</div>
   </fieldset>`
 }
 
 function shortcutMarkup() {
-  return `<dl class="onboarding-shortcuts">${shortcutExamples.map(({ action, label }) => `<div><dt>${label}</dt><dd><kbd data-shortcut="${action}"></kbd></dd></div>`).join('')}</dl>`
+  return `<section class="onboarding-shortcut-section" aria-labelledby="onboarding-shortcut-title">
+    <h2 id="onboarding-shortcut-title">A few handy shortcuts</h2>
+    <dl class="onboarding-shortcuts">${shortcutExamples.map(({ action, label }) => `<div><dt>${label}</dt><dd><kbd data-shortcut="${action}"></kbd></dd></div>`).join('')}</dl>
+  </section>`
 }
 
 function contentFor(step: Exclude<OnboardingStep, 'intro'>, draft: SetupAppearance, inWorkspace?: boolean) {
-  const continueButton = '<button class="onboarding-primary" type="button" data-action="next">Continue</button>'
+  const continueButton =
+    '<button class="onboarding-primary" type="button" data-action="next">Continue <span aria-hidden="true">→</span></button>'
   switch (step) {
     case 'welcome':
       return {
-        title: 'Welcome to DiffPane',
-        subtitle: 'Open a project to see what’s changing as you and your tools work.',
+        title: 'See changes as they happen',
+        subtitle: 'Diffpane gives you a live view of your Git working tree.',
         body: `<ul class="onboarding-features">
-          <li><span class="onboarding-feature-live" aria-hidden="true"></span><div><strong>Watch a folder live</strong><p>See saves and edits as they happen.</p></div></li>
-          <li><span class="onboarding-feature-diff" aria-hidden="true">±</span><div><strong>Review changes in context</strong><p>Compare edits and see what’s left to review.</p></div></li>
+          <li><span class="onboarding-feature-live" aria-hidden="true"></span><div><strong>Follow edits live</strong><p>See saves from you and your tools.</p></div></li>
+          <li><span class="onboarding-feature-diff" aria-hidden="true">±</span><div><strong>Review changes in context</strong><p>Compare with Git HEAD and track your review.</p></div></li>
         </ul>`,
-        preview: comparisonArt(),
-        actions: `${continueButton}<button class="onboarding-quiet" type="button" data-action="skip">Skip Setup</button>`,
+        preview: `<figure class="onboarding-art">
+          <figcaption><span>Example workspace</span><span class="onboarding-live-status"><i aria-hidden="true"></i> Watching</span></figcaption>
+          ${comparisonArt()}
+        </figure>`,
+        actions: `<button type="button" data-action="skip">Skip setup</button>${continueButton}`,
       }
     case 'appearance':
       return {
         title: 'Make it yours',
-        subtitle: 'Choose a theme and how you want to read changes.',
-        body: `<div class="onboarding-preferences">${choicesMarkup('theme', 'Theme', draft)}${choicesMarkup('layout', 'Diff layout', draft)}<p>Automatic uses inline diffs in narrow panes.</p></div>`,
-        preview: comparisonArt(),
+        subtitle: 'Pick a theme and a layout for reading diffs.',
+        body: `<div class="onboarding-preferences">${choicesMarkup('theme', 'Theme', draft)}${choicesMarkup('layout', 'Diff layout', draft)}<p id="onboarding-layout-help">Automatic switches to inline diffs in narrow panes.</p></div>`,
+        preview: `<figure class="onboarding-art">
+          <figcaption><span>Live preview</span>
+            <div class="onboarding-preview-width" role="group" aria-label="Preview pane width">
+              <button type="button" data-preview-width="wide" aria-pressed="true">Wide</button>
+              <button type="button" data-preview-width="narrow" aria-pressed="false">Narrow</button>
+            </div>
+          </figcaption>
+          ${comparisonArt()}
+          <p class="onboarding-preview-result" role="status"></p>
+        </figure>`,
         actions: continueButton,
       }
     case 'ready':
       return {
         title: 'Ready to review',
         subtitle: inWorkspace
-          ? 'Your workspace is ready. You can change its appearance any time in Settings.'
-          : 'Open a folder to get started. You can change the look of your workspace in Settings.',
+          ? 'Return to your working tree or take a quick tour of the workspace.'
+          : 'Open a Git folder to watch changes, or take a quick tour.',
         body: shortcutMarkup(),
-        preview: postcardArt(),
-        actions: `<button class="onboarding-primary" type="button" data-action="finish">Get Started <span aria-hidden="true">→</span></button>
-          <button class="onboarding-quiet" type="button" data-action="tour">Take the Tour</button>`,
+        preview: '',
+        actions: `<button class="onboarding-tour-action" type="button" data-action="tour">Take the tour</button>
+          <button class="onboarding-primary" type="button" data-action="finish">${inWorkspace ? 'Go to workspace' : 'Get started'} <span aria-hidden="true">→</span></button>`,
       }
     default:
       throw new Error(`Unknown onboarding step: ${String(step)}`)
@@ -128,16 +141,27 @@ export function createOnboardingSetup(options: SetupOptions) {
   const draft = { ...options.appearance }
   const previousFocus = document.activeElement
   let step = options.startStep
+  let previewWidth: PreviewWidth = 'wide'
   let introTimer: ReturnType<typeof setTimeout> | undefined
   let leavingIntro = false
   let finishing = false
   let closed = false
 
   function paintPreview() {
-    const window = dialog.querySelector<HTMLElement>('.onboarding-preview-window')
-    if (!window) return
-    window.dataset.scheme = draft.theme === 'system' ? (system.matches ? 'dark' : 'light') : draft.theme
-    window.dataset.layout = draft.layout
+    const preview = dialog.querySelector<HTMLElement>('.onboarding-preview-window')
+    if (!preview) return
+    const scheme = draft.theme === 'system' ? (system.matches ? 'dark' : 'light') : draft.theme
+    preview.dataset.scheme = scheme
+    preview.dataset.layout = step === 'welcome' ? 'split' : draft.layout
+    preview.dataset.width = step === 'welcome' ? 'wide' : previewWidth
+    const result = dialog.querySelector('.onboarding-preview-result')
+    if (!result) return
+    const inline = draft.layout === 'inline' || (draft.layout === 'automatic' && previewWidth === 'narrow')
+    const summary = `${scheme === 'dark' ? 'Dark' : 'Light'} theme · ${inline ? 'Inline diff' : 'Side-by-side diff'}`
+    if (result.textContent !== summary) result.textContent = summary
+    for (const button of dialog.querySelectorAll<HTMLButtonElement>('[data-preview-width]')) {
+      button.setAttribute('aria-pressed', String(button.dataset.previewWidth === previewWidth))
+    }
   }
 
   function render() {
@@ -147,22 +171,30 @@ export function createOnboardingSetup(options: SetupOptions) {
     } else {
       const content = contentFor(step, draft, options.inWorkspace)
       dialog.innerHTML = `<div class="onboarding-card">
-        <section class="onboarding-copy">
+        <div class="onboarding-masthead">
+          <span class="onboarding-brand"><img src="${appIcon}" alt="" width="26" height="26"> Diffpane</span>
           ${progressMarkup(steps.indexOf(step))}
-          <div class="onboarding-step-content">
-            <header class="onboarding-step-heading">
-              <h1 id="onboarding-setup-title" tabindex="-1">${content.title}</h1>
-              <p>${content.subtitle}</p>
-            </header>
-            <div class="onboarding-step-options">${content.body}</div>
+        </div>
+        <div class="onboarding-scroll">
+          <div class="onboarding-stage">
+            <div class="onboarding-copy">
+              <header class="onboarding-step-heading">
+                ${step === 'ready' ? '<span class="onboarding-ready-mark" aria-hidden="true"></span>' : ''}
+                <h1 id="onboarding-setup-title" tabindex="-1">${content.title}</h1>
+                <p>${content.subtitle}</p>
+              </header>
+              ${content.body}
+            </div>
+            ${content.preview}
           </div>
+        </div>
+        <footer class="onboarding-footer">
           <p class="onboarding-setup-error" role="alert" hidden></p>
-          <footer class="onboarding-actions">
-            ${step === 'welcome' ? '' : '<button class="onboarding-back" type="button" data-action="back" aria-label="Back" title="Back">←</button>'}
-            ${content.actions}
-          </footer>
-        </section>
-        <div class="onboarding-art" aria-hidden="true">${content.preview}</div>
+          <div class="onboarding-actions">
+            ${step === 'welcome' ? '' : '<button class="onboarding-back" type="button" data-action="back"><span aria-hidden="true">←</span> Back</button>'}
+            <div class="onboarding-forward">${content.actions}</div>
+          </div>
+        </footer>
       </div>`
       paintPreview()
       if (step === 'ready') {
@@ -244,8 +276,14 @@ export function createOnboardingSetup(options: SetupOptions) {
 
   dialog.addEventListener('click', event => {
     if (!(event.target instanceof Element) || finishing) return
-    const button = event.target.closest<HTMLButtonElement>('button[data-action]')
+    const button = event.target.closest<HTMLButtonElement>('button')
     if (!button) return
+    const width = button.dataset.previewWidth
+    if (width === 'wide' || width === 'narrow') {
+      previewWidth = width
+      paintPreview()
+      return
+    }
     switch (button.dataset.action) {
       case 'next':
         move(1)
