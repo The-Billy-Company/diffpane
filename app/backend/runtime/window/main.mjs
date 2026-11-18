@@ -88,6 +88,8 @@ const invokeChannels = new Set()
 const sessions = new Map()
 /** @type {WeakMap<WindowSession, ReadonlySet<FileMenuAction>>} */
 const fileMenuActions = new WeakMap()
+/** @type {WeakMap<WindowSession, Map<string, {filePath: string, originalPath: string, path: string, identity: string}>>} */
+const trashedEntries = new WeakMap()
 /** @type {WeakMap<WindowSession, ReturnType<typeof createTerminalDock>>} */
 const terminals = new WeakMap()
 /** @type {WeakMap<WindowSession, AgentThreads>} */
@@ -797,6 +799,7 @@ function createWindow(directory = null, { initialFile, initialLine } = {}) {
     const wasReady = session.rendererReady
     session.rendererReady = false
     fileMenuActions.delete(session)
+    trashedEntries.delete(session)
     if (window.isFocused()) syncFileMenu(session)
     runBackground('stop-terminal', () => terminal.reset())
     session.claude.reset()
@@ -1329,24 +1332,58 @@ for (const method of [
     return session.call(method, args)
   })
 }
+/** @param {WindowSession} session @param {string} filePath @param {'operation-path' | 'operation-destination'} [method] */
+async function resolveOperationPath(session, filePath, method = 'operation-path') {
+  const absolute = await session.call(method, [filePath])
+  if (typeof absolute !== 'string') throw new Error('Invalid workspace path response.')
+  return absolute
+}
+
+handle('trash', (session, _event, filePath, expectedIdentity) => {
+  if (typeof filePath !== 'string' || (expectedIdentity !== undefined && typeof expectedIdentity !== 'string'))
+    throw appError('Choose a file or folder inside this project.', { code: 'INVALID_FILE_ACTION' })
+  let entries = trashedEntries.get(session)
+  if (!entries) {
+    entries = new Map()
+    trashedEntries.set(session, entries)
+  }
+  return changeFiles(session, [filePath], async () => {
+    const originalPath = await resolveOperationPath(session, filePath)
+    const item = await shell.trashItem(originalPath, expectedIdentity)
+    let receipt = null
+    if (item) {
+      const token = randomUUID()
+      entries.set(token, { filePath, originalPath, ...item })
+      receipt = { token, identity: item.identity }
+    }
+    await background('refresh-after-trash', () => session.call('refresh'))
+    return receipt
+  })
+})
+handle('restore-trash', (session, _event, filePath, token) => {
+  if (typeof filePath !== 'string' || typeof token !== 'string')
+    throw appError('Choose a file or folder to restore.', { code: 'INVALID_FILE_ACTION' })
+  return changeFiles(session, [filePath], async () => {
+    const entries = trashedEntries.get(session)
+    const item = entries?.get(token)
+    if (!entries || !item || item.filePath !== filePath)
+      throw appError('This item is no longer available to restore.', { code: 'TRASH_ENTRY_UNAVAILABLE' })
+    const destination = await resolveOperationPath(session, filePath, 'operation-destination')
+    if (destination !== item.originalPath)
+      throw appError('The original location has changed since this item was moved to Trash.', {
+        code: 'TRASH_DESTINATION_CHANGED',
+      })
+    await shell.restoreTrash(item.path, destination, item.identity)
+    entries.delete(token)
+    await background('refresh-after-restore', () => session.call('refresh'))
+  })
+})
 handle('file-action', async (session, _event, action, filePath) => {
-  if (action !== 'trash' && action !== 'reveal' && action !== 'copy-path' && action !== 'copy-relative-path')
+  if (action !== 'reveal' && action !== 'copy-path' && action !== 'copy-relative-path')
     throw appError('Unknown file action.', { code: 'INVALID_FILE_ACTION' })
   if (typeof filePath !== 'string')
     throw appError('Choose a file or folder inside this project.', { code: 'INVALID_FILE_ACTION' })
-  const operationPath = async () => {
-    const absolute = await session.call('operation-path', [filePath])
-    if (typeof absolute !== 'string') throw new Error('Invalid workspace path response.')
-    return absolute
-  }
-  if (action === 'trash') {
-    await changeFiles(session, [filePath], async () => {
-      await shell.trashItem(await operationPath())
-      await background('refresh-after-trash', () => session.call('refresh'))
-    })
-    return
-  }
-  const absolute = await operationPath()
+  const absolute = await resolveOperationPath(session, filePath)
   if (action === 'reveal') await shell.showItemInFolder(absolute)
   else await clipboard.writeText(action === 'copy-path' ? absolute : filePath)
 })
@@ -1581,7 +1618,10 @@ function syncFileMenu(session) {
         const available = actions?.has(id) === true
         let visible = true
         if (id === 'showDiff') visible = !actions || !(actions.has('showWorkingFile') || actions.has('closeComparison'))
-        else if (id === 'showWorkingFile' || id === 'closeComparison') visible = available
+        else if (id === 'showWorkingFile' || id === 'closeComparison' || id === 'undoDelete' || id === 'redoDelete')
+          visible = available
+        else if (id === 'undoRename') visible = !actions?.has('undoDelete')
+        else if (id === 'redoRename') visible = !actions?.has('redoDelete')
         return { id, enabled: available && !modalOpen, visible }
       }),
   )
@@ -1593,7 +1633,11 @@ function fileMenuItem(action) {
     id: action,
     label: fileMenuLabels[action],
     enabled: false,
-    visible: action !== 'showWorkingFile' && action !== 'closeComparison',
+    visible:
+      action !== 'showWorkingFile' &&
+      action !== 'closeComparison' &&
+      action !== 'undoDelete' &&
+      action !== 'redoDelete',
     click: () => {
       if (quitPhase !== 'running') return
       const window = WorkspaceWindow.getFocusedWindow()

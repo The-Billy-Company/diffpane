@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
+import { lstatSync, mkdirSync, mkdtempSync, renameSync } from 'node:fs'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { webkit } from 'playwright'
@@ -23,6 +24,11 @@ declare global {
     fixtureDesktopInvoke(command: string, channel: string, args: unknown[], omitted: number[]): Promise<unknown>
     deliverDesktopEvent(event: DesktopEvent): void
   }
+}
+
+function identity(filename: string) {
+  const { dev, ino } = lstatSync(filename, { bigint: true })
+  return `${dev}:${ino}`
 }
 
 export async function openWorkspace(root: string, profile: string, target: string, pageError: (error: Error) => void) {
@@ -67,7 +73,32 @@ export async function openWorkspace(root: string, profile: string, target: strin
     const [first, second, third] = args
     const key = `${String(first)}:${String(second)}`
     let value: unknown = null
-    if (method === 'keychain.read') value = keychain.get(key) ?? null
+    if (method === 'shell.trash' || method === 'shell.restoreTrash') {
+      try {
+        assert.ok(typeof first === 'string')
+        const source = first
+        const currentIdentity = identity(source)
+        if (method === 'shell.trash') {
+          if (second !== null && second !== undefined && currentIdentity !== second)
+            throw new Error('This file or folder has changed since it was restored.')
+          mkdirSync(profile, { recursive: true })
+          const trash = mkdtempSync(path.join(profile, 'trash-'))
+          const destination = path.join(trash, path.basename(source))
+          renameSync(source, destination)
+          value = { path: destination, identity: currentIdentity }
+        } else {
+          assert.ok(typeof second === 'string')
+          const destination = second
+          if (currentIdentity !== third) throw new Error('This item in Trash has changed.')
+          if (lstatSync(destination, { throwIfNoEntry: false }))
+            throw new Error('A file or folder with that name already exists.')
+          renameSync(source, destination)
+        }
+      } catch (error) {
+        write({ kind: 'response', id, ok: false, error: error instanceof Error ? error.message : String(error) })
+        return
+      }
+    } else if (method === 'keychain.read') value = keychain.get(key) ?? null
     else if (method === 'keychain.create') {
       if (!keychain.has(key)) keychain.set(key, third)
       value = keychain.get(key)

@@ -43,6 +43,10 @@ export function isRenameResult(value: unknown): value is RenameResult {
   return isRecord(value) && isString(value.path) && isString(value.identity)
 }
 
+export function isTrashResult(value: unknown): value is { token: string; identity: string } {
+  return isRecord(value) && isString(value.token) && isString(value.identity)
+}
+
 export function isInventoryFile(value: unknown): value is InventoryFile {
   return (
     isRecord(value) &&

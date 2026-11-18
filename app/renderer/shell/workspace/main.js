@@ -85,6 +85,7 @@ import { createWorkspaceSwitcher } from './workspace-switcher.ts'
 /** @import { WorkspaceContext } from '../../../shared/preferences/saved-workspaces.ts' */
 /** @import { ShortcutAction, ShortcutOverrides } from '../../../shared/preferences/shortcuts.ts' */
 /** @import { ContentMatch } from '../../explorer/project-search/content-search.ts' */
+/** @typedef {{kind: 'rename', from: string, to: string, identity: string} | {kind: 'trash', path: string, token: string, identity: string}} FileMutation */
 /** @import { FunctionRange } from '../../review/comparison/function-ranges.ts' */
 /** @import { ChangePosition, ReviewScope } from '../../review/comparison/review-focus.js' */
 /** @typedef {import('monaco-editor/editor/editor.api.js').editor.IStandaloneCodeEditor} CodeEditor */
@@ -351,10 +352,10 @@ let welcomeRendered = false
 let navigationVersion = 0
 /** @type {Set<{path: string}>} */
 const mutations = new Set()
-/** @type {{from: string, to: string, identity: string}[]} */
-const renameHistory = []
-let renamePosition = 0
-let replayingRename = false
+/** @type {FileMutation[]} */
+const mutationHistory = []
+let mutationPosition = 0
+let replayingMutation = false
 let reviewVisible = false
 /** @type {ReviewScope} */
 let reviewScope = 'focus'
@@ -952,16 +953,17 @@ async function closeEditors(focusCode = false) {
 }
 
 /**
- * @param {'rename' | 'trash'} action
- * @param {string} pathname
- * @param {string} [name]
- * @param {{step: -1 | 1, identity: string}} [replay]
+ * @param {{kind: 'rename', path: string, name: string, identity?: string} |
+ * {kind: 'trash', path: string, identity?: string} |
+ * {kind: 'restore', path: string, token: string}} operation
+ * @param {{step: -1 | 1, action: FileMenuAction}} [replay]
  */
-async function mutateFile(action, pathname, name, replay) {
+async function mutateFile(operation, replay) {
   if (closingRequested || closed) throw new Error('This window is closing.')
-  if (replayingRename) throw new Error('A rename is still in progress.')
+  if (replayingMutation) throw new Error('A file operation is still in progress.')
+  const { path: pathname, kind } = operation
   const mutation = { path: pathname }
-  replayingRename = Boolean(replay)
+  replayingMutation = Boolean(replay)
   mutations.add(mutation)
   syncFileMenu()
   try {
@@ -970,24 +972,28 @@ async function mutateFile(action, pathname, name, replay) {
       applyEditorReadOnly(current)
       await current.autosave?.flush()
     }
-    let renamed
-    if (action === 'rename') {
-      if (name === undefined) throw new Error('Enter a name for this file.')
-      renamed = await api.rename(pathname, name, replay?.identity)
-    } else await api.fileAction(action, pathname)
+    /** @type {FileMutation | undefined} */
+    let entry
+    if (kind === 'rename') {
+      const renamed = await api.rename(pathname, operation.name, operation.identity)
+      if (renamed.path === pathname) return
+      entry = { kind, from: pathname, to: renamed.path, identity: renamed.identity }
+    } else if (kind === 'trash') {
+      const trashed = await api.trash(pathname, operation.identity)
+      if (trashed) entry = { kind, path: pathname, ...trashed }
+    } else await api.restoreTrash(pathname, operation.token)
     if (closed) return
-    if (renamed?.path === pathname) return
-    if (renamed) {
-      if (replay) {
-        renamePosition += replay.step
-        clearErrorNotice(fileMenuLabels[replay.step === -1 ? 'undoRename' : 'redoRename'])
-      } else {
-        renameHistory.splice(renamePosition)
-        renameHistory.push({ from: pathname, to: renamed.path, identity: renamed.identity })
-        renamePosition++
-      }
+    if (replay) {
+      if (entry?.kind === 'trash') mutationHistory[mutationPosition] = entry
+      mutationPosition += replay.step
+      clearErrorNotice(fileMenuLabels[replay.action])
+    } else if (entry) {
+      mutationHistory.splice(mutationPosition)
+      mutationHistory.push(entry)
+      mutationPosition++
     }
-    const destination = renamed?.path
+    if (kind === 'restore') return
+    const destination = entry?.kind === 'rename' ? entry.to : undefined
     fileHistory.move(pathname, destination)
     syncFileMenu()
     if (destination) navigator.renamed(pathname, destination)
@@ -1012,21 +1018,39 @@ async function mutateFile(action, pathname, name, replay) {
     }
   } finally {
     mutations.delete(mutation)
-    replayingRename = false
+    replayingMutation = false
     syncFileMenu()
     const current = openedFile ? cards.get(openedFile.path) : undefined
     if (current) applyEditorReadOnly(current)
   }
 }
 
-/** @param {-1 | 1} step */
-function renameHistoryCommand(step) {
+/**
+ * @param {-1 | 1} step
+ * @param {FileMenuAction} [menuAction]
+ * @returns {{action: FileMenuAction, run: () => Promise<void>} | undefined}
+ */
+function fileMutationCommand(step, menuAction) {
   if (mutations.size) return undefined
-  const entry = renameHistory[step === -1 ? renamePosition - 1 : renamePosition]
+  const undo = step === -1
+  const entry = mutationHistory[undo ? mutationPosition - 1 : mutationPosition]
   if (!entry) return undefined
+  if (entry.kind === 'trash') {
+    const action = undo ? 'undoDelete' : 'redoDelete'
+    if (menuAction && menuAction !== action) return undefined
+    const { path, token, identity } = entry
+    return {
+      action,
+      run: () =>
+        mutateFile(undo ? { kind: 'restore', path, token } : { kind: 'trash', path, identity }, { step, action }),
+    }
+  }
+  const action = undo ? 'undoRename' : 'redoRename'
+  if (menuAction && menuAction !== action) return undefined
   const { from, to, identity } = entry
-  const [source, destination] = step === -1 ? [to, from] : [from, to]
-  return () => mutateFile('rename', source, destination.slice(destination.lastIndexOf('/') + 1), { step, identity })
+  const [source, destination] = undo ? [to, from] : [from, to]
+  const name = destination.slice(destination.lastIndexOf('/') + 1)
+  return { action, run: () => mutateFile({ kind: 'rename', path: source, name, identity }, { step, action }) }
 }
 
 const navigator = createNavigator(ui.navigator, api, openFile, {
@@ -1040,7 +1064,11 @@ const navigator = createNavigator(ui.navigator, api, openFile, {
   onReady: startBackgroundAnalysis,
   iconFor: projectIcon,
   onMutate: (action, path, name) => {
-    if (action === 'rename' || action === 'trash') return mutateFile(action, path, name)
+    if (action === 'trash') return mutateFile({ kind: 'trash', path })
+    if (action === 'rename') {
+      if (name === undefined) throw new Error('Enter a name for this file.')
+      return mutateFile({ kind: 'rename', path, name })
+    }
     throw new Error('Unknown file action.')
   },
   onAttach: api.ideas ? path => attachIdeaLink({ path }) : undefined,
@@ -3501,8 +3529,10 @@ function closeOtherEditors() {
 
 /** @type {Record<FileMenuAction, (card: Card | undefined) => (() => unknown) | null | undefined | false>} */
 const fileMenuCommands = {
-  undoRename: () => renameHistoryCommand(-1),
-  redoRename: () => renameHistoryCommand(1),
+  undoRename: () => fileMutationCommand(-1, 'undoRename')?.run,
+  redoRename: () => fileMutationCommand(1, 'redoRename')?.run,
+  undoDelete: () => fileMutationCommand(-1, 'undoDelete')?.run,
+  redoDelete: () => fileMutationCommand(1, 'redoDelete')?.run,
   searchFiles: () => snapshot && openFilePicker,
   saveFile: card => {
     const autosave = card?.autosave
@@ -3617,24 +3647,20 @@ document.addEventListener(
       event.stopPropagation()
     }
     if (!binding) return
-    const renameAction =
-      binding === 'Primary+Z'
-        ? 'undoRename'
-        : binding === (platform === 'win32' ? 'Primary+Y' : 'Primary+Shift+Z')
-          ? 'redoRename'
-          : null
-    if (renameAction && !dialog) {
+    const mutationStep =
+      binding === 'Primary+Z' ? -1 : binding === (platform === 'win32' ? 'Primary+Y' : 'Primary+Shift+Z') ? 1 : 0
+    if (mutationStep && !dialog) {
       const target = event.target
       if (
         target instanceof HTMLElement &&
         (target.isContentEditable || target.closest('input, textarea, .monaco-editor'))
       )
         return
-      const run = renameHistoryCommand(renameAction === 'undoRename' ? -1 : 1)
-      if (run || replayingRename) {
+      const command = fileMutationCommand(mutationStep)
+      if (command || replayingMutation) {
         event.preventDefault()
         event.stopPropagation()
-        if (run && !event.repeat) runTask(fileMenuLabels[renameAction], run)
+        if (command && !event.repeat) runTask(fileMenuLabels[command.action], command.run)
       }
       return
     }
@@ -3654,6 +3680,21 @@ document.addEventListener(
   },
   { capture: true },
 )
+window.addEventListener('keydown', event => {
+  if (!isMac || event.defaultPrevented) return
+  const target = event.target
+  if (
+    !(target instanceof HTMLElement) ||
+    target.closest('.monaco-editor') ||
+    !(target.isContentEditable || target.closest('input, textarea'))
+  )
+    return
+  if (matchesBinding(event, 'Primary+Z', isMac) || matchesBinding(event, 'Primary+Shift+Z', isMac)) {
+    // The macOS menu leaves these keys to the webview. Invoke WebKit's native
+    // undo history for editable controls after editor-specific handlers run.
+    if (document.execCommand(event.shiftKey ? 'redo' : 'undo')) event.preventDefault()
+  }
+})
 applyShortcutOverrides(shortcutOverrides)
 
 const unsubscribeSettings = shortcutApi?.onOpenSettings(openSettings)

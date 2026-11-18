@@ -14,7 +14,7 @@ import { LanguageRuntime } from '../../tools/languages/language.mjs'
 import { DiffRuntime } from '../../workspace/comparison/diff-runtime.ts'
 import { DocumentCache } from '../../workspace/documents/document-cache.ts'
 import { searchRepositoryContent } from '../../workspace/repository/content-search.mjs'
-import { operationPath, renameEntry } from '../../workspace/repository/file-operations.ts'
+import { operationDestination, operationPath, renameEntry } from '../../workspace/repository/file-operations.ts'
 import { parseClaudeFileChanges, Repository } from '../../workspace/repository/repository.mjs'
 import { InventoryDelta } from './inventory-delta.ts'
 
@@ -928,11 +928,12 @@ async function receive({ id, method, args }) {
     else if (method === 'git-overview') value = await repository.gitOverview(args[0], args[1], args[2])
     else if (method === 'git-changes') value = await repository.gitChanges(args[0])
     else if (method === 'git-contents') value = await repository.gitContents(args[0], args[1])
-    else if (method === 'operation-path') {
+    else if (method === 'operation-path' || method === 'operation-destination') {
       await files()
       const filename = sessionString(args[0], 'file path')
       if (catalogIndex.get(filename)?.submodule) throw new Error('Open the submodule to change its files.')
-      value = await operationPath(repository, filename)
+      const resolve = method === 'operation-path' ? operationPath : operationDestination
+      value = await resolve(repository, filename)
     } else if (method === 'rename') {
       const filename = sessionString(args[0], 'file path')
       value = await changeDirectory(async () => {

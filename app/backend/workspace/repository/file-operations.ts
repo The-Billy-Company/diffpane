@@ -20,8 +20,8 @@ function within(root: string, candidate: string) {
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
 }
 
-/** Resolve an existing entry without following its final symlink or touching Git metadata. */
-export async function operationPath(workspace: Workspace, filename: unknown) {
+/** Resolve the parent of an entry within the workspace, outside Git metadata. */
+export async function operationDestination(workspace: Workspace, filename: unknown) {
   if (
     typeof filename !== 'string' ||
     !filename ||
@@ -35,6 +35,7 @@ export async function operationPath(workspace: Workspace, filename: unknown) {
   const resolved = path.join(await realpath(path.dirname(absolute)), path.basename(absolute))
   if (
     absolute === workspace.scope ||
+    resolved === workspace.scope ||
     !within(workspace.scope, absolute) ||
     !within(workspace.scope, resolved) ||
     [workspace.gitDir, workspace.commonDir].some(
@@ -42,6 +43,12 @@ export async function operationPath(workspace: Workspace, filename: unknown) {
     )
   )
     throw new Error('The project root and Git metadata cannot be changed.')
+  return resolved
+}
+
+/** Resolve an existing entry without following its final symlink. */
+export async function operationPath(workspace: Workspace, filename: unknown) {
+  const resolved = await operationDestination(workspace, filename)
   const entry = await lstat(resolved)
   if (!entry.isFile() && !entry.isDirectory() && !entry.isSymbolicLink())
     throw new Error('Unsupported filesystem entry.')

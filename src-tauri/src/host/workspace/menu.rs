@@ -93,7 +93,36 @@ fn install(app: &AppHandle, state: &Menus) -> tauri::Result<()> {
         }
     }
     app.set_menu(menu)?;
+    #[cfg(target_os = "macos")]
+    app.run_on_main_thread(use_webview_undo_shortcuts)?;
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn use_webview_undo_shortcuts() {
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::NSString;
+
+    let Some(thread) = MainThreadMarker::new() else {
+        return;
+    };
+    let Some(menu) = NSApplication::sharedApplication(thread).mainMenu() else {
+        return;
+    };
+    // Keep the native Edit commands clickable while letting WebKit receive
+    // Command-Z and decide whether the focused control or Explorer handles it.
+    let empty = NSString::from_str("");
+    for menu_item in menu.itemArray().iter() {
+        if let Some(submenu) = menu_item.submenu() {
+            for item in submenu.itemArray().iter() {
+                let action = item.action();
+                if action == Some(sel!(undo:)) || action == Some(sel!(redo:)) {
+                    item.setKeyEquivalent(&empty);
+                }
+            }
+        }
+    }
 }
 
 fn submenu(

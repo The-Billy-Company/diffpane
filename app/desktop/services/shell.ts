@@ -82,7 +82,22 @@ export const shell = {
   openExternal: (url: string) => hostRequest('shell.open', url),
   openPath: (path: string) => hostRequest('shell.openPath', path),
   showItemInFolder: (path: string) => hostRequest('shell.reveal', path),
-  trashItem: (path: string) => hostRequest('shell.trash', path),
+  async trashItem(path: string, expectedIdentity?: string) {
+    const result = await hostRequest('shell.trash', path, expectedIdentity)
+    if (result === null) return null
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      !('path' in result) ||
+      !isNativePath(result.path) ||
+      !('identity' in result) ||
+      typeof result.identity !== 'string'
+    )
+      throw new Error('Invalid Trash response.')
+    return { path: result.path, identity: result.identity }
+  },
+  restoreTrash: (trashedPath: string, destination: string, identity: string) =>
+    hostRequest('shell.restoreTrash', trashedPath, destination, identity),
 }
 
 export function showError(title: string, message: string) {
