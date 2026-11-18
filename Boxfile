@@ -1,6 +1,6 @@
 kind = "application"
 id = "diffpane-app"
-version = "1.0.0"
+version = "1.0.1"
 description = "Browse and edit project files and watch Git changes as they happen."
 
 [applications.macos-aarch64]

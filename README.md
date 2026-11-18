@@ -70,7 +70,9 @@ Diffpane calls Claude Haiku directly. Your prompts, context references, and the 
 
 Diffpane supports macOS Ventura 13.0 or later.
 
-Run `box unpack diffpane-app` with Box 0.3.0 or later. Open `Diffpane.app` from your Applications folder. Box manages updates and removal under the `diffpane-app` ID.
+With a Box build that defaults to the system Applications folder, run `box unpack diffpane-app` and open
+`/Applications/Diffpane.app`. Box manages updates and removal under the `diffpane-app` ID. Box 0.3.0 installs the
+bundle in `~/Applications`.
 
 ## Build from source
 
