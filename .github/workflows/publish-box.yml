@@ -30,7 +30,22 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Check Box publishing credentials
+        id: credentials
+        env:
+          READY: ${{ secrets.BOX_RUNTIME_TOKEN != '' && secrets.BOX_REGISTRY_TOKEN != '' && secrets.BOX_REGISTRY_READ_TOKEN != '' }}
+        run: |
+          echo "ready=$READY" >> "$GITHUB_OUTPUT"
+          if [[ "$READY" != true ]]; then
+            echo "Box publication uses the local release path when Actions credentials are absent."
+            if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+              echo "::error::Set BOX_RUNTIME_TOKEN, BOX_REGISTRY_TOKEN, and BOX_REGISTRY_READ_TOKEN."
+              exit 1
+            fi
+          fi
+
       - name: Install the Box release runtime
+        if: steps.credentials.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ secrets.BOX_RUNTIME_TOKEN }}
         run: |
@@ -47,6 +62,7 @@ jobs:
           echo "$runtime/bin" >> "$GITHUB_PATH"
 
       - name: Stage the signed GitHub release bundle
+        if: steps.credentials.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -82,12 +98,14 @@ jobs:
           echo "DIFFPANE_RELEASE_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Publish the application to Box
+        if: steps.credentials.outputs.ready == 'true'
         env:
           BOX_REGISTRY_TOKEN: ${{ secrets.BOX_REGISTRY_TOKEN }}
           BOX_REGISTRY_READ_TOKEN: ${{ secrets.BOX_REGISTRY_READ_TOKEN }}
         run: box ci publish --registry "$BOX_REGISTRY"
 
       - name: Verify the installed app from Box
+        if: steps.credentials.outputs.ready == 'true'
         env:
           BOX_REGISTRY_READ_TOKEN: ${{ secrets.BOX_REGISTRY_READ_TOKEN }}
         run: |
