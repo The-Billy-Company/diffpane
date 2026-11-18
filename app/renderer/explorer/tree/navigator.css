@@ -271,7 +271,7 @@
   outline-offset: -1px;
 }
 .navigator-row[data-kind='directory'] .navigator-name {
-  color: var(--muted);
+  color: color-mix(in oklab, var(--muted) 65%, var(--text));
   font-weight: var(--weight-medium);
 }
 .navigator-row[aria-expanded='true'] .navigator-name {
