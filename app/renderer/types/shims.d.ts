@@ -33,4 +33,5 @@ declare module 'monaco-editor/base/common/errors.js' {
   export class CancellationError extends Error {
     constructor()
   }
+  export function isCancellationError(error: unknown): boolean
 }

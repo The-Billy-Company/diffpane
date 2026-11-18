@@ -1,3 +1,4 @@
+import { isCancellationError } from 'monaco-editor/base/common/errors.js'
 import { appError, attempt, attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import type { AppError, ErrorContext } from '../../../shared/recovery/app-errors.ts'
 import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
@@ -119,7 +120,12 @@ export function showStartupFailure(cause: unknown): void {
 export function installErrorHandlers(): void {
   window.addEventListener('error', event => {
     if (!(event instanceof ErrorEvent)) return
-    reportError(event.error ?? event.message, {
+    const cause: unknown = event.error ?? event.message
+    if (isEditorCancellation(cause)) {
+      event.preventDefault()
+      return
+    }
+    reportError(cause, {
       key: 'uncaught',
       operation: 'Run Diffpane',
       diagnostic: 'renderer.uncaught-error',
@@ -127,12 +133,22 @@ export function installErrorHandlers(): void {
   })
   window.addEventListener('unhandledrejection', event => {
     event.preventDefault()
+    if (isEditorCancellation(event.reason)) return
     reportError(event.reason, {
       key: 'uncaught',
       operation: 'Run Diffpane',
       diagnostic: 'renderer.unhandled-rejection',
     })
   })
+}
+
+function isEditorCancellation(cause: unknown): boolean {
+  try {
+    return isCancellationError(cause)
+  } catch {
+    // Thrown values can have throwing getters or proxy traps.
+    return false
+  }
 }
 
 export function guard<T extends unknown[]>(
