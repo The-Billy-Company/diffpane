@@ -4,8 +4,8 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vite-plus/test'
-import { searchRepositoryContent } from '../../../electron/workspace/repository/content-search.mjs'
-import { Repository } from '../../../electron/workspace/repository/repository.mjs'
+import { searchRepositoryContent } from '../../../backend/workspace/repository/content-search.mjs'
+import { Repository } from '../../../backend/workspace/repository/repository.mjs'
 
 test('searches scoped working text with literal queries and editor-compatible positions', async t => {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-content-search-')))

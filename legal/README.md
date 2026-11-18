@@ -1,8 +1,8 @@
 ---
 doc_radar:
   sentinels:
-    - file: app/tooling/distribution/install.ts
-      contains: ['legal|node_modules']
+    - file: app/tooling/distribution/backend.ts
+      contains: ['legal/NOTICE', 'legal/GPL-3.0']
 ---
 
 # Third-party notices

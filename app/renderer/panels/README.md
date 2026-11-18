@@ -7,7 +7,7 @@ doc_radar:
 
 # Workspace panels
 
-The workspace mounts these optional panels and supplies their Electron bridge, selection, and layout callbacks.
+The workspace mounts these optional panels and supplies their desktop bridge, selection, and layout callbacks.
 
 - [The Creature](assistant/README.md) — Conversations, tool activity, and proposals.
 - [Ideas](ideas/README.md) — Project notebook and Markdown editing.

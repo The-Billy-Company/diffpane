@@ -36,7 +36,6 @@
   position: absolute;
   inset: 0 0 auto;
   height: 36px;
-  -webkit-app-region: drag;
 }
 
 .onboarding-card {

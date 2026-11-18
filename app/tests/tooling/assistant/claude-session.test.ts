@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { expect, test, vi } from 'vite-plus/test'
-import { ClaudeSession } from '../../../electron/tools/assistant/claude-session.mjs'
+import { ClaudeSession } from '../../../backend/tools/assistant/claude-session.mjs'
 import type {
   ClaudeActivity,
   ClaudeWorkspace,
   ProposalWorkspace,
-} from '../../../electron/tools/assistant/claude-session.mjs'
+} from '../../../backend/tools/assistant/claude-session.mjs'
 import { createDiagnostics } from '../../../shared/diagnostics/diagnostics.ts'
 import type { DiagnosticEvent } from '../../../shared/diagnostics/diagnostics.ts'
 

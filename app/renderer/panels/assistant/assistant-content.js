@@ -9,7 +9,7 @@ import { reportError, runTask } from '../../shell/recovery/errors.ts'
 /** @typedef {(target: FileTarget) => unknown} OpenFile */
 /** @typedef {'running' | 'done' | 'error' | 'stopped'} ToolStatus */
 /** @typedef {{id: string, name: string, label: string, detail?: string, status: ToolStatus, path?: string, startLine?: number, endLine?: number, side?: 'head' | 'working'}} ToolActivity */
-/** @typedef {NonNullable<Awaited<ReturnType<import('../../../electron/runtime/window/preload.ts').DiffpaneApi['claude']['send']>>['proposal']>} Proposal */
+/** @typedef {NonNullable<Awaited<ReturnType<import('../../../shared/bridge/workspace-bridge.ts').DiffpaneApi['claude']['send']>>['proposal']>} Proposal */
 /** @typedef {{openExternal?: (href: string) => unknown, openFile?: OpenFile, colorize?: (text: string, language: string) => string | PromiseLike<string>, onLayout?: () => void, streaming?: boolean, breaks?: boolean, renderLocalLink?: (href: string, link: HTMLAnchorElement) => HTMLElement | undefined, renderImage?: (href: string, alt: string) => HTMLElement | undefined}} MarkdownOptions */
 
 const MARKDOWN = new Marked({

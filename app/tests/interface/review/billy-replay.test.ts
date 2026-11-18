@@ -3,8 +3,8 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vite-plus/test'
-import { createBillyReplayReader } from '../../../electron/tools/billy-replay/reader.ts'
-import { projectReplayCase } from '../../../electron/tools/billy-replay/transcript.ts'
+import { createBillyReplayReader } from '../../../backend/tools/billy-replay/reader.ts'
+import { projectReplayCase } from '../../../backend/tools/billy-replay/transcript.ts'
 import { compareReplayCases } from '../../../renderer/review/billy-replay/comparison.ts'
 
 function transcript(args: string, result: string, playbook?: string) {

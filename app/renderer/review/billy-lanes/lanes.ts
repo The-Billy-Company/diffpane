@@ -1,4 +1,4 @@
-import type { BillyLaneChecks, BillyLaneLog, BillyLanePage } from '../../../electron/tools/billy-lanes/lanes.ts'
+import type { BillyLaneChecks, BillyLaneLog, BillyLanePage } from '../../../backend/tools/billy-lanes/lanes.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createBillyStatusArt } from '../billy/status-art.ts'

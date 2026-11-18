@@ -2,8 +2,8 @@ import {
   defaultAppearance as DEFAULTS,
   maxFontSize as MAX_FONT_SIZE,
   minFontSize as MIN_FONT_SIZE,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
-import type { Appearance } from '../../../electron/persistence/preferences/ui-preferences.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
+import type { Appearance } from '../../../backend/persistence/preferences/ui-preferences.ts'
 import type { ColorScheme } from '../../../shared/appearance/palette.ts'
 import { editorDefaultLineHeight, editorDefaultSize, monoFont } from '../../../shared/appearance/typography.ts'
 import { requireElement } from '../../shell/workspace/dom.js'

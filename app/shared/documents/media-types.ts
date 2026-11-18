@@ -27,6 +27,26 @@ const MEDIA_TYPES: Readonly<Record<string, string>> = {
 
 export const MAX_PIXEL_DIFF_IMAGE_BYTES = 4 * 1024 * 1024
 export const MAX_AUDIO_WAVEFORM_BYTES = 4 * 1024 * 1024
+export const MAX_WAVEFORM_SECONDS = 300
+export const MAX_WAVEFORM_PEAKS = 4096
+
+export function isWorkspaceMediaUrl(value: string) {
+  if (!value.startsWith('http://127.0.0.1:')) return false
+  try {
+    const url = new URL(value)
+    return (
+      url.hostname === '127.0.0.1' &&
+      url.port !== '' &&
+      !url.username &&
+      !url.password &&
+      (url.search === '' || /^\?v=[1-9][0-9]*$/.test(url.search)) &&
+      !url.hash &&
+      /^\/media\/workspace-[\w-]+\/[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}\/[^/]+$/iu.test(url.pathname)
+    )
+  } catch {
+    return false
+  }
+}
 
 export function isPixelDiffImage(type: string | null) {
   return type === 'image/png' || type === 'image/jpeg' || type === 'image/bmp' || type === 'image/x-icon'

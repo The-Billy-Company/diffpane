@@ -1,5 +1,5 @@
 import { hierarchy, treemap } from 'd3-hierarchy'
-import type { BreakdownRow } from '../../../electron/tools/analysis/howmany.mjs'
+import type { BreakdownRow } from '../../../backend/tools/analysis/howmany.mjs'
 
 const WIDTH = 360
 const HEIGHT = 150

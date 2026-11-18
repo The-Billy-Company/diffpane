@@ -7,7 +7,7 @@ doc_radar:
 
 # Explorer tree
 
-The workspace turns Electron inventory and status updates into a virtualized tree. Opening, renaming, or trashing an entry goes through callbacks owned by the workspace.
+The workspace turns workspace inventory and status updates into a virtualized tree. Opening, renaming, or trashing an entry goes through callbacks owned by the workspace.
 
 The Explorer colors edits blue, moves purple, and moves with edits rose. A folder takes on a move color when all of its changed files share that status. Deleted filenames are struck through, and merge conflicts use the warning color. Hover over an entry to see its Git status or the number of changed files in the folder.
 

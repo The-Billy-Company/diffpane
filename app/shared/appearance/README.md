@@ -11,7 +11,7 @@ doc_radar:
 
 # Diffpane appearance
 
-[`palette.ts`](palette.ts) defines the light and dark OKLCH values. [`typography.ts`](typography.ts) defines the type scale, font stacks, and editor defaults. The window loads [the generated CSS](../../renderer/shell/workspace/theme-tokens.css) on first paint. Monaco, Mermaid, and Electron receive sRGB hex values through `colorHex`. The Appearance previews resolve the same CSS tokens with their own `color-scheme`.
+[`palette.ts`](palette.ts) defines the light and dark OKLCH values. [`typography.ts`](typography.ts) defines the type scale, font stacks, and editor defaults. The window loads [the generated CSS](../../renderer/shell/workspace/theme-tokens.css) on first paint. Monaco, Mermaid, and Tauri receive sRGB hex values through `colorHex`. The Appearance previews resolve the same CSS tokens with their own `color-scheme`.
 
 ## Color roles
 

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Diffpane",
+  "mainBinaryName": "Diffpane",
+  "version": "../package.json",
+  "identifier": "com.diffpane.app",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://127.0.0.1:5173"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": []
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["../branding/desktop/diffpane.icns", "../branding/desktop/diffpane.png"],
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "infoPlist": "../app/tooling/distribution/macos-info.plist"
+    }
+  }
+}

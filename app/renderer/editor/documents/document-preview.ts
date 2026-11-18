@@ -9,7 +9,7 @@ import { createImageWipe } from './image-diff/image-wipe.ts'
 import { appendImagePalette } from './image-palette/image-palette.ts'
 import { showMedia } from './media.ts'
 
-import type { FileContent } from '../../../electron/workspace/documents/file-content.ts'
+import type { FileContent } from '../../../backend/workspace/documents/file-content.ts'
 import type { ImageWipeState } from './image-diff/image-wipe.ts'
 
 interface PreviewMedia {
@@ -246,7 +246,7 @@ export function showDocumentPreview(
           const label = compare
             ? `${filename} · ${side === 'before' ? (options.baseline ?? 'HEAD') : 'Working file'}`
             : filename
-          cleanups.push(showAudioPreview(body, media.url, label, failed, waveformBytes))
+          cleanups.push(showAudioPreview(body, { ...media, encoded: waveformBytes }, label, failed))
         } else if (media.type === 'application/pdf') {
           const frame = document.createElement('iframe')
           frame.className = 'preview-pdf'

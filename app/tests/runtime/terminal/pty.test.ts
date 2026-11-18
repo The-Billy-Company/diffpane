@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { IPty } from 'node-pty'
 import { afterEach, expect, test, vi } from 'vite-plus/test'
-import { TerminalProcess } from '../../../electron/runtime/terminal/pty.ts'
+import { TerminalProcess } from '../../../backend/runtime/terminal/pty.ts'
 
 vi.mock('node:fs', async importOriginal => {
   const fs = await importOriginal<typeof import('node:fs')>()
@@ -12,6 +12,14 @@ vi.mock('node:fs', async importOriginal => {
 })
 
 type TerminalOptions = ConstructorParameters<typeof TerminalProcess>[0]
+
+function testShell(home: string): NonNullable<TerminalOptions['command']> {
+  return {
+    executable: '/bin/sh',
+    args: ['-i'],
+    env: { HOME: home, HISTFILE: '/dev/null', PATH: '/usr/bin:/bin', PS1: 'DIFFPANE_READY> ' },
+  }
+}
 
 function fakePty() {
   let dataListener: Parameters<IPty['onData']>[0] | undefined
@@ -178,12 +186,14 @@ test.skipIf(process.platform === 'win32')(
         cwd,
         cols: 80,
         rows: 24,
+        command: testShell(cwd),
         onData(data, bytes) {
           output += data
           terminal?.acknowledge(bytes)
         },
         onExit: exitCode => exited.resolve(exitCode),
       })
+      await vi.waitFor(() => expect(output).toContain('DIFFPANE_READY>'))
       terminal.resize(101, 34)
       terminal.write("printf 'DIFFPANE_%s\\n' WORKSPACE\r")
       terminal.write("pwd -P; test -t 0 && printf 'DIFFPANE_%s\\n' INTERACTIVE; stty size; exit 7\r")
@@ -211,6 +221,7 @@ test.skipIf(process.platform === 'win32')('disposing the PTY hangs up its foregr
     cwd: process.cwd(),
     cols: 80,
     rows: 24,
+    command: testShell(process.cwd()),
     onData(data, bytes) {
       output += data
       terminal.acknowledge(bytes)
@@ -218,6 +229,7 @@ test.skipIf(process.platform === 'win32')('disposing the PTY hangs up its foregr
     onExit() {},
   })
   try {
+    await vi.waitFor(() => expect(output).toContain('DIFFPANE_READY>'))
     terminal.write(`/bin/sh -c 'printf "DIFFPANE_JOB_%d\\n" "$$"; exec sleep 20'\r`)
     const match = await vi.waitFor(() => {
       const pid = /DIFFPANE_JOB_(\d+)/.exec(output)?.[1]

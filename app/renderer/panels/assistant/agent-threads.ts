@@ -1,7 +1,7 @@
-import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import type { AgentMemoryActivity, AgentMemorySnapshot, MemoryPressure } from '../../../shared/agent-memory.ts'
 import { agentProviderNames } from '../../../shared/agent-threads.ts'
 import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
+import type { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { drawThreadTrail } from '../art/assistant.ts'
@@ -154,7 +154,7 @@ export function createAgentThreadPanel(
   host.hidden = true
   host.setAttribute('aria-labelledby', 'agent-threads-title')
   host.innerHTML = `
-    <header class="agent-thread-topbar">
+    <header class="agent-thread-topbar" data-tauri-drag-region="deep">
       <button class="agent-thread-control agent-thread-sidebar-toggle" type="button" data-projects-toggle aria-controls="agent-thread-projects">
         ${icon('sidebar')}
       </button>

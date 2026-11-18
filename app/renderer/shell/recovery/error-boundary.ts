@@ -163,6 +163,7 @@ export function showErrorBoundary(container: HTMLElement, options: ErrorBoundary
   card.append(illustration, content)
   if (modal) {
     const dragRegion = element(owner, 'div', 'error-boundary__drag-region')
+    dragRegion.setAttribute('data-tauri-drag-region', '')
     dragRegion.setAttribute('aria-hidden', 'true')
     modal.append(dragRegion)
     modal.addEventListener('cancel', event => {

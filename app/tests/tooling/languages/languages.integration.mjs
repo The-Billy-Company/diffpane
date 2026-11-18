@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
-import { LanguageRuntime } from '../../../electron/tools/languages/language.mjs'
+import { LanguageRuntime } from '../../../backend/tools/languages/language.mjs'
 import {
   documentSymbols,
   hasHover,
@@ -15,7 +15,7 @@ import {
   tokenCount,
 } from './language-fixture.ts'
 
-/** @import { LanguageEvent } from '../../../electron/tools/languages/language.mjs' */
+/** @import { LanguageEvent } from '../../../backend/tools/languages/language.mjs' */
 
 const root = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-language-matrix-')))
 const fixtures = [

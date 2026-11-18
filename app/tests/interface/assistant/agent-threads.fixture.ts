@@ -1,15 +1,30 @@
-import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import { createAgentThreadTranscript } from '../../../renderer/panels/assistant/agent-thread-conversation.ts'
 import { createAgentThreadPanel } from '../../../renderer/panels/assistant/agent-threads.ts'
 import { requireElement } from '../../../renderer/shell/workspace/dom.js'
-import '../../../renderer/panels/assistant/assistant.css'
 import type { AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'
+import type { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'
+import '../../../renderer/panels/assistant/assistant.css'
+import { createWorkspaceBridge } from '../../../shared/bridge/workspace-bridge.ts'
 import '../../../renderer/shell/workspace/style.css'
 import '../../../renderer/shell/workspace/theme-tokens.css'
 import '../../../renderer/shell/workspace/theme.css'
 
 const { document, window, HTMLElement, HTMLDivElement, HTMLImageElement, HTMLInputElement, HTMLDetailsElement, Event } =
   globalThis
+
+declare global {
+  interface Window {
+    invokeAgentThreadsFixture?: (channel: string, ...args: unknown[]) => Promise<unknown>
+    runAgentThreadsFixture?: (command: string, transcriptUrl: string) => Promise<void>
+  }
+}
+
+window.runAgentThreadsFixture = async (command, transcriptUrl) => {
+  const { invokeAgentThreadsFixture: invoke } = window
+  if (!invoke) throw new Error('The Agent Threads browser fixture could not reach its desktop handlers.')
+  window.diffpane = createWorkspaceBridge({ platform: 'darwin', invoke, send() {}, listen: () => () => {} })
+  await run(command, transcriptUrl)
+}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message)

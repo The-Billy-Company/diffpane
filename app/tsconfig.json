@@ -30,7 +30,7 @@
     "../vite.config.ts",
     "../.pnpmfile.mjs",
     "**/*.ts",
-    "electron/**/*.mjs",
+    "backend/**/*.mjs",
     "renderer/**/*.js",
     "tests/**/*.mjs"
   ],

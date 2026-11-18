@@ -1,84 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, symlink, realpath } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import path from 'node:path'
+import { readFile } from 'node:fs/promises'
 import { test } from 'vite-plus/test'
-import { mediaResponse } from '../../../electron/workspace/documents/media.ts'
-import { mediaType } from '../../../shared/documents/media-types.ts'
+import { decodeOggPreview } from '../../../renderer/editor/documents/audio-waveform/ogg/decoder.ts'
+import { isWorkspaceMediaUrl, mediaType } from '../../../shared/documents/media-types.ts'
 
-/** @param {import('vite-plus/test').TestContext} t */
-async function fixture(t) {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-media-')))
-  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
-  return root
-}
-
-/** @param {string | null} [range] */
-function request(range, method = 'GET') {
-  return new Request('https://media.invalid/file', { method, headers: range ? { range } : {} })
-}
-
-test('media streams beyond the text limit and supports video byte ranges and HEAD', async t => {
-  const root = await fixture(t)
-  const bytes = Buffer.alloc(3 * 1024 * 1024, 42)
-  await writeFile(path.join(root, 'space # 雪.MP4'), bytes)
-  const response = await mediaResponse(root, 'space # 雪.MP4', request())
-  assert.equal(response.status, 200)
-  assert.equal(response.headers.get('Content-Type'), 'video/mp4')
-  assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes)
-  /** @type {ReadonlyArray<readonly [string, number, number]>} */
-  const ranges = [
-    ['bytes=100-199', 100, 199],
-    ['bytes=3145720-', 3145720, bytes.length - 1],
-    ['bytes=-10', bytes.length - 10, bytes.length - 1],
-    ['bytes=3145720-9999999', 3145720, bytes.length - 1],
-  ]
-  await Promise.all(
-    ranges.map(async ([range, start, end]) => {
-      const partial = await mediaResponse(root, 'space # 雪.MP4', request(range))
-      assert.equal(partial.status, 206)
-      assert.equal(partial.headers.get('Content-Range'), `bytes ${start}-${end}/${bytes.length}`)
-      assert.deepEqual(Buffer.from(await partial.arrayBuffer()), bytes.subarray(start, end + 1))
-    }),
-  )
-  const head = await mediaResponse(root, 'space # 雪.MP4', request(null, 'HEAD'))
-  assert.equal(head.headers.get('Content-Length'), String(bytes.length))
-  assert.equal((await head.arrayBuffer()).byteLength, 0)
-  const invalid = ['bytes=9999999-', 'bytes=3-1', 'bytes=-0', 'bytes=0-1,3-4', 'bytes=-']
-  await Promise.all(
-    invalid.map(async range => {
-      const rejected = await mediaResponse(root, 'space # 雪.MP4', request(range))
-      assert.equal(rejected.status, 416, range)
-      assert.equal(rejected.headers.get('Content-Range'), `bytes */${bytes.length}`)
-    }),
-  )
-})
-
-test('media rejects traversal, unsupported files, directories and symlinks outside the repository', async t => {
-  const root = await fixture(t)
-  const external = await fixture(t)
-  await writeFile(path.join(external, 'secret.png'), 'external')
-  await mkdir(path.join(root, 'directory.png'))
-  await writeFile(path.join(root, 'script.js'), 'alert(1)')
-  assert.equal((await mediaResponse(root, '../secret.png', request())).status, 403)
-  assert.equal((await mediaResponse(root, 'script.js', request())).status, 403)
-  assert.equal((await mediaResponse(root, 'directory.png', request())).status, 403)
-  assert.equal((await mediaResponse(root, 'missing.png', request())).status, 404)
-  if (process.platform !== 'win32') {
-    await symlink(path.join(external, 'secret.png'), path.join(root, 'link.png'))
-    await symlink(external, path.join(root, 'outside'))
-    assert.equal((await mediaResponse(root, 'link.png', request())).status, 403)
-    assert.equal((await mediaResponse(root, 'outside/secret.png', request())).status, 403)
-  }
-})
-
-test('images have explicit types and empty files finish without a stream', async t => {
-  const root = await fixture(t)
-  await writeFile(path.join(root, 'empty.svg'), '')
-  const response = await mediaResponse(root, 'empty.svg', request())
-  assert.equal(response.headers.get('Content-Type'), 'image/svg+xml')
-  assert.equal(response.headers.get('Content-Length'), '0')
-  assert.equal(await response.text(), '')
+test('workspace media types are explicit and case insensitive', () => {
   assert.equal(mediaType('photo.PNG'), 'image/png')
   assert.equal(mediaType('animation.apng'), 'image/apng')
   assert.equal(mediaType('photo.jfif'), 'image/jpeg')
@@ -86,4 +12,45 @@ test('images have explicit types and empty files finish without a stream', async
   assert.equal(mediaType('notes.md'), null)
   assert.equal(mediaType('png'), null)
   assert.equal(mediaType('file.constructor'), null)
+})
+
+test('workspace media accepts the backend revision and rejects unrelated URL parameters', () => {
+  const mediaUrl =
+    'http://127.0.0.1:49152/media/workspace-7/53ae5355-431c-46b8-8306-8ced6501ff09/assets%2Fspace%20%23%20%E9%9B%AA.png'
+  assert.equal(isWorkspaceMediaUrl(mediaUrl), true)
+  assert.equal(isWorkspaceMediaUrl(`${mediaUrl}?v=23`), true)
+  for (const suffix of ['?q=23', '?v=', '?v=0', '?v=-1', '?v=23.1', '?v=23&v=24', '?v=%32', '#image']) {
+    assert.equal(isWorkspaceMediaUrl(`${mediaUrl}${suffix}`), false, suffix)
+  }
+  assert.equal(isWorkspaceMediaUrl(mediaUrl.replace('127.0.0.1', 'localhost')), false)
+  assert.equal(isWorkspaceMediaUrl(mediaUrl.replace('/media/', '/other/')), false)
+})
+
+test.each([
+  { filename: 'opus.ogg', channels: 1, sampleRate: 48_000 },
+  { filename: 'vorbis.ogg', channels: 2, sampleRate: 44_100 },
+])('decodes $filename to a seekable WAVE preview with peaks', async ({ filename, channels, sampleRate }) => {
+  const source = await readFile(new URL(`./fixtures/${filename}`, import.meta.url))
+  const { blob, peaks } = await decodeOggPreview(source.toString('base64'))
+  const pcm = Buffer.from(await blob.arrayBuffer())
+
+  assert.equal(blob.type, 'audio/wav')
+  assert.equal(pcm.toString('ascii', 0, 4), 'RIFF')
+  assert.equal(pcm.readUInt32LE(4), pcm.length - 8)
+  assert.equal(pcm.readUInt16LE(22), channels)
+  assert.equal(pcm.readUInt32LE(24), sampleRate)
+  assert.equal(pcm.readUInt32LE(40), pcm.length - 44)
+  assert.ok(pcm.subarray(44).some(sample => sample !== 0))
+  assert.equal(peaks.length, channels)
+  assert.ok(peaks.every(channel => channel.some(peak => peak > 0)))
+})
+
+test('rejects malformed streams and compressed files that would exceed the PCM budget', async () => {
+  const source = await readFile(new URL('./fixtures/opus.ogg', import.meta.url))
+  const lastPage = source.lastIndexOf('OggS')
+  assert.ok(lastPage > 0)
+  const truncated = source.subarray(0, source.length - 1)
+  await assert.rejects(decodeOggPreview(truncated.toString('base64')), /incomplete/)
+  source.writeBigUInt64LE(100_000_000n, lastPage + 6)
+  await assert.rejects(decodeOggPreview(source.toString('base64')), /preview budget/)
 })

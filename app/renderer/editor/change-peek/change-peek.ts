@@ -1,6 +1,7 @@
 import type { editor } from 'monaco-editor/editor/editor.api.js'
-import type { WorkspaceDocument } from '../../../electron/runtime/session/workspace-types.ts'
-import type { LineDecoration } from '../../../electron/workspace/comparison/changes.ts'
+import type { WorkspaceDocument } from '../../../backend/runtime/session/workspace-types.ts'
+import type { LineDecoration } from '../../../backend/workspace/comparison/changes.ts'
+import { toWellFormedUtf16 } from '../../../shared/documents/utf16.ts'
 import './change-peek.css'
 
 const MARKER_SELECTOR = '.diff-gutter-added, .diff-gutter-modified, .diff-gutter-deleted'
@@ -64,7 +65,7 @@ function excerpt(text: string, range: LineDecoration, removed: boolean) {
     marker.textContent = `${removed ? '−' : '+'} ${line}`
     code.textContent =
       end - offset > MAX_COLUMNS
-        ? `${text.slice(offset, offset + MAX_COLUMNS).toWellFormed()}…`
+        ? `${toWellFormedUtf16(text.slice(offset, offset + MAX_COLUMNS))}…`
         : text.slice(offset, end).replace(/\r$/, '')
     row.append(marker, code)
     group.append(row)

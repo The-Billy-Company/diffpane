@@ -1,5 +1,5 @@
-import type { OnboardingStep } from '../../../electron/persistence/preferences/onboarding.ts'
-import type { Appearance } from '../../../electron/persistence/preferences/ui-preferences.ts'
+import type { OnboardingStep } from '../../../backend/persistence/preferences/onboarding.ts'
+import type { Appearance } from '../../../backend/persistence/preferences/ui-preferences.ts'
 import { bindingLabel, effectiveBinding } from '../../../shared/preferences/shortcuts.ts'
 import { runTask } from '../recovery/errors.ts'
 import { requireElement } from '../workspace/dom.js'
@@ -205,7 +205,11 @@ export function createOnboardingSetup(options: SetupOptions) {
         }
       }
     }
-    dialog.append(Object.assign(document.createElement('div'), { className: 'onboarding-drag-region' }))
+    const dragRegion = document.createElement('div')
+    dragRegion.className = 'onboarding-drag-region'
+    dragRegion.setAttribute('data-tauri-drag-region', '')
+    dragRegion.setAttribute('aria-hidden', 'true')
+    dialog.append(dragRegion)
     if (dialog.open) requireElement(dialog, '#onboarding-setup-title', HTMLElement).focus({ preventScroll: true })
   }
 

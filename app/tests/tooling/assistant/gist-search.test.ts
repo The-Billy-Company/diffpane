@@ -2,8 +2,8 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test, vi } from 'vite-plus/test'
-import { readClaudeFile } from '../../../electron/tools/assistant/claude-workspace.mjs'
-import { searchClaudeFiles, searchClaudeGist } from '../../../electron/tools/assistant/gist-search.mjs'
+import { readClaudeFile } from '../../../backend/tools/assistant/claude-workspace.mjs'
+import { searchClaudeFiles, searchClaudeGist } from '../../../backend/tools/assistant/gist-search.mjs'
 
 const { run } = vi.hoisted(() => ({
   run: vi.fn<(binary: string, args: string[], options: { cwd: string }) => Promise<{ stdout: string }>>(),

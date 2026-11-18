@@ -1,3 +1,5 @@
+import { isWellFormedUtf16 } from '../documents/utf16.ts'
+
 export interface BillyContractRequest {
   path: string
   changedPaths: readonly string[]
@@ -37,7 +39,7 @@ function isBillyContractPath(value: unknown): value is string {
   return (
     typeof value === 'string' &&
     value.length <= 4096 &&
-    value.isWellFormed() &&
+    isWellFormedUtf16(value) &&
     !/[\\\0\r\n]/u.test(value) &&
     !/^[a-z]:/iu.test(value) &&
     value.split('/').every(part => part && part !== '.' && part !== '..' && part.toLowerCase() !== '.git')

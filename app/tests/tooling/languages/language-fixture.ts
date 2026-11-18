@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import type { LanguageRuntime } from '../../../electron/tools/languages/language.mjs'
+import type { LanguageRuntime } from '../../../backend/tools/languages/language.mjs'
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

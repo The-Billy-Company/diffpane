@@ -70,6 +70,7 @@ export function createWorkspaceSwitcher(host: HTMLElement | null, actions: Works
   panel.className = 'workspace-switcher-panel'
   panel.setAttribute('popover', 'auto')
   panel.setAttribute('role', 'group')
+  panel.setAttribute('data-tauri-drag-region', 'false')
   trigger.popoverTargetElement = panel
   trigger.setAttribute('aria-controls', panel.id)
   trigger.setAttribute('aria-expanded', 'false')

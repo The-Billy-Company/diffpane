@@ -30,7 +30,6 @@
   border-bottom: 1px solid var(--thread-divider);
   background: var(--canvas);
   user-select: none;
-  -webkit-app-region: drag;
 }
 
 #app[data-agent-threads='mac'] .agent-thread-topbar {

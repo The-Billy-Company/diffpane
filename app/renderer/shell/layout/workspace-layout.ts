@@ -5,14 +5,15 @@ import {
   paneDimensions as DIMENSIONS,
   paneWidths as WIDTHS,
   rightPaneHeight as RIGHT_HEIGHT,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
 import type {
   PaneColumn as Column,
   PaneDimension as Dimension,
   PaneSizes as Sizes,
   WorkspacePane as Pane,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
 import type { UiPreferenceController } from '../../panels/appearance/ui-preferences.ts'
+import { orderChildren } from '../workspace/dom.js'
 import './workspace-layout.css'
 
 const CODE_WIDTH = 292
@@ -42,7 +43,7 @@ function measure(
   const ideasShareWithFiles = ideasIndex >= 0 && activePanes[ideasIndex + ideasTowardCode] === 'files'
   const available = Math.max(0, width - activeColumns.length * DIVIDER_SIZE)
   const minimum = activeColumns.reduce((sum, key) => sum + WIDTHS[key].min, 0)
-  // Preserve room for code at narrow widths, including embedded windows smaller than Electron's minimum.
+  // Preserve room for code at narrow widths, including embedded windows smaller than the desktop minimum.
   const budget = available - Math.min(CODE_WIDTH, available * 0.55)
   const minimumScale = minimum ? Math.min(1, budget / minimum) : 1
   const min = { ideas: 0, files: 0, right: 0, rightHeight: 0 }
@@ -288,11 +289,7 @@ export function createWorkspaceLayout(workspace: HTMLElement, preferences: UiPre
     }
     workspace.style.setProperty('--workspace-columns', tracks.join(' '))
     // Keep the tab and reading order aligned with the grid without remounting focused editors.
-    let next: HTMLElement = dropMarker
-    for (const element of elements.toReversed()) {
-      if (element.nextElementSibling !== next) workspace.moveBefore(element, next)
-      next = element
-    }
+    orderChildren(workspace, elements, dropMarker)
   }
 
   function paint(next: Layout) {

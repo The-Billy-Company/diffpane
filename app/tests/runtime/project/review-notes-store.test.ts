@@ -6,14 +6,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { test } from 'vite-plus/test'
-import { LocalState } from '../../../electron/persistence/database/local-state.ts'
-import { ReviewNotesStore } from '../../../electron/persistence/project/review-notes.ts'
+import { LocalState } from '../../../backend/persistence/database/local-state.ts'
+import { ReviewNotesStore } from '../../../backend/persistence/project/review-notes.ts'
 import { MAX_REVIEW_NOTE_LENGTH } from '../../../shared/review/review-notes.ts'
 import type { ReviewAnchor } from '../../../shared/review/review-notes.ts'
 
 const runNode = promisify(execFile)
-const storeModule = new URL('../../../electron/persistence/project/review-notes.ts', import.meta.url)
-const stateModule = new URL('../../../electron/persistence/database/local-state.ts', import.meta.url)
+const storeModule = new URL('../../../backend/persistence/project/review-notes.ts', import.meta.url)
+const stateModule = new URL('../../../backend/persistence/database/local-state.ts', import.meta.url)
 
 const keys = {
   wrap: async (key: string) => Buffer.from(key, 'base64'),

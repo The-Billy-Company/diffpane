@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Worker } from 'node:worker_threads'
 import { test } from 'vite-plus/test'
-import { Repository } from '../../../electron/workspace/repository/repository.mjs'
+import { Repository } from '../../../backend/workspace/repository/repository.mjs'
 
 import {
   isWorkspaceSnapshot,
@@ -17,7 +17,7 @@ import {
   workerMessage,
 } from '../../runtime/session/session-fixture.ts'
 
-/** @import { WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
+/** @import { WorkspaceSnapshot } from '../../../backend/runtime/session/workspace-types.ts' */
 /** @import { SessionResponse, TestedMethod } from '../../runtime/session/session-fixture.ts' */
 /** @typedef {Awaited<ReturnType<Repository['captureCheckpoint']>>} Checkpoint */
 /** @typedef {Awaited<ReturnType<Repository['checkpointFiles']>>[number]} CheckpointFile */
@@ -297,7 +297,7 @@ function sessionWorker(directory) {
     parentPort.on('message', ({ testPath }) => {
       if (testPath) workspaceWatcher(null, [{ path: testPath, type: 'update' }]);
     });
-    await import(${JSON.stringify(new URL('../../../electron/runtime/session/session.mjs', import.meta.url).href)});
+    await import(${JSON.stringify(new URL('../../../backend/runtime/session/session.mjs', import.meta.url).href)});
   `
   const worker = new Worker(new URL(`data:text/javascript,${encodeURIComponent(source)}`), {
     workerData: { directory },

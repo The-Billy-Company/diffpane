@@ -1,3 +1,5 @@
+import { isWorkspaceMediaUrl } from '../../../shared/documents/media-types.ts'
+
 export function showMedia(
   host: ParentNode,
   media: { type: string; url: string },
@@ -49,7 +51,7 @@ export function showMedia(
     viewport.append(element)
   } else {
     element.alt = filename
-    if (media.url.startsWith('diffpane-media:')) element.crossOrigin = 'anonymous'
+    if (isWorkspaceMediaUrl(media.url)) element.crossOrigin = 'anonymous'
     const toggle = document.createElement('button')
     toggle.type = 'button'
     toggle.className = 'media-image-toggle'

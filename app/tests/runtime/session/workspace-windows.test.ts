@@ -6,10 +6,10 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { test } from 'vite-plus/test'
 import type { TestContext } from 'vite-plus/test'
-import { LocalState } from '../../../electron/persistence/database/local-state.ts'
-import { SavedWorkspaces } from '../../../electron/persistence/preferences/saved-workspaces.ts'
-import { WorkspaceWindows } from '../../../electron/runtime/window/workspace-windows.ts'
-import type { WorkspaceNavigation } from '../../../electron/runtime/window/workspace-windows.ts'
+import { LocalState } from '../../../backend/persistence/database/local-state.ts'
+import { SavedWorkspaces } from '../../../backend/persistence/preferences/saved-workspaces.ts'
+import { WorkspaceWindows } from '../../../backend/runtime/window/workspace-windows.ts'
+import type { WorkspaceNavigation } from '../../../backend/runtime/window/workspace-windows.ts'
 
 const git = promisify(execFile)
 const keyring = {

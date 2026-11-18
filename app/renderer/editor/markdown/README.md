@@ -7,7 +7,7 @@ doc_radar:
 
 # Markdown reading view
 
-The workspace swaps the Monaco editor for this preview when it opens Markdown in reading mode. Project-relative links and assets resolve through the workspace and Electron bridge.
+The workspace swaps the Monaco editor for this preview when it opens Markdown in reading mode. Project-relative links and assets resolve through the workspace and desktop bridge.
 Syntax highlights and Mermaid diagrams use the selected appearance palette and update when it changes.
 
 - [`markdown-preview.ts`](markdown-preview.ts) — Renders sanitized Markdown, code blocks, metadata, and lazy Mermaid diagrams.

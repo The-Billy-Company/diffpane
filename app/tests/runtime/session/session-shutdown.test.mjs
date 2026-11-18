@@ -25,8 +25,8 @@ async function fixture(t, { holdSnapshot = false, failUnsubscribe = false } = {}
     new URL(
       `data:text/javascript,${encodeURIComponent(`
         import watcher from ${JSON.stringify(import.meta.resolve('@parcel/watcher'))};
-        import { Repository } from ${JSON.stringify(new URL('../../../electron/workspace/repository/repository.mjs', import.meta.url).href)};
-        import { DiffRuntime } from ${JSON.stringify(new URL('../../../electron/workspace/comparison/diff-runtime.ts', import.meta.url).href)};
+        import { Repository } from ${JSON.stringify(new URL('../../../backend/workspace/repository/repository.mjs', import.meta.url).href)};
+        import { DiffRuntime } from ${JSON.stringify(new URL('../../../backend/workspace/comparison/diff-runtime.ts', import.meta.url).href)};
         import { parentPort, workerData } from 'node:worker_threads';
         const gates = new Map();
         const pause = name => new Promise(resolve => gates.set(name, resolve));
@@ -71,7 +71,7 @@ async function fixture(t, { holdSnapshot = false, failUnsubscribe = false } = {}
           }
           return snapshot.call(this);
         };
-        await import(${JSON.stringify(new URL('../../../electron/runtime/session/session.mjs', import.meta.url).href)});
+        await import(${JSON.stringify(new URL('../../../backend/runtime/session/session.mjs', import.meta.url).href)});
       `)}`,
     ),
     { workerData: { directory: root, control: workerControl }, transferList: [workerControl] },

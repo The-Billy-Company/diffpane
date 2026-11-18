@@ -2,7 +2,7 @@ import { appendFile, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test, vi } from 'vite-plus/test'
-import { claudeSource } from '../../../electron/tools/assistant/agent-threads/claude.ts'
+import { claudeSource } from '../../../backend/tools/assistant/agent-threads/claude.ts'
 
 const { run } = vi.hoisted(() => ({ run: vi.fn<() => Promise<{ stdout: string }>>() }))
 vi.mock('node:child_process', async importOriginal => ({

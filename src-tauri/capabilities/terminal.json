@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "terminal",
+  "description": "Allow the isolated terminal view to use its restricted desktop bridge.",
+  "webviews": ["terminal-*"],
+  "permissions": ["allow-desktop-connect", "allow-desktop-invoke", "allow-desktop-send"]
+}

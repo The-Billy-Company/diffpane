@@ -1,9 +1,9 @@
 import { readFile, readdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { runInNewContext } from 'node:vm'
 import { expect, test, vi } from 'vite-plus/test'
-import { createDiagnosticLog } from '../../../electron/runtime/diagnostics/diagnostic-log.ts'
+import { createDiagnosticLog } from '../../../backend/runtime/diagnostics/diagnostic-log.ts'
+import { createWorkspaceBridge } from '../../../shared/bridge/workspace-bridge.ts'
 import { createDiagnostics, parseDiagnostic } from '../../../shared/diagnostics/diagnostics.ts'
 import type { DiagnosticEvent } from '../../../shared/diagnostics/diagnostics.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
@@ -95,25 +95,11 @@ test('the local log drains queued records and keeps one previous file per launch
   }
 })
 
-test('the emitted preload reports transport and malformed replies while preserving application errors', async () => {
-  const source = await readFile(new URL('../../../electron/runtime/window/preload.cjs', import.meta.url), 'utf8')
+test('the desktop bridge reports transport and malformed replies while preserving application errors', async () => {
   const send = vi.fn<(channel: string, ...args: unknown[]) => void>()
   const invoke = vi.fn<() => Promise<unknown>>()
-  const exposeInMainWorld =
-    vi.fn<
-      (
-        name: string,
-        api: { openExternal: (url: string) => Promise<void>; reportDiagnostic: (event: unknown) => void },
-      ) => void
-    >()
-  runInNewContext(source, {
-    require: () => ({ contextBridge: { exposeInMainWorld }, ipcRenderer: { send, invoke } }),
-    performance,
-    process: { platform: process.platform },
-  })
-  const bridge = exposeInMainWorld.mock.calls[0]?.[1]
-  if (!bridge) throw new Error('Preload did not expose the desktop bridge')
-  invoke.mockResolvedValueOnce({ ok: true, value: undefined })
+  const bridge = createWorkspaceBridge({ platform: process.platform, send, invoke, listen: () => () => {} })
+  invoke.mockResolvedValueOnce({ ok: true })
   await expect(bridge.openExternal('https://example.test')).resolves.toBeUndefined()
   const failure = { code: 'INVALID_LINK', operation: 'open-external', message: 'Invalid link', recoverable: true }
   invoke.mockResolvedValueOnce({ ok: false, error: failure })
@@ -130,14 +116,15 @@ test('the emitted preload reports transport and malformed replies while preservi
   invoke.mockRejectedValueOnce(new Error('Disconnected'))
   await expect(bridge.openExternal('https://example.test')).rejects.toMatchObject({ code: 'IPC_UNAVAILABLE' })
   expect(send).toHaveBeenLastCalledWith('preload-diagnostic', 'open-external', expect.any(Number), 'IPC_UNAVAILABLE')
-  bridge.reportDiagnostic({
+  const event = {
     source: 'renderer',
     operation: 'renderer.error',
     level: 'warn',
     kind: 'event',
     message: 'private file',
     failure: { code: 'SAVE_CONFLICT', recoverable: true, message: 'private file' },
-  })
+  } as const
+  bridge.reportDiagnostic(event)
   expect(send).toHaveBeenLastCalledWith('renderer-diagnostic', {
     source: 'renderer',
     operation: 'renderer.error',

@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import type { MessagePort, Worker } from 'node:worker_threads'
-import type { InventoryUpdate } from '../../../electron/runtime/session/inventory-delta.ts'
-import { isSessionRecord, isSessionRevision } from '../../../electron/runtime/session/session-protocol.ts'
+import type { InventoryUpdate } from '../../../backend/runtime/session/inventory-delta.ts'
+import { isSessionRecord, isSessionRevision } from '../../../backend/runtime/session/session-protocol.ts'
 import type {
   WorkspaceDocument,
   WorkspaceFile,
   WorkspaceSnapshot,
-} from '../../../electron/runtime/session/workspace-types.ts'
+} from '../../../backend/runtime/session/workspace-types.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import type { ErrorDetails } from '../../../shared/recovery/app-errors.ts'
 

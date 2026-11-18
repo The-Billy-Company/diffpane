@@ -1,20 +1,18 @@
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
-import { runInNewContext } from 'node:vm'
 import { test, vi } from 'vite-plus/test'
 import {
   applyUiPreferencePatch,
   defaultAppearance,
   parseUiPreferencePatch,
   parseUiPreferences,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
 import type {
   UiPreferences,
   UiPreferencesBridge,
   UiPreferenceUpdate,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
-import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
 import { createUiPreferences } from '../../../renderer/panels/appearance/ui-preferences.ts'
+import { createWorkspaceBridge } from '../../../shared/bridge/workspace-bridge.ts'
 
 test('legacy settings are normalized and each preference patch preserves unrelated fields', () => {
   const legacy = parseUiPreferences({
@@ -47,25 +45,21 @@ test.each([
   'monaco',
   'courier',
   'wingdings',
-] as const)('the emitted preload accepts the %s font on save and load', async font => {
-  const source = await readFile(new URL('../../../electron/runtime/window/preload.cjs', import.meta.url), 'utf8')
+] as const)('the desktop bridge accepts the %s font on save and load', async font => {
   const appearance = { ...defaultAppearance, font }
   const update = { ...applyUiPreferencePatch(parseUiPreferencePatch('appearance', { font })), revision: 1 }
   const invoke = vi
     .fn<() => Promise<unknown>>()
     .mockResolvedValueOnce({ ok: true, value: update })
     .mockResolvedValueOnce({ ok: true, value: { appearance } })
-  const send = vi.fn<(channel: string, ...args: unknown[]) => void>()
-  const exposeInMainWorld = vi.fn<(name: string, api: DiffpaneApi) => void>()
-  runInNewContext(source, {
-    require: () => ({ contextBridge: { exposeInMainWorld }, ipcRenderer: { invoke, send } }),
-    performance,
-    process: { platform: process.platform },
+  const { preferences } = createWorkspaceBridge({
+    platform: process.platform,
+    invoke,
+    send() {},
+    listen: () => () => {},
   })
-  const bridge = exposeInMainWorld.mock.calls[0]?.[1].preferences
-  assert.ok(bridge)
-  assert.deepEqual(await bridge.set('appearance', { font }), { key: 'appearance', value: appearance, revision: 1 })
-  assert.deepEqual(await bridge.get({}), { appearance })
+  assert.deepEqual(await preferences.set('appearance', { font }), { key: 'appearance', value: appearance, revision: 1 })
+  assert.deepEqual(await preferences.get({}), { appearance })
 })
 
 test('hydration and acknowledgements preserve newer edits and retire committed legacy settings', async t => {

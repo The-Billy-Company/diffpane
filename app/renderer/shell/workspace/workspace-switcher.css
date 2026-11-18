@@ -104,7 +104,6 @@
   opacity: 0;
   translate: 0 -4px;
   pointer-events: none;
-  -webkit-app-region: no-drag;
   transition:
     opacity 135ms ease,
     translate 135ms cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -112,14 +111,14 @@
     overlay 135ms allow-discrete;
 }
 
-.workspace-switcher-panel:popover-open {
+.workspace-switcher-panel:is(:popover-open, .\:popover-open) {
   opacity: 1;
   translate: 0 0;
   pointer-events: auto;
 }
 
 @starting-style {
-  .workspace-switcher-panel:popover-open {
+  .workspace-switcher-panel:is(:popover-open, .\:popover-open) {
     opacity: 0;
     translate: 0 -4px;
   }
@@ -337,7 +336,6 @@
   border-radius: 5px;
   background: var(--surface-inset);
   color: var(--text);
-  -webkit-app-region: no-drag;
   user-select: text;
 }
 

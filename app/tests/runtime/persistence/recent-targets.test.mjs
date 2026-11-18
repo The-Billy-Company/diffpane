@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'vite-plus/test'
-import { LocalState } from '../../../electron/persistence/database/local-state.ts'
-import { RecentTargets } from '../../../electron/persistence/preferences/recent-targets.ts'
+import { LocalState } from '../../../backend/persistence/database/local-state.ts'
+import { RecentTargets } from '../../../backend/persistence/preferences/recent-targets.ts'
 
 /** @param {{ onTestFinished(callback: () => Promise<void>): void }} t */
 async function fixture(t) {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { expect, test } from 'vite-plus/test'
-import { cursorSource } from '../../../electron/tools/assistant/agent-threads/cursor.ts'
+import { cursorSource } from '../../../backend/tools/assistant/agent-threads/cursor.ts'
 
 function edit(name: string, file: string) {
   return {

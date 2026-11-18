@@ -4,7 +4,7 @@ import {
   parseUiPreferencePatch,
   parseUiPreferences,
   uiPreferenceKeys,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
 import type {
   UiPreferenceKey,
   UiPreferencePatch,
@@ -12,7 +12,7 @@ import type {
   UiPreferences,
   UiPreferencesBridge,
   UiPreferenceUpdate,
-} from '../../../electron/persistence/preferences/ui-preferences.ts'
+} from '../../../backend/persistence/preferences/ui-preferences.ts'
 import { appError, attempt } from '../../../shared/recovery/app-errors.ts'
 import type { AppError } from '../../../shared/recovery/app-errors.ts'
 import { clearErrorNotice, reportError, runTask } from '../../shell/recovery/errors.ts'

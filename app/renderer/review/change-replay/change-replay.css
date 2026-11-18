@@ -207,12 +207,20 @@
 
 .change-replay-code {
   box-sizing: content-box;
-  min-height: calc(var(--replay-lines) * 1lh);
+  min-height: calc(var(--replay-lines) * var(--editor-line-height, var(--editor-default-line-height)));
   margin: 0;
   padding: var(--replay-line-padding) var(--replay-inset);
   color: var(--editor-text);
   font: inherit;
   tab-size: 4;
+}
+
+.change-replay-code .shiki-magic-move-item {
+  color: var(--replay-token-dark, var(--editor-text));
+}
+
+:root[data-theme='light'] .change-replay-code .shiki-magic-move-item {
+  color: var(--replay-token-light, var(--editor-text));
 }
 
 .change-replay-readable {

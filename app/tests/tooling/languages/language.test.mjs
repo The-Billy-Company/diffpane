@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'vite-plus/test'
-import { FrameDecoder, LanguageRuntime, encodeMessage } from '../../../electron/tools/languages/language.mjs'
-import { discoverServers } from '../../../electron/tools/languages/servers.ts'
+import { FrameDecoder, LanguageRuntime, encodeMessage } from '../../../backend/tools/languages/language.mjs'
+import { discoverServers } from '../../../backend/tools/languages/servers.ts'
 
 import { documentSymbols, hasHover, isDiagnosticError, isRecord, serverPid, tokenCount } from './language-fixture.ts'
 
 /** @import { TestContext } from 'vite-plus/test' */
-/** @import { FeatureRequest, LanguageEvent } from '../../../electron/tools/languages/language.mjs' */
+/** @import { FeatureRequest, LanguageEvent } from '../../../backend/tools/languages/language.mjs' */
 
 /** @param {() => boolean} predicate */
 async function until(predicate, timeout = 15_000) {
@@ -534,18 +534,17 @@ test(
   },
 )
 
-test('bundled JavaScript servers resolve to unpacked paths for subprocess workers', async t => {
+test('bundled JavaScript servers launch with the workspace service Node runtime', async t => {
   const root = await fixture(t)
-  const moduleRoot = path.join(root, 'app.asar/node_modules')
-  const physical = path.join(root, 'app.asar.unpacked/node_modules')
-  await mkdir(path.join(physical, 'basedpyright/dist'), { recursive: true })
-  await mkdir(path.join(physical, 'typescript-language-server/lib'), { recursive: true })
-  await writeFile(path.join(physical, 'basedpyright/dist/pyright-langserver.js'), '')
-  await writeFile(path.join(physical, 'typescript-language-server/lib/cli.mjs'), '')
+  const moduleRoot = path.join(root, 'backend/node_modules')
+  await mkdir(path.join(moduleRoot, 'basedpyright/dist'), { recursive: true })
+  await mkdir(path.join(moduleRoot, 'typescript-language-server/lib'), { recursive: true })
+  await writeFile(path.join(moduleRoot, 'basedpyright/dist/pyright-langserver.js'), '')
+  await writeFile(path.join(moduleRoot, 'typescript-language-server/lib/cli.mjs'), '')
   const specs = discoverServers({ moduleRoot })
-  assert.equal(specs.python?.args[0], path.join(physical, 'basedpyright/dist/pyright-langserver.js'))
-  assert.equal(specs.typescript?.args[0], path.join(physical, 'typescript-language-server/lib/cli.mjs'))
-  assert.equal(specs.python?.env.ELECTRON_RUN_AS_NODE, '1')
+  assert.equal(specs.python?.args[0], path.join(moduleRoot, 'basedpyright/dist/pyright-langserver.js'))
+  assert.equal(specs.typescript?.args[0], path.join(moduleRoot, 'typescript-language-server/lib/cli.mjs'))
+  assert.equal(specs.python?.command, process.execPath)
 })
 
 test(

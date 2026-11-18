@@ -10,8 +10,8 @@ import { createLanguageTreemap } from './language-treemap.ts'
 import './howmany.css'
 
 /**
- * @import { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
- * @import { AnalysisState, SourceCounts, HowManyEvent, HowManyFile } from '../../../electron/tools/analysis/howmany.mjs'
+ * @import { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'
+ * @import { AnalysisState, SourceCounts, HowManyEvent, HowManyFile } from '../../../backend/tools/analysis/howmany.mjs'
  */
 /**
  * @typedef {{

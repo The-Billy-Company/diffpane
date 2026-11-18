@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vite-plus/test'
-import { readBillySiblings } from '../../../electron/tools/billy-siblings/siblings.ts'
+import { readBillySiblings } from '../../../backend/tools/billy-siblings/siblings.ts'
 
 const source = 'svc/one/source.go'
 const sibling = 'svc/two/sibling.go'

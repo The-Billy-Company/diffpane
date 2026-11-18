@@ -1,132 +1,117 @@
 import assert from 'node:assert/strict'
-import type { ExecFileOptions } from 'node:child_process'
-import { EventEmitter } from 'node:events'
-import type { RmOptions } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { setImmediate as nextTurn } from 'node:timers/promises'
 import { beforeEach, test, vi } from 'vite-plus/test'
-import {
-  openPickerFlag,
-  openPickerOptions,
-  pickMacFolders,
-  pickMacTarget,
-} from '../../../electron/runtime/window/open-picker.ts'
-import type { OpenPickerKind } from '../../../electron/runtime/window/open-picker.ts'
+import { openPickerOptions, pickNativePaths } from '../../../backend/runtime/window/open-picker.ts'
+import { dialog } from '../../../desktop/services/shell.ts'
 
-const mocks = vi.hoisted(() => ({
-  app: { isPackaged: false, getAppPath: vi.fn<() => string>() },
-  execute:
-    vi.fn<
-      (
-        executable: string,
-        args: string[],
-        options: ExecFileOptions,
-      ) => Promise<{ stdout: string }> & { child: EventEmitter }
-    >(),
-  mkdtemp: vi.fn<(prefix: string) => Promise<string>>(),
-  rm: vi.fn<(profile: string, options: RmOptions) => Promise<void>>(),
+const { hostRequest } = vi.hoisted(() => ({
+  hostRequest: vi.fn<(method: string, ...args: unknown[]) => Promise<unknown>>(),
 }))
-
-vi.mock('electron', () => ({ app: mocks.app, dialog: {} }))
-vi.mock('node:child_process', async () => {
-  const { promisify } = await import('node:util')
-  return { execFile: Object.assign(vi.fn(), { [promisify.custom]: mocks.execute }) }
-})
-vi.mock('node:fs/promises', () => ({ mkdtemp: mocks.mkdtemp, rm: mocks.rm }))
-
-const profile = path.join(tmpdir(), 'diffpane-picker-test')
-const appPath = path.join(tmpdir(), 'diffpane-app-test')
-const selectedFile = path.join(tmpdir(), 'a file\nwith a line break.txt')
-
+vi.mock('../../../desktop/host/desktop.ts', () => ({ hostRequest, reportHostError: () => {} }))
 beforeEach(() => {
-  mocks.app.isPackaged = false
-  mocks.app.getAppPath.mockReset().mockReturnValue(appPath)
-  mocks.execute.mockReset()
-  mocks.mkdtemp.mockReset().mockResolvedValue(profile)
-  mocks.rm.mockReset().mockResolvedValue(undefined)
+  hostRequest.mockReset()
 })
 
-async function startPicker(kind: OpenPickerKind, signal = new AbortController().signal) {
-  const child = new EventEmitter()
-  const execution = Promise.withResolvers<{ stdout: string }>()
-  const started = Promise.withResolvers<void>()
-  mocks.execute.mockImplementationOnce(() => {
-    started.resolve()
-    return Object.assign(execution.promise, { child })
-  })
-  const result = kind === 'folders' ? pickMacFolders(signal) : pickMacTarget(kind, signal)
-  await started.promise
-  return { child, execution, result }
+const selected = path.join(tmpdir(), 'a file\nwith a line break.txt')
+const signal = () => new AbortController().signal
+
+function window() {
+  let closed = false
+  return {
+    label: 'workspace-3',
+    isDestroyed: () => closed,
+    close() {
+      closed = true
+    },
+  }
 }
 
-test('the workspace picker returns all selected directories', async () => {
-  const { child, execution, result } = await startPicker('folders')
-  assert.deepEqual(openPickerOptions('folders').properties, ['openDirectory', 'multiSelections'])
-  const folders = [path.join(profile, 'first'), path.join(profile, 'second')]
-  execution.resolve({ stdout: JSON.stringify(folders) })
-  child.emit('close')
-  assert.deepEqual(await result, folders)
-})
-
-test('returns a selected path from the development picker and removes its temporary profile', async () => {
-  const { child, execution, result } = await startPicker('file')
-  assert.deepEqual(mocks.execute.mock.calls[0]?.slice(0, 2), [
-    process.execPath,
-    [appPath, openPickerFlag, 'file', `--user-data-dir=${profile}`],
+test('requests a parented multi-folder panel and preserves directory order', async () => {
+  const owner = window()
+  const folders = [path.join(tmpdir(), 'second'), path.join(tmpdir(), 'first')]
+  hostRequest.mockResolvedValue({ canceled: false, filePaths: folders })
+  assert.deepEqual(await pickNativePaths(owner, 'folders', signal()), folders)
+  assert.deepEqual(hostRequest.mock.calls, [
+    [
+      'dialog.open',
+      owner.label,
+      {
+        properties: ['openDirectory', 'multiSelections'],
+        title: 'Choose workspace folders',
+        buttonLabel: 'Add Folders',
+      },
+    ],
   ])
-  execution.resolve({ stdout: JSON.stringify(selectedFile) })
-  child.emit('close')
-  assert.equal(await result, selectedFile)
-  assert.deepEqual(mocks.rm.mock.calls, [[profile, { recursive: true, force: true }]])
 })
 
-test('returns null when the packaged folder picker is dismissed', async () => {
-  mocks.app.isPackaged = true
-  const { child, execution, result } = await startPicker('folder')
-  assert.deepEqual(mocks.execute.mock.calls[0]?.[1], [openPickerFlag, 'folder', `--user-data-dir=${profile}`])
-  assert.equal(mocks.app.getAppPath.mock.calls.length, 0)
-  execution.resolve({ stdout: 'null' })
-  child.emit('close')
-  assert.equal(await result, null)
-  assert.equal(mocks.rm.mock.calls.length, 1)
+test('supports an unparented single-file panel and preserves a path containing a newline', async () => {
+  hostRequest.mockResolvedValue({ canceled: false, filePaths: [selected] })
+  assert.deepEqual(await pickNativePaths(null, 'file', signal()), [selected])
+  assert.deepEqual(hostRequest.mock.calls, [['dialog.open', null, openPickerOptions('file')]])
+  assert.deepEqual(openPickerOptions('file').properties, ['openFile'])
 })
 
-test('reports an unavailable picker if the helper fails', async () => {
-  const { child, execution, result } = await startPicker('folder')
-  const rejected = assert.rejects(result, { code: 'PICKER_UNAVAILABLE', operation: 'open-folder' })
-  execution.reject(new Error('The child could not open its dialog.'))
-  child.emit('close')
-  await rejected
-  assert.equal(mocks.rm.mock.calls.length, 1)
+test('a dismissed directory panel returns no selection', async () => {
+  const owner = window()
+  hostRequest.mockResolvedValue({ canceled: true, filePaths: [] })
+  assert.deepEqual(await pickNativePaths(owner, 'folder', signal()), [])
+  assert.deepEqual(hostRequest.mock.calls, [['dialog.open', owner.label, openPickerOptions('folder')]])
+  assert.deepEqual(openPickerOptions('folder').properties, ['openDirectory'])
 })
 
-test('reports an unavailable picker if the helper returns a relative path', async () => {
-  const { child, execution, result } = await startPicker('file')
-  const rejected = assert.rejects(result, { code: 'PICKER_UNAVAILABLE', operation: 'open-file' })
-  execution.resolve({ stdout: '"relative.txt"' })
-  child.emit('close')
-  await rejected
-  assert.equal(mocks.rm.mock.calls.length, 1)
+test('surfaces native panel errors with the existing recoverable picker code', async () => {
+  hostRequest.mockRejectedValue(new Error('The native dialog failed to open.'))
+  await assert.rejects(pickNativePaths(window(), 'folder', signal()), {
+    code: 'PICKER_UNAVAILABLE',
+    operation: 'open-folder',
+    recoverable: true,
+  })
 })
 
-test('kills an aborted picker and waits for the helper to close before removing its profile', async () => {
+test.each([
+  { canceled: false, filePaths: ['relative.txt'] },
+  { canceled: false, filePaths: [`${selected}\0`] },
+  { canceled: false, filePaths: [42] },
+  { filePaths: [selected] },
+])('rejects a malformed or nonabsolute native picker response', async malformed => {
+  hostRequest.mockResolvedValueOnce(malformed)
+  await assert.rejects(pickNativePaths(window(), 'file', signal()), {
+    code: 'PICKER_UNAVAILABLE',
+    operation: 'open-file',
+  })
+})
+
+test('rejects a relative destination from the native save panel', async () => {
+  hostRequest.mockResolvedValueOnce({ canceled: false, filePath: 'relative.txt' })
+  await assert.rejects(dialog.showSaveDialog(window(), { title: 'Save', defaultPath: selected }), /Invalid save dialog/)
+})
+
+test('abort returns promptly and ignores a selection that arrives afterward', async () => {
   const controller = new AbortController()
-  const { child, execution, result } = await startPicker('folder', controller.signal)
-  const options = mocks.execute.mock.calls[0]?.[2]
-  assert.equal(options?.signal, controller.signal)
-  assert.equal(options?.killSignal, 'SIGKILL')
+  const response = Promise.withResolvers<unknown>()
+  hostRequest.mockReturnValueOnce(response.promise)
+  const pending = pickNativePaths(window(), 'folder', controller.signal)
   controller.abort()
-  execution.reject(Object.assign(new Error('Picker aborted.'), { code: 'ABORT_ERR' }))
-  await nextTurn()
-  assert.equal(mocks.rm.mock.calls.length, 0)
-  child.emit('close')
-  assert.equal(await result, null)
-  assert.equal(mocks.rm.mock.calls.length, 1)
+  assert.deepEqual(await pending, [])
+  response.resolve({ canceled: false, filePaths: [selected] })
+  assert.equal(hostRequest.mock.calls.length, 1)
 })
 
-test('cleans up without launching a picker when the owner has already cancelled', async () => {
-  assert.equal(await pickMacTarget('folder', AbortSignal.abort()), null)
-  assert.equal(mocks.execute.mock.calls.length, 0)
-  assert.equal(mocks.rm.mock.calls.length, 1)
+test('ignores a stale result when the original window has closed', async () => {
+  const owner = window()
+  const response = Promise.withResolvers<unknown>()
+  hostRequest.mockReturnValueOnce(response.promise)
+  const pending = pickNativePaths(owner, 'file', signal())
+  owner.close()
+  response.resolve({ canceled: false, filePaths: [selected] })
+  assert.deepEqual(await pending, [])
+})
+
+test('does not present a panel if the owner is gone or the request was aborted', async () => {
+  const owner = window()
+  assert.deepEqual(await pickNativePaths(owner, 'folder', AbortSignal.abort()), [])
+  owner.close()
+  assert.deepEqual(await pickNativePaths(owner, 'file', signal()), [])
+  assert.equal(hostRequest.mock.calls.length, 0)
 })

@@ -7,7 +7,7 @@ doc_radar:
 
 # Appearance and workspace preferences
 
-The settings panel mounts these appearance controls. The preference controller shares current values with the shell layout, editor, and theme, and persists edits through the preload bridge.
+The settings panel mounts these appearance controls. The preference controller shares current values with the shell layout, editor, and theme, and persists edits through the desktop bridge.
 
 - [`appearance.ts`](appearance.ts) — Renders appearance controls and derives code and diff options.
 - [`ui-preferences.ts`](ui-preferences.ts) — Merges preference updates and coordinates persistence and theme changes.

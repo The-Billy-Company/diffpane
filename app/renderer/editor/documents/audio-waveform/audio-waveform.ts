@@ -1,9 +1,9 @@
 import type WaveSurferPlayer from 'wavesurfer.js'
+import { MAX_WAVEFORM_PEAKS, MAX_WAVEFORM_SECONDS } from '../../../../shared/documents/media-types.ts'
+import { prepareOggPlayback } from './ogg/preview.ts'
 import './audio-waveform.css'
 
-const MAX_WAVEFORM_SECONDS = 300
 const WAVEFORM_SAMPLE_RATE = 8_000
-const MAX_WAVEFORM_PEAKS = 4_096
 
 function compactPeaks(samples: Float32Array) {
   if (samples.length <= MAX_WAVEFORM_PEAKS) return samples
@@ -21,7 +21,18 @@ function compactPeaks(samples: Float32Array) {
   return peaks
 }
 
-export function showAudioPreview(host: ParentNode, url: string, label: string, onError: () => void, encoded?: string) {
+interface AudioSource {
+  url: string
+  type: string
+  encoded?: string
+}
+
+export function showAudioPreview(
+  host: ParentNode,
+  { url, type, encoded }: AudioSource,
+  label: string,
+  onError: () => void,
+) {
   const panel = document.createElement('div')
   panel.className = 'audio-preview'
   const track = document.createElement('div')
@@ -33,12 +44,20 @@ export function showAudioPreview(host: ParentNode, url: string, label: string, o
   audio.controls = true
   audio.preload = 'metadata'
   audio.setAttribute('aria-label', label)
-  panel.append(track, audio)
+  const status = document.createElement('p')
+  status.hidden = true
+  status.setAttribute('role', 'status')
+  status.textContent = 'Preparing audio preview…'
+  panel.append(track, audio, status)
 
   const listeners = new AbortController()
   const { signal } = listeners
   let waveform: WaveSurferPlayer | undefined
   let themeObserver: MutationObserver | undefined
+  let fallbackAttempted = false
+  let decoding = false
+  let decodedUrl: string | undefined
+  let decodedPeaks: Float32Array<ArrayBuffer>[] | undefined
 
   function clearWaveform() {
     themeObserver?.disconnect()
@@ -55,6 +74,7 @@ export function showAudioPreview(host: ParentNode, url: string, label: string, o
     audio.pause()
     audio.removeAttribute('src')
     audio.load()
+    if (decodedUrl) URL.revokeObjectURL(decodedUrl)
     panel.remove()
   }
 
@@ -64,21 +84,16 @@ export function showAudioPreview(host: ParentNode, url: string, label: string, o
   }
 
   async function drawWaveform(data: string) {
+    const source = audio.src
     const duration = audio.duration
     if (!(duration > 0 && duration <= MAX_WAVEFORM_SECONDS)) return
     try {
       const { default: WaveSurfer } = await import('wavesurfer.js')
       if (signal.aborted) return
+      const peaks = decodedPeaks ?? (await decodeWaveform(data))
+      if (signal.aborted || audio.src !== source || !peaks.length) return
 
-      // Decode the bounded document bytes locally. The media element keeps its original playback source.
-      const decoder = new OfflineAudioContext(1, 1, WAVEFORM_SAMPLE_RATE)
-      const bytes = Uint8Array.from(atob(data), character => character.charCodeAt(0))
-      const decoded = await decoder.decodeAudioData(bytes.buffer)
-      if (signal.aborted) return
-      const peaks = Array.from({ length: Math.min(decoded.numberOfChannels, 2) }, (_, channel) =>
-        compactPeaks(decoded.getChannelData(channel)),
-      )
-
+      clearWaveform()
       track.hidden = false
       waveform = WaveSurfer.create({
         container: track,
@@ -98,22 +113,62 @@ export function showAudioPreview(host: ParentNode, url: string, label: string, o
       themeObserver.observe(document.documentElement, { attributeFilter: ['data-theme'] })
     } catch {
       // Playback can still work when waveform decoding is unavailable.
-      clearWaveform()
+      if (audio.src === source) clearWaveform()
     }
   }
 
-  if (encoded) {
-    audio.addEventListener('loadedmetadata', () => void drawWaveform(encoded), { once: true, signal })
+  function failed() {
+    dispose()
+    onError()
   }
-  audio.addEventListener(
-    'error',
-    () => {
-      dispose()
-      onError()
-    },
-    { signal },
-  )
+
+  async function recoverPlayback() {
+    if (signal.aborted || decoding) return
+    if (fallbackAttempted || type !== 'audio/ogg' || !encoded) {
+      failed()
+      return
+    }
+    fallbackAttempted = true
+    decoding = true
+    clearWaveform()
+    status.hidden = false
+    audio.hidden = true
+    try {
+      const result = await prepareOggPlayback(encoded, signal)
+      if (signal.aborted) return
+      if (!result) throw new Error('The Ogg audio preview could not be prepared.')
+      decodedUrl = URL.createObjectURL(result.blob)
+      decodedPeaks = result.peaks
+      audio.src = decodedUrl
+      status.hidden = true
+      audio.hidden = false
+    } finally {
+      decoding = false
+    }
+  }
+
+  function recoverOrFail() {
+    recoverPlayback().catch(() => {
+      if (!signal.aborted) failed()
+    })
+  }
+
+  if (encoded) {
+    audio.addEventListener('loadedmetadata', () => void drawWaveform(encoded), { signal })
+  }
+  audio.addEventListener('error', recoverOrFail, { signal })
   host.appendChild(panel)
-  audio.src = url
+  if (type === 'audio/ogg' && encoded && !audio.canPlayType(type)) recoverOrFail()
+  else audio.src = url
   return dispose
+}
+
+async function decodeWaveform(data: string) {
+  // Keep native playback on its original stream while calculating peaks from bounded document bytes.
+  const encoder = new OfflineAudioContext(1, 1, WAVEFORM_SAMPLE_RATE)
+  const bytes = Uint8Array.from(atob(data), character => character.charCodeAt(0))
+  const decoded = await encoder.decodeAudioData(bytes.buffer)
+  return Array.from({ length: Math.min(decoded.numberOfChannels, 2) }, (_, channel) =>
+    compactPeaks(decoded.getChannelData(channel)),
+  )
 }

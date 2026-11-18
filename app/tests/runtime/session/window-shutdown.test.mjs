@@ -1,68 +1,36 @@
 import assert from 'node:assert/strict'
-import { EventEmitter } from 'node:events'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setImmediate as nextTurn } from 'node:timers/promises'
 import { test, vi } from 'vite-plus/test'
-import { LocalState } from '../../../electron/persistence/database/local-state.ts'
+import { LocalState } from '../../../backend/persistence/database/local-state.ts'
 
 test('application quit waits for accepted storage work and rejects new writes during teardown', async () => {
   const scratch = await mkdtemp(path.join(tmpdir(), 'diffpane-window-shutdown-'))
-  const app = new EventEmitter()
-  const contents = Object.assign(new EventEmitter(), {
-    id: 1,
-    mainFrame: {},
-    isDestroyed: () => false,
-    isLoadingMainFrame: () => false,
-    setWindowOpenHandler: vi.fn(),
-    send: vi.fn(),
-  })
-  const ipc = new EventEmitter()
-  /** @type {Map<string, (event: unknown, ...args: unknown[]) => Promise<unknown>>} */
+  /** @type {Map<string, (...args: unknown[]) => unknown>} */
+  const events = new Map()
+  /** @type {Map<string, (...args: unknown[]) => unknown>} */
   const handlers = new Map()
-  const exited = Promise.withResolvers()
+  /** @type {PromiseWithResolvers<string>} */
   const loaded = Promise.withResolvers()
-  const appQuit = () => {
-    let prevented = false
-    app.emit('before-quit', { preventDefault: () => (prevented = true) })
-    if (!prevented) app.emit('will-quit', { preventDefault: () => (prevented = true) })
-    if (!prevented) exited.resolve(undefined)
-  }
-  class MockWindow extends EventEmitter {
-    webContents = contents
-
-    isDestroyed() {
-      return false
-    }
-
-    loadFile() {
-      loaded.resolve(undefined)
-      return Promise.resolve()
-    }
-  }
-  const startup = Promise.withResolvers()
-  vi.doMock('electron', () => ({
-    app: Object.assign(app, {
-      getPath: () => scratch,
-      getAppPath: () => tmpdir(),
-      getVersion: () => '0.0.0',
-      getAppMetrics: () => [],
-      setName: vi.fn(),
-      whenReady: () => startup.promise,
-      quit: appQuit,
-      isPackaged: false,
-      dock: { setIcon: vi.fn() },
+  const exited = Promise.withResolvers()
+  /** @type {PromiseWithResolvers<number>} */
+  const flushStarted = Promise.withResolvers()
+  vi.doMock('../../../desktop/host/transport.ts', () => ({
+    hostEvent: /** @param {string} name @param {(...args: unknown[]) => unknown} listener */ (name, listener) => {
+      events.set(name, listener)
+      return () => events.delete(name)
+    },
+    handleHost: handlers.set.bind(handlers),
+    hostRequest: vi.fn(async (method, label) => {
+      if (method === 'window.create' && typeof label === 'string') loaded.resolve(label)
+      if (method === 'app.exit') exited.resolve(undefined)
     }),
-    BrowserWindow: MockWindow,
-    clipboard: {},
-    dialog: {},
-    ipcMain: Object.assign(ipc, { handle: handlers.set.bind(handlers) }),
-    Menu: { buildFromTemplate: vi.fn(), setApplicationMenu: vi.fn() },
-    protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
-    safeStorage: {},
-    session: { defaultSession: { webRequest: { onBeforeRequest: vi.fn() } } },
-    shell: {},
+    notifyHost: vi.fn((event, _label, channel, /** @type {unknown[]} */ args) => {
+      if (event === 'renderer-event' && channel === 'flush-saves' && typeof args?.[0] === 'number')
+        flushStarted.resolve(args[0])
+    }),
   }))
   const migrated = vi.spyOn(LocalState.prototype, 'migrate').mockResolvedValue()
   const closed = vi.spyOn(LocalState.prototype, 'close').mockImplementation(() => {})
@@ -75,29 +43,31 @@ test('application quit waits for accepted storage work and rejects new writes du
     await writeRelease.promise
     return use(records)
   })
-  const originalArgv = process.argv
-  process.argv = [originalArgv[0] ?? 'node', 'diffpane']
   try {
-    await import('../../../electron/runtime/window/main.mjs')
-    startup.resolve(undefined)
-    await loaded.promise
-    const event = { sender: contents, senderFrame: contents.mainFrame }
-    const setPreference = handlers.get('preferences-set')
-    assert.ok(setPreference)
-    /** @type {PromiseWithResolvers<number>} */
-    const flushStarted = Promise.withResolvers()
-    contents.send.mockImplementation((channel, id) => {
-      if (channel === 'flush-saves' && typeof id === 'number') flushStarted.resolve(id)
+    const { initializeDesktop } = await import('../../../desktop/host/desktop.ts')
+    initializeDesktop({
+      appPath: scratch,
+      profilePath: scratch,
+      logsPath: scratch,
+      version: '0.0.0',
+      isPackaged: false,
+      mediaOrigin: 'http://127.0.0.1:1',
+      targets: [],
     })
-    ipc.emit('renderer-ready', event)
-    appQuit()
+    await import('../../../backend/runtime/window/main.mjs')
+    const label = await loaded.promise
+    const invoke = handlers.get('invoke')
+    const send = handlers.get('send')
+    assert.ok(invoke && send)
+    send(label, 'renderer-ready', [])
+    events.get('app.exit-requested')?.()
     const flushId = await flushStarted.promise
     // The renderer can begin saving while the quit flush is in progress.
-    const accepted = setPreference(event, 'ideasVisible', true)
+    const accepted = invoke(label, 'preferences-set', ['ideasVisible', true])
     await writeStarted.promise
-    ipc.emit('saves-flushed', event, true, flushId)
+    send(label, 'saves-flushed', [true, flushId])
     await nextTurn()
-    const duringTeardown = setPreference(event, 'ideasVisible', false)
+    const duringTeardown = invoke(label, 'preferences-set', ['ideasVisible', false])
     const afterWrite = closed.mock.calls.length
     writeRelease.resolve(undefined)
     assert.deepEqual(await duringTeardown, {
@@ -115,12 +85,11 @@ test('application quit waits for accepted storage work and rejects new writes du
     assert.equal(closed.mock.calls.length, 1)
   } finally {
     writeRelease.resolve(undefined)
-    process.argv = originalArgv
     writes.mockRestore()
     reads.mockRestore()
     closed.mockRestore()
     migrated.mockRestore()
-    vi.doUnmock('electron')
+    vi.doUnmock('../../../desktop/host/transport.ts')
     await rm(scratch, { recursive: true, force: true })
   }
 })

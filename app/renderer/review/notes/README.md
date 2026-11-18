@@ -7,7 +7,7 @@ doc_radar:
 
 # Review notes
 
-The workspace supplies the selected file or lines as an anchor. This panel sends edits through the preload bridge and displays the saved notes and handoff.
+The workspace supplies the selected file or lines as an anchor. This panel sends edits through the desktop bridge and displays the saved notes and handoff.
 Resolving the last open note plays a small burst by the Open filter when reduced motion is off.
 
 - [`review-notes.ts`](review-notes.ts) — Owns note composition, save and conflict feedback, and anchor navigation.

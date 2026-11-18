@@ -22,10 +22,6 @@ input,
 select {
   font: inherit;
 }
-button,
-select {
-  -webkit-app-region: no-drag;
-}
 button {
   color: var(--text);
   cursor: pointer;
@@ -53,7 +49,6 @@ button svg,
   gap: 8px;
   border-bottom: 1px solid var(--line);
   background: color-mix(in oklab, var(--surface) 78%, var(--surface-raised));
-  -webkit-app-region: drag;
   user-select: none;
 }
 .brand-mark {
@@ -682,7 +677,7 @@ button svg,
     font-size: inherit;
   }
 
-  .change-button:not(:hover, .diff-toggle, .file-action-toggle:has(+ :popover-open)),
+  .change-button:not(:hover, .diff-toggle, .file-action-toggle:has(+ :is(:popover-open, .\:popover-open))),
   .symbol-outline:not([open]) summary:not(:hover) {
     color: var(--editor-chrome-icon);
   }
@@ -1084,7 +1079,7 @@ button svg,
   border-radius: 50%;
 }
 
-.file-action-toggle:has(+ .file-action-popover:popover-open) {
+.file-action-toggle:has(+ .file-action-popover:is(:popover-open, .\:popover-open)) {
   background: var(--selection);
   color: var(--accent);
 }

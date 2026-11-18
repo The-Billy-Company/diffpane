@@ -7,6 +7,6 @@ doc_radar:
 
 # Error contracts
 
-`app-errors.ts` classifies failures and provides result wrappers and serialization for the Electron and renderer recovery paths.
+`app-errors.ts` classifies failures and provides result wrappers and serialization for the workspace service and renderer recovery paths.
 
 Run `pnpm test app/tests/tooling/quality/app-errors.test.ts` from the repository root.

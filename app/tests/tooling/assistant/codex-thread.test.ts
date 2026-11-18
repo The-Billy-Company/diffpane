@@ -4,7 +4,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { expect, test, vi } from 'vite-plus/test'
-import { codexSource } from '../../../electron/tools/assistant/agent-threads/codex.ts'
+import { codexSource } from '../../../backend/tools/assistant/agent-threads/codex.ts'
 
 const { run } = vi.hoisted(() => ({ run: vi.fn<() => Promise<{ stdout: string }>>() }))
 vi.mock('node:child_process', async importOriginal => ({

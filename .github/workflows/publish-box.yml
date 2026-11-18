@@ -69,8 +69,9 @@ jobs:
 
           app="$stage/Diffpane.app"
           test "$(plutil -extract CFBundleShortVersionString raw -o - "$app/Contents/Info.plist")" = "$version"
-          test -s "$app/Contents/Resources/LICENSE.electron"
-          test -s "$app/Contents/Resources/LICENSES.chromium.html"
+          test -s "$app/Contents/Resources/backend/LICENSE.Node.js"
+          test -s "$app/Contents/Resources/backend/legal/NOTICE"
+          test -s "$app/Contents/Resources/backend/legal/desktop-dependencies/Cargo-licenses.txt"
           lipo "$app/Contents/MacOS/Diffpane" -verify_arch arm64
           codesign --verify --deep --strict -R="$DIFFPANE_SIGNING_REQUIREMENT" "$app"
           xcrun stapler validate "$app"

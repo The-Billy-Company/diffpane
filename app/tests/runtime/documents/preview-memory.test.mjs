@@ -5,8 +5,8 @@ import { test } from 'vite-plus/test'
 test('cached bounded previews release the large decoded source buffers', () => {
   // Use an isolated GC-enabled process to measure retained external string storage.
   // Heap-only measurements miss the TextDecoder backing memory in this regression.
-  const reader = new URL('../../../electron/workspace/documents/file-content.ts', import.meta.url).href
-  const cache = new URL('../../../electron/workspace/documents/document-cache.ts', import.meta.url).href
+  const reader = new URL('../../../backend/workspace/documents/file-content.ts', import.meta.url).href
+  const cache = new URL('../../../backend/workspace/documents/document-cache.ts', import.meta.url).href
   const output = execFileSync(
     process.execPath,
     [

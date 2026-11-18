@@ -1,6 +1,6 @@
 import type { IDisposable } from 'monaco-editor/editor/editor.api.js'
 import { editor, Uri } from 'monaco-editor/editor/editor.api.js'
-import type { Appearance } from '../../../electron/persistence/preferences/ui-preferences.ts'
+import type { Appearance } from '../../../backend/persistence/preferences/ui-preferences.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import type { GitComparison, GitFile, GitFileContents } from '../../../shared/review/git.ts'
 import { diffAppearance } from '../../panels/appearance/appearance.ts'

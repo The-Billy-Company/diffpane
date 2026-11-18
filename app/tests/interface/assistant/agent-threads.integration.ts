@@ -2,17 +2,16 @@ import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { webkit } from 'playwright'
+import type { Browser } from 'playwright'
 import { createServer } from 'vite-plus'
-import { AgentThreads } from '../../../electron/tools/assistant/agent-threads/threads.ts'
+import { AgentThreads } from '../../../backend/tools/assistant/agent-threads/threads.ts'
 import type { AgentMemorySnapshot } from '../../../shared/agent-memory.ts'
 import type { AgentThreadEvent } from '../../../shared/agent-threads.ts'
 
 // Run from the repository root with:
-// node_modules/.bin/electron app/tests/interface/assistant/agent-threads.integration.ts
+// node app/tests/interface/assistant/agent-threads.integration.ts
 const profile = await mkdtemp(path.join(tmpdir(), 'diffpane-agent-threads-'))
-app.setPath('userData', profile)
-app.setAppLogsPath(path.join(profile, 'logs'))
 
 const route = '/__agent-threads-integration__'
 const transcriptRoute = `${route}/transcript`
@@ -220,45 +219,18 @@ async function run(): Promise<void> {
       },
     ],
   })
-  let browser: BrowserWindow | undefined
+  let browser: Browser | undefined
   try {
     await server.listen()
-    app.dock?.hide()
     const url = server.resolvedUrls?.local[0]
     if (!url) throw new Error('The Agent Threads test page did not start.')
     await tracker.list()
-    ipcMain.handle('agent-threads-children', async (_event, selection: string, parentId?: string) => ({
-      ok: true,
-      value: await tracker.children(selection, parentId),
-    }))
-    ipcMain.handle('agent-threads-read', async (_event, id: string, selection: string, childId?: string) => ({
-      ok: true,
-      value: await tracker.read(id, selection, childId),
-    }))
-    ipcMain.handle('agent-threads-update', async (_event, id: string, selection: string, childId?: string) => ({
-      ok: true,
-      value: await tracker.update(id, selection, childId),
-    }))
-    ipcMain.handle('agent-threads-clear', (_event, selection: string) => {
-      tracker.clear(selection)
-      return { ok: true, value: undefined }
-    })
     const workspaceRoot = await realpath(profile)
-    ipcMain.handle('agent-threads-file', async (_event, selection: string, filename: string, childId?: string) => {
-      const value = await tracker.resolveFile(
-        selection,
-        filename,
-        { root: workspaceRoot, scope: workspaceRoot },
-        childId,
-      )
-      if (value.kind !== 'workspace') throw new Error('The fixture file was outside its workspace.')
-      return { ok: true, value }
-    })
     let memoryReads = 0
-    ipcMain.handle('agent-threads-memory', () => {
+    function memory(): AgentMemorySnapshot {
       const first = memoryReads++ === 0
       const sampledAt = Date.now()
-      const value: AgentMemorySnapshot = {
+      return {
         sampledAt,
         source: first ? 'windows' : 'system',
         pressure: first ? 'warning' : 'normal',
@@ -282,51 +254,57 @@ async function run(): Promise<void> {
           },
         ],
       }
-      return { ok: true, value }
-    })
-    browser = new BrowserWindow({
-      width: 1100,
-      height: 820,
-      show: false,
-      webPreferences: {
-        preload: fileURLToPath(new URL('../../../electron/runtime/window/preload.cjs', import.meta.url)),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        backgroundThrottling: false,
+    }
+    const handlers = {
+      'agent-threads-children': (selection: string, parentId?: string) => tracker.children(selection, parentId),
+      'agent-threads-read': (id: string, selection: string, childId?: string) => tracker.read(id, selection, childId),
+      'agent-threads-update': (id: string, selection: string, childId?: string) =>
+        tracker.update(id, selection, childId),
+      'agent-threads-clear': (selection: string) => tracker.clear(selection),
+      'agent-threads-file': async (selection: string, filename: string, childId?: string) => {
+        const value = await tracker.resolveFile(
+          selection,
+          filename,
+          { root: workspaceRoot, scope: workspaceRoot },
+          childId,
+        )
+        if (value.kind !== 'workspace') throw new Error('The fixture file was outside its workspace.')
+        return value
       },
-    })
-    await browser.loadURL(new URL(route, url).href)
-    await browser.webContents.executeJavaScript(
-      `import("/tests/interface/assistant/agent-threads.fixture.ts").then(module => module.run(${JSON.stringify(longCommand)}, ${JSON.stringify(transcriptRoute)}))`,
+      'agent-threads-memory': memory,
+    }
+    browser = await webkit.launch()
+    const page = await browser.newPage({ viewport: { width: 1100, height: 820 } })
+    await page.exposeFunction(
+      'invokeAgentThreadsFixture',
+      async (channel: keyof typeof handlers, ...args: [string, string, string?]) => {
+        if (!Object.hasOwn(handlers, channel)) throw new Error('The fixture requested an unexpected desktop channel.')
+        return { ok: true, value: await handlers[channel](...args) }
+      },
     )
-    console.info('Agent Threads integration passed.')
+    await page.goto(new URL(route, url).href)
+    await page.evaluate(
+      async ({ fixtureModule, command, transcriptUrl }) => {
+        await import(fixtureModule)
+        const { runAgentThreadsFixture } = globalThis.window
+        if (!runAgentThreadsFixture) throw new Error('The Agent Threads browser fixture did not load.')
+        await runAgentThreadsFixture(command, transcriptUrl)
+      },
+      {
+        fixtureModule: '/tests/interface/assistant/agent-threads.fixture.ts',
+        command: longCommand,
+        transcriptUrl: transcriptRoute,
+      },
+    )
+    console.info('Agent Threads integration passed in WebKit.')
   } finally {
-    ipcMain.removeHandler('agent-threads-children')
-    ipcMain.removeHandler('agent-threads-read')
-    ipcMain.removeHandler('agent-threads-update')
-    ipcMain.removeHandler('agent-threads-clear')
-    ipcMain.removeHandler('agent-threads-file')
-    ipcMain.removeHandler('agent-threads-memory')
     tracker.clear()
-    browser?.destroy()
-    await server.close()
+    await Promise.all([browser?.close(), server.close()])
   }
 }
 
-app.on('window-all-closed', () => {})
-async function runAndCleanUp(): Promise<void> {
-  try {
-    await app.whenReady()
-    await run()
-  } finally {
-    await rm(profile, { recursive: true, force: true, maxRetries: 3 })
-  }
+try {
+  await run()
+} finally {
+  await rm(profile, { recursive: true, force: true, maxRetries: 3 })
 }
-runAndCleanUp().then(
-  () => app.exit(0),
-  (error: unknown) => {
-    console.error(error)
-    app.exit(1)
-  },
-)

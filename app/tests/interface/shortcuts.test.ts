@@ -6,7 +6,7 @@ import {
   bindingLabel,
   createShortcutSequence,
   defaultBinding,
-  electronAccelerator,
+  nativeAccelerator,
   isShortcutAction,
   normalizeBinding,
   shortcutAllowsChord,
@@ -52,7 +52,7 @@ test('shifted braces use the physical bracket key and terminal shortcuts accept 
   assert.equal(shortcutConflict('refresh', 'Shift+F6', {}, 'darwin'), null)
 })
 
-test('chords normalize and display both strokes, and stay out of Electron accelerators', () => {
+test('chords normalize and display both strokes, and stay out of native accelerators', () => {
   assert.equal(normalizeBinding('  meta + k\t meta+o ', true), 'Primary+K Primary+O')
   assert.equal(normalizeBinding('Primary+K w', true), 'Primary+K W')
   assert.equal(normalizeBinding('Primary+K W O', true), null)
@@ -61,7 +61,7 @@ test('chords normalize and display both strokes, and stay out of Electron accele
   assert.equal(bindingLabel('Primary+K Primary+O', true), '⌘K then ⌘O')
   assert.equal(bindingLabel('Primary+K W', false), 'Ctrl+K then W')
   assert.equal(ariaBinding('Primary+K W', true), '')
-  assert.equal(electronAccelerator('Primary+K W', true), null)
+  assert.equal(nativeAccelerator('Primary+K W', true), null)
   assert.equal(shortcutAllowsChord('openFolder'), false)
   assert.equal(shortcutAllowsChord('closeAllEditors'), true)
   assert.deepEqual(shortcutChordBindings({ closeAllEditors: 'Primary+J W' }, true), [
@@ -119,4 +119,21 @@ test('expired, unmatched and cancelled chords do not swallow subsequent shortcut
   match(prefix, true, bindings)
   reset()
   assert.deepEqual(match(other, true, bindings), { binding: 'Primary+O', consumed: false })
+})
+
+test('native accelerator reservation changes only when a chord starts or ends', () => {
+  const reserved: boolean[] = []
+  const { match, reset } = createShortcutSequence(pending => reserved.push(pending))
+  const bindings = ['Primary+K Primary+O']
+  const prefix = keyEvent('k', 0, { metaKey: true })
+
+  reset()
+  match(prefix, true, bindings)
+  match(keyEvent('Meta', 10, { metaKey: true }), true, bindings)
+  match(keyEvent('k', 25, { metaKey: true, repeat: true }), true, bindings)
+  assert.deepEqual(reserved, [true])
+  match(keyEvent('o', 30, { metaKey: true }), true, bindings)
+  match(prefix, true, bindings)
+  reset()
+  assert.deepEqual(reserved, [true, false, true, false])
 })

@@ -38,7 +38,6 @@
   position: absolute;
   inset: 0 0 auto;
   height: 34px;
-  -webkit-app-region: drag;
 }
 
 .error-boundary--panel {

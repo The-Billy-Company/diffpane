@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { test } from 'vite-plus/test'
-import { readClaudeFile } from '../../../electron/tools/assistant/claude-workspace.mjs'
-import { Repository } from '../../../electron/workspace/repository/repository.mjs'
+import { readClaudeFile } from '../../../backend/tools/assistant/claude-workspace.mjs'
+import { Repository } from '../../../backend/workspace/repository/repository.mjs'
 import { MAX_PIXEL_DIFF_IMAGE_BYTES } from '../../../shared/documents/media-types.ts'
 
 const execute = promisify(execFile)
@@ -22,7 +22,7 @@ const plain = filename => ({
 })
 
 /**
- * @template {import('../../../electron/runtime/session/workspace-types.ts').WorkspaceFile} File
+ * @template {import('../../../backend/runtime/session/workspace-types.ts').WorkspaceFile} File
  * @param {{ files: readonly File[] }} snapshot
  * @param {string} filename
  * @returns {File}
@@ -35,7 +35,7 @@ function find(snapshot, filename) {
 }
 
 /**
- * @template {import('../../../electron/runtime/session/workspace-types.ts').WorkspaceFile} File
+ * @template {import('../../../backend/runtime/session/workspace-types.ts').WorkspaceFile} File
  * @param {File | undefined} file
  * @param {string} filename
  * @returns {File}

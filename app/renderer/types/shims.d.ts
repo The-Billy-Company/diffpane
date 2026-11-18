@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 interface Window {
-  diffpane?: import('../../electron/runtime/window/preload.ts').DiffpaneApi
+  diffpane?: import('../../shared/bridge/workspace-bridge.ts').DiffpaneApi
 }
 
 declare module 'virtual:syntax-catalog' {

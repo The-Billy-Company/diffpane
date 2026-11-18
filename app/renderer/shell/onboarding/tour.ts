@@ -73,9 +73,13 @@ const exitDuration = 160
 
 function findAnchor(selectors: string | readonly string[]) {
   for (const selector of typeof selectors === 'string' ? [selectors] : selectors) {
-    const anchor = [...document.querySelectorAll<HTMLElement>(selector)].find(
-      element => element.checkVisibility({ visibilityProperty: true }) && element.getClientRects().length > 0,
-    )
+    const anchor = [...document.querySelectorAll<HTMLElement>(selector)].find(element => {
+      const visible =
+        typeof element.checkVisibility === 'function'
+          ? element.checkVisibility({ visibilityProperty: true })
+          : getComputedStyle(element).visibility === 'visible'
+      return visible && element.getClientRects().length > 0
+    })
     if (anchor) return anchor
   }
   return undefined

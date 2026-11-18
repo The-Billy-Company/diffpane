@@ -7,7 +7,7 @@ doc_radar:
 
 # Editor
 
-The workspace connects Monaco and the reading views to content and events from the Electron session.
+The workspace connects Monaco and the reading views to content and events from the workspace session.
 
 - [Updates](updates/README.md) — Save queuing and live path notifications.
 - [Highlighting](highlighting/README.md) — Grammar loading, file associations, and editor themes.

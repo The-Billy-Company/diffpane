@@ -1,4 +1,4 @@
-# Electron Packager moves runtime tools from physical node_modules directories into the app bundle.
+# The app packager stages native bindings and language tools from physical node_modules directories.
 nodeLinker: hoisted
 enableGlobalVirtualStore: false
 

@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { test } from 'vite-plus/test'
-import { LocalState } from '../../../electron/persistence/database/local-state.ts'
-import { ShortcutPreferences } from '../../../electron/persistence/preferences/shortcut-preferences.ts'
+import { LocalState } from '../../../backend/persistence/database/local-state.ts'
+import { ShortcutPreferences } from '../../../backend/persistence/preferences/shortcut-preferences.ts'
 
 async function fixture(t: { onTestFinished(callback: () => Promise<void>): void }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'diffpane-shortcuts-'))

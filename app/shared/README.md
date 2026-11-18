@@ -1,15 +1,16 @@
 ---
 doc_radar:
   sentinels:
-    - file: app/electron/runtime/window/preload.ts
-      contains: ['shared/recovery/app-errors.ts']
+    - file: app/shared/bridge/transport.ts
+      contains: ['../recovery/app-errors.ts', 'DesktopTransport']
 ---
 
 # Shared contracts
 
-Electron and the renderer share these contracts and pure operations. The preload uses their types at the IPC boundary, and Node tests exercise the same implementations as the app.
+The desktop backend and renderer share these contracts and pure operations. The renderer uses their runtime validators at the IPC boundary, and Node tests exercise the same implementations as the app.
 
 - [Appearance](appearance/README.md) defines the OKLCH palette and typography tokens.
+- [Desktop bridge](bridge/README.md) defines the renderer's typed connection to the desktop host.
 - [Diagnostics](diagnostics/README.md) defines safe events and operation timing.
 - [Documents](documents/README.md) defines media types and bounded text operations.
 - [Ideas](ideas/README.md) defines notebook records and edits.

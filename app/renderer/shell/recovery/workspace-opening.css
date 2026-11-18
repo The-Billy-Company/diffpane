@@ -20,13 +20,11 @@
   display: none;
 }
 
-.workspace-opening::before {
+.workspace-opening__drag-region {
   position: absolute;
   inset: 0 0 auto;
   z-index: 1;
   height: 34px;
-  -webkit-app-region: drag;
-  content: '';
 }
 
 .workspace-opening__field {

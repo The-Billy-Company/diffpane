@@ -20,8 +20,8 @@ import {
 
 /** @import { TestContext } from 'vite-plus/test' */
 /** @import { ErrorDetails } from '../../../shared/recovery/app-errors.ts' */
-/** @import { SessionVersions } from '../../../electron/runtime/session/session-protocol.ts' */
-/** @import { WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
+/** @import { SessionVersions } from '../../../backend/runtime/session/session-protocol.ts' */
+/** @import { WorkspaceSnapshot } from '../../../backend/runtime/session/workspace-types.ts' */
 /** @import { TestedMethod, SessionResponse } from './session-fixture.ts' */
 
 /** @param {TestContext} t @param {{fileCount?: number, setup?: string, scope?: string, versions?: SessionVersions, initialFile?: string, initialLine?: number}} [options] */
@@ -53,7 +53,7 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, 
       'baseline',
     )
   commit()
-  const sessionUrl = new URL('../../../electron/runtime/session/session.mjs', import.meta.url)
+  const sessionUrl = new URL('../../../backend/runtime/session/session.mjs', import.meta.url)
   // An alternative native backend makes integration checks possible when the
   // host's shared FSEvents stream is dropping events during unrelated builds.
   const backend = process.env.DIFFPANE_TEST_WATCH_BACKEND
@@ -66,7 +66,7 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, 
       ? new URL(
           `data:text/javascript,${encodeURIComponent(`
           import watcher from ${JSON.stringify(import.meta.resolve('@parcel/watcher'))};
-          import { Repository } from ${JSON.stringify(new URL('../../../electron/workspace/repository/repository.mjs', import.meta.url).href)};
+          import { Repository } from ${JSON.stringify(new URL('../../../backend/workspace/repository/repository.mjs', import.meta.url).href)};
           import { parentPort as testPort } from 'node:worker_threads';
           ${watcherSetup}
           ${setup}
@@ -565,7 +565,7 @@ test.for(['Events were dropped by the FSEvents client.', 'Events were dropped by
     const repo = await fixture(t, {
       fileCount: 2,
       setup: `${injectedWatchSetup}
-        const { LanguageRuntime } = await import(${JSON.stringify(new URL('../../../electron/tools/languages/language.mjs', import.meta.url).href)});
+        const { LanguageRuntime } = await import(${JSON.stringify(new URL('../../../backend/tools/languages/language.mjs', import.meta.url).href)});
         LanguageRuntime.prototype.changed = function (events) {
           if (events.some(event => event.path.endsWith('/file1.txt')))
             testPort.postMessage({ event: 'test-surviving-event' });
@@ -692,7 +692,7 @@ test('watcher fallback forwards created, updated and removed files to language s
   const repo = await fixture(t, {
     fileCount: 2,
     setup: `${controlledFallbackSetup}
-      const { LanguageRuntime } = await import(${JSON.stringify(new URL('../../../electron/tools/languages/language.mjs', import.meta.url).href)});
+      const { LanguageRuntime } = await import(${JSON.stringify(new URL('../../../backend/tools/languages/language.mjs', import.meta.url).href)});
       LanguageRuntime.prototype.changed = function (events) {
         for (const event of events)
           testPort.postMessage({ event: 'test-language-' + event.type + '-' + event.path.split('/').at(-1) });

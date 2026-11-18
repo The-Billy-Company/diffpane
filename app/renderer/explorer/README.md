@@ -7,7 +7,7 @@ doc_radar:
 
 # Explorer and search
 
-These views navigate the project inventory or open text results in the editor. The workspace supplies selection handlers and connects them to Electron.
+These views navigate the project inventory or open text results in the editor. The workspace supplies selection handlers and connects them to the workspace service.
 
 - [Tree](tree/README.md) — Virtualized file tree and contextual actions.
 - [Change map](change-rail/README.md) — Git status marks and scroll position for the file tree.

@@ -15,6 +15,7 @@ import {
   terminalMinimumColumns,
   terminalMinimumRows,
 } from '../../../shared/terminal/protocol.ts'
+import { connectTerminal } from '../../shell/desktop/terminal-bridge.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { drawTerminalPrompt } from '../art/terminal.ts'
 import { terminalPasteText } from './clipboard.ts'
@@ -73,6 +74,16 @@ function setStatus(message: string) {
 }
 
 function mount(bridge: TerminalBridge) {
+  let trustedInputEvent: Event | undefined
+  for (const type of trustedInputEvents) {
+    viewport.addEventListener(
+      type,
+      event => {
+        if (event.isTrusted) trustedInputEvent = event
+      },
+      { capture: true },
+    )
+  }
   let scheme: ColorScheme = themePreference.matches ? 'light' : 'dark'
   let explicitTheme = false
   let active = false
@@ -109,9 +120,8 @@ function mount(bridge: TerminalBridge) {
 
   function writeInput(input: string) {
     // xterm also emits automatic responses to shell output on its input event.
-    // Only forward user input. Chromium provides the current DOM event during dispatch.
-    const event = window.event
-    const trustedInput = event?.isTrusted && trustedInputEvents.has(event.type)
+    // Only forward input while a captured browser event is being dispatched.
+    const trustedInput = trustedInputEvent !== undefined && trustedInputEvent.eventPhase !== Event.NONE
     // IME commits sometimes arrive after the composition event returns.
     const compositionText =
       compositionInput &&
@@ -384,5 +394,12 @@ function mount(bridge: TerminalBridge) {
   syncControls()
 }
 
-if (window.diffpaneTerminal) mount(window.diffpaneTerminal)
-else status.textContent = 'Diffpane terminal connection unavailable.'
+const connection = connectTerminal()
+const bridge = connection?.bridge ?? window.diffpaneTerminal
+if (bridge) {
+  mount(bridge)
+  connection?.ready().catch(() => {
+    startButton.disabled = true
+    status.textContent = 'Diffpane terminal connection unavailable.'
+  })
+} else status.textContent = 'Diffpane terminal connection unavailable.'

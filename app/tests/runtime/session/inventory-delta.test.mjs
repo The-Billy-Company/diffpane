@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vite-plus/test'
-import { InventoryDelta } from '../../../electron/runtime/session/inventory-delta.ts'
+import { InventoryDelta } from '../../../backend/runtime/session/inventory-delta.ts'
 
 /** @param {readonly string[]} paths */
 function index(paths) {

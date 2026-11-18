@@ -268,7 +268,7 @@ export function actualSizeBinding(isMac: boolean): ShortcutBinding {
   return isMac ? 'Primary+Alt+0' : 'Primary+0'
 }
 
-// These shortcuts follow Electron's native menu roles and the standard editing commands.
+// These shortcuts follow native menu roles and the standard editing commands.
 export function builtInShortcuts(platform: string): BuiltInShortcut[] {
   const isMac = platform === 'darwin'
   return [
@@ -405,7 +405,7 @@ function normalizeStroke(stroke: string, isMac: boolean, allowUnmodified: boolea
   )
     return null
 
-  // Electron's Plus accelerator includes Shift on the Equals key.
+  // The Plus accelerator includes Shift on the Equals key.
   const plus = key === 'Plus' || (key === '=' && pressed.has('Shift'))
   if (plus) pressed.delete('Shift')
   return [...modifiers.filter(modifier => pressed.has(modifier)), plus ? 'Plus' : key].join('+')
@@ -461,11 +461,13 @@ const modifierKeys = new Set(['Alt', 'AltGraph', 'Control', 'Meta', 'Shift'])
 type ShortcutStrokeEvent = ShortcutKeyEvent & Pick<KeyboardEvent, 'repeat' | 'timeStamp'>
 
 // A prefix reserves the next keystroke only while a chord is pending.
-export function createShortcutSequence() {
+export function createShortcutSequence(onPendingChange?: (pending: boolean) => void) {
   let pending: { prefix: ShortcutBinding; expires: number } | null = null
 
   function reset() {
+    if (!pending) return
     pending = null
+    onPendingChange?.(false)
   }
 
   function match(event: ShortcutStrokeEvent, isMac: boolean, bindings: readonly ShortcutBinding[]) {
@@ -481,7 +483,10 @@ export function createShortcutSequence() {
 
     const binding = bindingFromEvent(event, isMac)
     if (binding && bindings.some(candidate => candidate.startsWith(`${binding} `))) {
-      if (!event.repeat) pending = { prefix: binding, expires: event.timeStamp + chordTimeoutMs }
+      if (!event.repeat) {
+        pending = { prefix: binding, expires: event.timeStamp + chordTimeoutMs }
+        onPendingChange?.(true)
+      }
       return { binding: null, consumed: true }
     }
     return { binding, consumed: false }
@@ -528,7 +533,7 @@ export function ariaBinding(binding: ShortcutBinding, isMac: boolean): string {
     .join('+')
 }
 
-const electronKeys = new Map([
+const nativeKeys = new Map([
   ['ArrowDown', 'Down'],
   ['ArrowLeft', 'Left'],
   ['ArrowRight', 'Right'],
@@ -536,11 +541,11 @@ const electronKeys = new Map([
   ['Primary', 'CmdOrCtrl'],
 ])
 
-export function electronAccelerator(binding: ShortcutBinding, isMac: boolean): string | null {
+export function nativeAccelerator(binding: ShortcutBinding, isMac: boolean): string | null {
   const normalized = normalizeBinding(binding, isMac)
   if (!normalized || normalized.includes(' ') || normalized.endsWith('ContextMenu')) return null
   return normalized
     .split('+')
-    .map(key => electronKeys.get(key) ?? key)
+    .map(key => nativeKeys.get(key) ?? key)
     .join('+')
 }

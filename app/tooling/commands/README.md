@@ -1,12 +1,14 @@
 ---
 doc_radar:
   sentinels:
-    - file: app/tooling/commands/emit-preload.ts
-      contains: ['DO NOT EDIT.']
+    - file: app/tooling/commands/dev.ts
+      contains: ['createServer', 'tauri']
+    - file: app/tooling/commands/start.ts
+      contains: ['custom-protocol']
 ---
 
-# Development commands
+# Desktop commands
 
-`dev.ts` starts Vite, builds the isolated terminal assets, and launches Electron. `emit-preload.ts` generates both sandboxed CommonJS preloads from their TypeScript sources. `prepare-terminal.ts` makes the macOS PTY helper executable after dependency installation. `Makefile` delegates setup, development, build, test, and installation to pnpm.
+`dev.ts` starts Vite and the Tauri development host. `start.ts` runs the host against an existing production renderer build. `prepare-terminal.ts` makes the macOS PTY helper executable after dependency installation. `Makefile` delegates setup, build, tests, and installation to pnpm.
 
-Run `pnpm run dev .` to open the current repository. Run `pnpm run prepare` to regenerate the preload, or `make verify` to run the Make verification target. Use these commands from the repository root.
+Run `pnpm run dev .` to open the current repository or `make verify` to check the source. Run these commands from the repository root.

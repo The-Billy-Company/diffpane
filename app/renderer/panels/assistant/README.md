@@ -7,7 +7,7 @@ doc_radar:
 
 # The Creature
 
-The workspace supplies selected project context and routes links opened from the conversation. The panel talks to the Electron Claude session through the preload API. Edit mode shows a single review card with a diff for each changed or new file and applies the changes together.
+The workspace supplies selected project context and routes links opened from the conversation. The panel talks to the workspace Claude session through the typed bridge. Edit mode shows a single review card with a diff for each changed or new file and applies the changes together.
 The greeting draws the Creature beside a source page and uses the small panel glyph in short layouts. The settings sketch accompanies the API key status.
 
 - [`assistant.js`](assistant.js) — Owns the conversation, streaming request lifecycle, settings, and selected context.

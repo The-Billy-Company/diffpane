@@ -1,24 +1,11 @@
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import {
-  chmod,
-  copyFile,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readlink,
-  rename,
-  rm,
-  symlink,
-  writeFile,
-} from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import { packager } from '@electron/packager'
 import { appError } from '../../shared/recovery/app-errors.ts'
 import { setupHowMany } from '../dependencies/setup-howmany.ts'
+import { stageBackend } from './backend.ts'
 
 const metadata: unknown = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8'))
 if (
@@ -84,146 +71,91 @@ const adHoc = identity === '-'
 if (adHoc) console.warn('Using ad hoc signing. macOS may ask for Diffpane Keychain access again after a rebuild.')
 
 const execute = promisify(execFile)
-const languageServerPackages = ['basedpyright', 'typescript', 'typescript-language-server']
-const languageServerPaths = languageServerPackages.map(name => `node_modules/${name}`)
-const copyExclusions = [
-  '*README.md',
-  '*.test.mjs',
-  '*.test.ts',
-  '.DS_Store',
-  '.git',
-  'package-lock.json',
-  'pnpm-lock.yaml',
-  'yarn.lock',
-  '*.o',
-  '*.obj',
-  'node_gyp_bins',
-]
-
-async function copyPayloads(target: string, sources: string[], exclusions: string[] = []) {
-  await execute('/usr/bin/rsync', [
-    '--recursive',
-    '--relative',
-    '--perms',
-    '--copy-links',
-    ...[...copyExclusions, ...exclusions].map(pattern => `--exclude=${pattern}`),
-    '--',
-    ...sources,
-    `${target}/`,
-  ])
-}
-
-async function buildRenderer() {
-  const child = spawn('pnpm', ['run', 'build'], { stdio: 'inherit' })
-  await new Promise<void>((resolve, reject) => {
+function run(command: string, args: string[], env = process.env) {
+  const child = spawn(command, args, { env, stdio: 'inherit' })
+  return new Promise<void>((resolve, reject) => {
     child.once('error', reject)
     child.once('exit', (code, signal) => {
       if (code === 0) resolve()
-      else reject(new Error(`Renderer build failed (${signal ?? code})`))
+      else reject(new Error(`${command} exited with status ${signal ?? code}.`))
     })
   })
 }
 
-for (const result of await Promise.allSettled([buildRenderer(), setupHowMany()])) {
+function codesign(filename: string, entitlements?: string) {
+  const args = ['--force', '--sign', identity]
+  if (!adHoc) args.push('--options', 'runtime', buildOnly ? '--timestamp' : '--timestamp=none')
+  if (entitlements) args.push('--entitlements', entitlements)
+  execFileSync('/usr/bin/codesign', [...args, filename], { stdio: 'inherit' })
+}
+
+for (const result of await Promise.allSettled([
+  run(process.execPath, [path.resolve('node_modules/.bin/vp'), 'run', 'bundle']),
+  setupHowMany(),
+])) {
   if (result.status === 'rejected') throw appError(result.reason, { operation: 'prepare-install' })
 }
 
 await mkdir('release', { recursive: true })
-const scratch = await mkdtemp('release/.packager-')
-const [bundle] = await (async () => {
-  try {
-    return await packager({
-      dir: '.',
-      out: buildOnly ? 'release/box-build' : 'release',
-      tmpdir: scratch,
-      name: 'Diffpane',
-      appBundleId: 'com.diffpane.app',
-      extendInfo: fileURLToPath(new URL('./macos-info.plist', import.meta.url)),
-      icon: 'branding/desktop/diffpane.icns',
-      appVersion: version,
-      overwrite: true,
-      osxSign: adHoc
-        ? undefined
-        : {
-            identity,
-            continueOnError: false,
-            preAutoEntitlements: false,
-            preEmbedProvisioningProfile: false,
-            optionsForFile: buildOnly ? undefined : () => ({ timestamp: 'none' }),
-          },
-      afterExtract: [
-        async ({ buildPath }) => {
-          const resources = path.join(buildPath, 'Electron.app/Contents/Resources')
-          await Promise.all([
-            copyFile(path.join(buildPath, 'LICENSE'), path.join(resources, 'LICENSE.electron')),
-            copyFile(path.join(buildPath, 'LICENSES.chromium.html'), path.join(resources, 'LICENSES.chromium.html')),
-          ])
-        },
-      ],
-      // Match by basename so ASAR finds native files under the hidden staging directory.
-      asar: { unpack: '{*.node,spawn-helper}' },
-      beforeAsar: [
-        async ({ buildPath, arch }) => {
-          const pty = path.join(buildPath, 'node_modules/node-pty')
-          const helper = path.join(pty, 'prebuilds', `darwin-${arch}`, 'spawn-helper')
-          const info = await lstat(helper).catch((error: unknown) => {
-            if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
-            throw error
-          })
-          if (info?.isFile()) await chmod(helper, (info.mode & 0o777) | 0o111)
-          // Copy the large trees in one native pass per destination. Packager
-          // still prunes the dependencies that Electron loads from ASAR.
-          const unpacked = `${buildPath}.asar.unpacked`
-          await mkdir(unpacked, { recursive: true })
-          // Packager's production filter keeps the empty package roots even
-          // when their contents are excluded.
-          const copies = await Promise.allSettled([
-            copyPayloads(buildPath, ['dist']),
-            copyPayloads(
-              unpacked,
-              [...languageServerPaths, 'resources/howmany'],
-              [
-                '/node_modules/basedpyright/dist/pyright.js',
-                '/node_modules/basedpyright/dist/pyright.js.map',
-                '/node_modules/basedpyright/dist/pyright-langserver.js.map',
-                '/node_modules/typescript/bin/tsc',
-                '/node_modules/typescript/lib/tsc.js',
-                '/node_modules/typescript/lib/_tsc.js',
-                '/node_modules/typescript-language-server/lib/cli.mjs.map',
-                '/resources/howmany/build.json',
-              ],
-            ),
-            ...languageServerPaths.map(directory =>
-              rm(path.join(buildPath, directory), { recursive: true, force: true }),
-            ),
-          ])
-          for (const copy of copies) {
-            if (copy.status === 'rejected') throw appError(copy.reason, { operation: 'prepare-install' })
-          }
-        },
-      ],
-      ignore: [
-        /^\/(?!(?:app|legal|node_modules)(?:\/|$)|package\.json$)/,
-        /^\/app\/(?!(?:electron|shared)(?:\/|$))/,
-        /^\/node_modules\/\.vite[^/]*(?:\/|$)/,
-        /^\/node_modules\/node-pty\/prebuilds\/(?!darwin-)/,
-        new RegExp(`^/node_modules/(?:${languageServerPackages.join('|')})/`),
-        /README\.md$/,
-        /\.test\.(mjs|ts)$/,
-      ],
-    })
-  } finally {
-    await rm(scratch, { recursive: true, force: true })
-  }
-})()
-if (!bundle) throw new Error('Electron Packager did not produce a macOS app.')
-const bundleApp = path.resolve(bundle, 'Diffpane.app')
+const scratch = path.resolve(await mkdtemp('release/.tauri-'))
+const target = path.resolve('target/diffpane-tauri')
+const bundled = path.join(target, 'release/bundle/macos/Diffpane.app')
+const releaseDirectory = path.resolve(
+  buildOnly ? (process.env.DIFFPANE_PACKAGE_DIR ?? 'release/box-build') : 'release',
+  `Diffpane-darwin-${process.arch}`,
+)
+const bundleApp = path.join(releaseDirectory, 'Diffpane.app')
+try {
+  const backend = await stageBackend(scratch)
+  const config = JSON.stringify({ bundle: { resources: { [`${backend}/`]: 'backend/' } } })
+  await run(
+    process.execPath,
+    [
+      path.resolve('node_modules/.bin/tauri'),
+      'build',
+      '--bundles',
+      'app',
+      '--no-sign',
+      '--ci',
+      '--config',
+      config,
+      '--',
+      '--locked',
+    ],
+    {
+      ...process.env,
+      CARGO_TARGET_DIR: target,
+    },
+  )
+  const resources = path.join(bundled, 'Contents/Resources/backend')
+  const entitlements = path.join(scratch, 'node-entitlements.plist')
+  await writeFile(
+    entitlements,
+    `<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>
+`,
+  )
+  for (const binary of [
+    `node_modules/@parcel/watcher-darwin-${process.arch}/watcher.node`,
+    `node_modules/node-pty/prebuilds/darwin-${process.arch}/pty.node`,
+    `node_modules/node-pty/prebuilds/darwin-${process.arch}/spawn-helper`,
+    'node_modules/fsevents/fsevents.node',
+    'resources/howmany/howmany',
+  ])
+    codesign(path.join(resources, binary))
+  codesign(path.join(resources, 'bin/node'), entitlements)
+  codesign(bundled)
+  verifyApp(bundled)
+  await stageBundle(bundled)
+} finally {
+  await rm(scratch, { recursive: true, force: true })
+}
+
 function verifyApp(app: string) {
-  if (adHoc) execFileSync('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', app], { stdio: 'inherit' })
   execFileSync('/usr/bin/codesign', ['--verify', '--deep', '--strict', app], { stdio: 'inherit' })
-  // Signature verification alone does not check whether Electron can launch its native code.
+  const backend = path.join(app, 'Contents/Resources/backend')
   execFileSync(
-    path.join(app, 'Contents/MacOS/Diffpane'),
+    path.join(backend, 'bin/node'),
     [
       '--eval',
       `const load = require('node:module').createRequire(process.argv[1]);
@@ -232,10 +164,43 @@ function verifyApp(app: string) {
        shell.onExit(({ exitCode, signal }) => {
          if (exitCode !== 0 || signal) throw new Error('The packaged terminal smoke test failed.');
        });`,
-      path.join(app, 'Contents/Resources/app.asar/package.json'),
+      path.join(backend, 'package.json'),
     ],
-    { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'inherit', timeout: 10_000 },
+    { stdio: 'inherit', timeout: 10_000 },
   )
+}
+
+async function stageBundle(source: string) {
+  await mkdir(releaseDirectory, { recursive: true })
+  const directory = await mkdtemp(path.join(releaseDirectory, '.bundle-'))
+  const incoming = path.join(directory, 'Diffpane.app')
+  const previous = path.join(directory, 'Diffpane-previous.app')
+  let retainPrevious = false
+  try {
+    await execute('/bin/cp', ['-cR', source, incoming])
+    try {
+      await rename(bundleApp, previous)
+      retainPrevious = true
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+    try {
+      await rename(incoming, bundleApp)
+      retainPrevious = false
+    } catch (error) {
+      if (retainPrevious) {
+        try {
+          await rename(previous, bundleApp)
+          retainPrevious = false
+        } catch (rollback) {
+          throw new AggregateError([error, rollback], `Previous bundle kept at ${previous}`, { cause: rollback })
+        }
+      }
+      throw error
+    }
+  } finally {
+    if (!retainPrevious) await rm(directory, { recursive: true, force: true })
+  }
 }
 
 if (buildOnly) {

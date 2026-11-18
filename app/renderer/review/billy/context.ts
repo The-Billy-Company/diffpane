@@ -1,6 +1,6 @@
-import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
 import type { BillyContractDiff, BillyContractRequest } from '../../../shared/billy/contracts.ts'
 import { MAX_BILLY_CONTRACT_PATHS } from '../../../shared/billy/contracts.ts'
+import type { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createBillyClaims } from '../billy-claims/claims.ts'

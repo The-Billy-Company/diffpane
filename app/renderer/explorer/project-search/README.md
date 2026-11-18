@@ -7,7 +7,7 @@ doc_radar:
 
 # Project search
 
-This view searches file contents through the Electron bridge. It returns a selected match to the workspace so the editor can reveal it. The explorer and picker also use the shared filter controls.
+This view searches file contents through the desktop bridge. It returns a selected match to the workspace so the editor can reveal it. The explorer and picker also use the shared filter controls.
 
 - [`content-search.ts`](content-search.ts) — Runs searches, groups result rows, and routes selection and retry.
 - [`search-filters.ts`](search-filters.ts) — Defines filter controls and matching for kind, language, extension, and path.

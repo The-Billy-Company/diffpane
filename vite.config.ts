@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { defineConfig, lazyPlugins } from 'vite-plus'
 import { safetyLint } from './app/tooling/quality/oxlint-safety.ts'
 import { typeAwareLint } from './app/tooling/quality/oxlint-typeaware.ts'
@@ -26,7 +27,6 @@ export default defineConfig({
     plugins: ['eslint', 'typescript', 'unicorn', 'oxc', 'import', 'promise', 'node'],
     categories: { correctness: 'error', suspicious: 'error', perf: 'error' },
     env: { node: true },
-    ignorePatterns: ['app/electron/runtime/*/preload.cjs'],
     jsPlugins: [{ name: 'vite-plus', specifier: 'vite-plus/oxlint-plugin' }],
     rules: {
       'vite-plus/prefer-vite-plus-imports': 'error',
@@ -43,12 +43,19 @@ export default defineConfig({
     },
     overrides: [
       { files: ['app/renderer/**/*.{ts,js}', 'app/shared/preferences/shortcuts.ts'], env: { browser: true } },
+      {
+        files: [
+          'app/tests/interface/desktop/workspace-fixture.ts',
+          'app/tests/interface/assistant/agent-threads.integration.ts',
+        ],
+        env: { browser: true },
+      },
       // Node Worker and MessagePort are point-to-point and have no target origin argument.
       {
         files: [
-          'app/electron/runtime/window/main.mjs',
-          'app/electron/runtime/session/session.mjs',
-          'app/electron/workspace/comparison/diff-worker.ts',
+          'app/backend/runtime/window/main.mjs',
+          'app/backend/runtime/session/session.mjs',
+          'app/backend/workspace/comparison/diff-worker.ts',
         ],
         rules: { 'unicorn/require-post-message-target-origin': 'off' },
       },
@@ -75,11 +82,16 @@ export default defineConfig({
   root: 'app',
   publicDir: '../branding/public',
   base: './',
+  css: { transformer: 'lightningcss', lightningcss: { targets: { safari: 16 << 16 } } },
   build: {
     rolldownOptions: {
-      input: { workspace: 'app/index.html', terminal: 'app/terminal.html' },
+      input: {
+        workspace: fileURLToPath(new URL('./app/index.html', import.meta.url)),
+        terminal: fileURLToPath(new URL('./app/terminal.html', import.meta.url)),
+      },
     },
-    target: 'esnext',
+    target: 'safari16',
+    cssTarget: 'safari16',
     chunkSizeWarningLimit: 2500,
     outDir: '../dist',
     emptyOutDir: true,

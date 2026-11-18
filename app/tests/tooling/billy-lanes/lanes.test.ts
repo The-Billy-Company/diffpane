@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vite-plus/test'
-import { listLanes, readLaneChecks, readLaneLog } from '../../../electron/tools/billy-lanes/lanes.ts'
+import { listLanes, readLaneChecks, readLaneLog } from '../../../backend/tools/billy-lanes/lanes.ts'
 import { indexLanePaths } from '../../../renderer/review/billy-lanes/lanes.ts'
 
 let root: string

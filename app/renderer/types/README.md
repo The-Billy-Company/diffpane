@@ -9,6 +9,6 @@ doc_radar:
 
 These declarations make the preload API and generated or untyped renderer imports available to TypeScript.
 
-- [`shims.d.ts`](shims.d.ts) — Declares the preload bridge on Window, the Vite grammar catalog, and the Monaco JSON tokenizer.
+- [`shims.d.ts`](shims.d.ts) — Declares the desktop bridge on Window, the Vite grammar catalog, and the Monaco JSON tokenizer.
 
 Run `pnpm run check` to type-check callers against these declarations.

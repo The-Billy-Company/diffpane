@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test'
-import { parseProcessMemory, parseWindowsPressure } from '../../../electron/runtime/diagnostics/agent-memory.ts'
+import { parseProcessMemory, parseWindowsPressure } from '../../../backend/runtime/diagnostics/agent-memory.ts'
 
 describe('agent memory sampling', () => {
   const now = 1_800_000_000_000

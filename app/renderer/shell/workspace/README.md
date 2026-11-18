@@ -7,7 +7,7 @@ doc_radar:
 
 # Workspace
 
-The renderer entry point composes the file explorer, Monaco, review controls, and optional panels. It keeps the active file, editor model, and view state in sync with the Electron session.
+The renderer entry point composes the file explorer, Monaco, review controls, and optional panels. It keeps the active file, editor model, and view state in sync with the workspace session.
 
 - [`bootstrap.ts`](bootstrap.ts) — Installs error handlers before loading the workspace.
 - [`main.js`](main.js) — Composes the window, controls file selection and editor lifetime, and flushes saves.

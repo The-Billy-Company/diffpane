@@ -7,7 +7,7 @@ doc_radar:
 
 # Runtime tests
 
-These suites exercise Electron's workspace services and persistence, often through real repositories, workers and local databases.
+These suites exercise the Node.js workspace services and persistence, often through real repositories, workers and local databases.
 
 - [Documents](documents/README.md). Caching, comparison workers, file readers and media.
 - [Persistence](persistence/README.md). Encrypted local state, recents and settings.

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vite-plus/test'
-import { decorations } from '../../../electron/workspace/comparison/changes.ts'
+import { decorations } from '../../../backend/workspace/comparison/changes.ts'
 
 test('decorations address changed lines without character-level differences', () => {
   const result = decorations('const value = "😀 before";\nold();\n', 'const value = "😀 after";\nnew();\nadded();\n')

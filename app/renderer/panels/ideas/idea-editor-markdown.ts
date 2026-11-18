@@ -3,6 +3,7 @@ import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState, Range } from '@codemirror/state'
 import { Decoration, EditorView, ViewPlugin, WidgetType } from '@codemirror/view'
 import type { ViewUpdate } from '@codemirror/view'
+import { isWorkspaceMediaUrl } from '../../../shared/documents/media-types.ts'
 import { celebrate } from '../../shell/celebration/celebration.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 
@@ -133,7 +134,7 @@ class ImageMarker extends WidgetType {
     wrapper.append(fallback)
     runTask('Display idea image', async () => {
       const url = await this.load()
-      if (!url?.startsWith('diffpane-media://') || !wrapper.isConnected) return
+      if (!url || !isWorkspaceMediaUrl(url) || !wrapper.isConnected) return
       const image = document.createElement('img')
       image.alt = this.label
       image.draggable = false

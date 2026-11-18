@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { expect, test, vi } from 'vite-plus/test'
-import { summarizeActivity } from '../../../electron/tools/assistant/agent-threads/source.ts'
-import type { AgentThreadRecord, AgentThreadSource } from '../../../electron/tools/assistant/agent-threads/source.ts'
-import { AgentThreads } from '../../../electron/tools/assistant/agent-threads/threads.ts'
+import { summarizeActivity } from '../../../backend/tools/assistant/agent-threads/source.ts'
+import type { AgentThreadRecord, AgentThreadSource } from '../../../backend/tools/assistant/agent-threads/source.ts'
+import { AgentThreads } from '../../../backend/tools/assistant/agent-threads/threads.ts'
 import type { AgentThreadEvent } from '../../../shared/agent-threads.ts'
 
 const run = promisify(execFile)

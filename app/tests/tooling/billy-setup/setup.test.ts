@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { expect, test, vi } from 'vite-plus/test'
-import { billySetupCommand, checkBillySetup } from '../../../electron/tools/billy/setup.ts'
+import { billySetupCommand, checkBillySetup } from '../../../backend/tools/billy/setup.ts'
 
 test.skipIf(process.platform === 'win32')('keeps the tool inventory result when advisory checks time out', async () => {
   const scratch = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-billy-setup-')))

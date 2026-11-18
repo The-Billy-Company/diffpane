@@ -5,7 +5,7 @@ import {
   builtInShortcuts,
   defaultBinding,
   effectiveBinding,
-  electronAccelerator,
+  nativeAccelerator,
   isShortcutAction,
   shortcutAllowsChord,
   shortcutConflict,
@@ -486,7 +486,7 @@ export function createSettings({
     }
     const binding = firstStroke ? `${firstStroke} ${stroke}` : stroke
     firstStroke = null
-    if (shortcuts[action].scope === 'native' && !electronAccelerator(binding, isMac)) {
+    if (shortcuts[action].scope === 'native' && !nativeAccelerator(binding, isMac)) {
       showStatus('Choose a different key combination for this menu command.', 'error')
       return
     }

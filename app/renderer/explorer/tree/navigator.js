@@ -13,7 +13,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
 /**
  * @import { NavigationFile, NavigationNode, NavigationTree } from './navigation-reconcile.ts'
  * @import { SearchFilters, LanguageFor } from '../project-search/search-filters.ts'
- * @import { InventoryUpdate } from '../../../electron/runtime/session/inventory-delta.ts'
+ * @import { InventoryUpdate } from '../../../backend/runtime/session/inventory-delta.ts'
  * @import { ShortcutAction } from '../../../shared/preferences/shortcuts.ts'
  * @import { ChangeKind } from '../change-rail/change-rail.ts'
  * @import { ChangePosition } from '../../review/comparison/review-focus.js'

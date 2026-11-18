@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { setImmediate } from 'node:timers/promises'
 import { test, vi } from 'vite-plus/test'
-import { DiffRuntime } from '../../../electron/workspace/comparison/diff-runtime.ts'
-import { DocumentCache } from '../../../electron/workspace/documents/document-cache.ts'
+import { DiffRuntime } from '../../../backend/workspace/comparison/diff-runtime.ts'
+import { DocumentCache } from '../../../backend/workspace/documents/document-cache.ts'
 
 /** @typedef {{ after: string }} TextDocument */
 /** @typedef {PromiseWithResolvers<TextDocument>} DeferredRead */

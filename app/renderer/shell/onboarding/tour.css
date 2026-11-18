@@ -19,7 +19,6 @@
   border: 0;
   background: transparent;
   color: var(--tour-ink);
-  -webkit-app-region: no-drag;
 }
 
 .onboarding-tour::backdrop {

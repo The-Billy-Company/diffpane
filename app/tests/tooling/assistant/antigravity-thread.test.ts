@@ -5,7 +5,7 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { pathToFileURL } from 'node:url'
 import { expect, test } from 'vite-plus/test'
-import { createAntigravitySource } from '../../../electron/tools/assistant/agent-threads/antigravity.ts'
+import { createAntigravitySource } from '../../../backend/tools/assistant/agent-threads/antigravity.ts'
 
 function step(step_index: number, type: string, source: string, fields: object) {
   return `${JSON.stringify({ step_index, type, source, ...fields })}\n`

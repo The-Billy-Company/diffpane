@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, open, readFile, rename, rm, stat, symlink, writeFile } 
 import os from 'node:os'
 import path from 'node:path'
 import { test, vi } from 'vite-plus/test'
-import { Repository } from '../../../electron/workspace/repository/repository.mjs'
+import { Repository } from '../../../backend/workspace/repository/repository.mjs'
 
 /** @param {import('vite-plus/test').TestContext} t */
 async function fixture(t) {

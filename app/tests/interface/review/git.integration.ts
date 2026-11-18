@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
-import { execFileSync, spawn } from 'node:child_process'
-import { once } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
+import type { Page } from 'playwright'
+import { openWorkspace } from '../desktop/workspace-fixture.ts'
 
 // From the repository root, build the renderer and run:
 // node app/tests/interface/review/git.integration.ts
@@ -96,10 +96,8 @@ function createFixture() {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
-const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
 const rendererErrors: string[] = []
-let connection: WebSocket | undefined
-let nextMessage = 0
+let page: Page
 
 async function until<T>(description: string, read: () => Promise<T>, remaining = 160): Promise<T> {
   if (remaining === 0) throw new Error(`Timed out waiting for ${description}.`)
@@ -109,68 +107,8 @@ async function until<T>(description: string, read: () => Promise<T>, remaining =
   return until(description, read, remaining - 1)
 }
 
-async function attach() {
-  const portFile = path.join(profile, 'DevToolsActivePort')
-  const port = await until('the isolated Electron debugger', async () =>
-    existsSync(portFile) ? readFileSync(portFile, 'utf8').split('\n')[0] : undefined,
-  )
-  const url = await until('the bundled workspace target', async () => {
-    // DevTools may become available before the workspace shows up in the targets list.
-    const targetList: unknown = await fetch(`http://127.0.0.1:${port}/json/list`).then(response => response.json())
-    if (!Array.isArray(targetList)) return undefined
-    const target: unknown = targetList.find(
-      (entry: unknown) => isRecord(entry) && typeof entry.url === 'string' && entry.url.endsWith('/dist/index.html'),
-    )
-    if (!isRecord(target)) return undefined
-    return typeof target.webSocketDebuggerUrl === 'string' ? target.webSocketDebuggerUrl : undefined
-  })
-  assert.ok(url)
-  const socket = new WebSocket(url)
-  connection = socket
-  socket.addEventListener('message', ({ data }) => {
-    if (typeof data !== 'string') return
-    const message: unknown = JSON.parse(data)
-    if (!isRecord(message)) return
-    if (
-      message.method === 'Runtime.exceptionThrown' &&
-      isRecord(message.params) &&
-      isRecord(message.params.exceptionDetails)
-    ) {
-      const details = message.params.exceptionDetails
-      const exception = isRecord(details.exception) ? details.exception.description : undefined
-      rendererErrors.push(String(exception ?? details.text))
-    }
-    if (typeof message.id !== 'number') return
-    const request = pending.get(message.id)
-    if (!request) return
-    pending.delete(message.id)
-    if (isRecord(message.error)) request.reject(new Error(String(message.error.message)))
-    else request.resolve(message.result)
-  })
-  socket.addEventListener('close', () => {
-    for (const request of pending.values()) request.reject(new Error('Electron disconnected during the test.'))
-    pending.clear()
-  })
-  await until('the Electron debugger connection', async () => socket.readyState === WebSocket.OPEN)
-  await send('Runtime.enable')
-}
-
-function send(method: string, params: object = {}) {
-  const socket = connection
-  assert.ok(socket)
-  const id = ++nextMessage
-  return new Promise<unknown>((resolve, reject) => {
-    pending.set(id, { resolve, reject })
-    socket.send(JSON.stringify({ id, method, params }))
-  })
-}
-
-async function evaluate(expression: string) {
-  const output = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
-  const result = isRecord(output) && isRecord(output.result) ? output.result : undefined
-  if (isRecord(output) && isRecord(output.exceptionDetails))
-    throw new Error(String(result?.description ?? output.exceptionDetails.text))
-  return result?.value
+function evaluate(expression: string): Promise<unknown> {
+  return page.evaluate(expression)
 }
 
 const select = (selector: string) => `document.querySelector(${JSON.stringify(selector)})`
@@ -255,9 +193,8 @@ async function clickLastOriginalMark() {
     const rect = element.getBoundingClientRect()
     return {x: rect.x + rect.width / 2, y: rect.y + rect.height / 2}
   })()`)
-  assert.ok(isRecord(point))
-  await send('Input.dispatchMouseEvent', { ...point, type: 'mousePressed', button: 'left', clickCount: 1 })
-  await send('Input.dispatchMouseEvent', { ...point, type: 'mouseReleased', button: 'left', clickCount: 1 })
+  assert.ok(isRecord(point) && typeof point.x === 'number' && typeof point.y === 'number')
+  await page.mouse.click(point.x, point.y)
 }
 
 async function seesPatch(text: string) {
@@ -278,19 +215,16 @@ async function oneSidedChange(side: 'working' | 'original', range: string) {
 async function screenshot(name: string) {
   const destination = process.env.DIFFPANE_GIT_TEST_SCREENSHOTS
   if (!destination) return
-  const result = await send('Page.captureScreenshot', { format: 'png' })
-  assert.ok(isRecord(result) && typeof result.data === 'string')
   mkdirSync(destination, { recursive: true })
-  writeFileSync(path.join(destination, `git-workspace-${name}.png`), Buffer.from(result.data, 'base64'))
+  await page.screenshot({ path: path.join(destination, `git-workspace-${name}.png`) })
 }
 
 function viewport(width: number, height: number) {
-  return send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false })
+  return page.setViewportSize({ width, height })
 }
 
 async function run(fixture: ReturnType<typeof createFixture>) {
   const originalIndex = git('ls-files', '-s')
-  await attach()
   await viewport(1280, 900)
   await until('the fixture’s nested workspace', async () => (await content('#project-name')) === 'src')
   await click(gitToggle)
@@ -525,27 +459,15 @@ async function run(fixture: ReturnType<typeof createFixture>) {
 
 try {
   const fixture = createFixture()
-  const executable: unknown = createRequire(import.meta.url)('electron')
-  assert.ok(typeof executable === 'string')
-  const electron = spawn(
-    executable,
-    [
-      applicationRoot,
-      path.join(repository, 'src'),
-      `--user-data-dir=${profile}`,
-      '--remote-debugging-port=0',
-      '--remote-debugging-address=127.0.0.1',
-    ],
-    { env: { ...process.env, DIFFPANE_DEV_SERVER_URL: '' }, stdio: 'inherit' },
+  const workspace = await openWorkspace(applicationRoot, profile, path.join(repository, 'src'), error =>
+    rendererErrors.push(error.message),
   )
-  const exited = once(electron, 'exit')
+  page = workspace.page
   try {
     await run(fixture)
     console.info('Git workspace integration passed.')
   } finally {
-    connection?.close()
-    if (electron.exitCode === null && electron.signalCode === null) electron.kill()
-    await exited
+    await workspace.close()
   }
 } finally {
   rmSync(directory, { recursive: true, force: true, maxRetries: 3 })

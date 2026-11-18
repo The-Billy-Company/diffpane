@@ -36,7 +36,21 @@ export function recolorMarkdownPreviews(scheme: ColorScheme) {
   for (const recolor of mountedPreviews) recolor()
 }
 
+function groupBy<Value, Key extends PropertyKey>(
+  items: Iterable<Value>,
+  chooseKey: (value: Value, index: number) => Key,
+) {
+  const groups: Partial<Record<Key, Value[]>> = {}
+  Object.setPrototypeOf(groups, null)
+  let index = 0
+  for (const value of items) (groups[chooseKey(value, index++)] ??= []).push(value)
+  return groups
+}
+
 function loadMermaid() {
+  // Mermaid's parser uses Object.groupBy before rendering its first diagram.
+  if (typeof Object.groupBy !== 'function')
+    Object.defineProperty(Object, 'groupBy', { value: groupBy, configurable: true, writable: true })
   return (mermaidRuntime ??= import('mermaid')
     .then(({ default: mermaid }) => mermaid)
     .catch((cause: unknown) => {

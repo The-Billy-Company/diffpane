@@ -82,7 +82,7 @@ export function cssRole(role: string) {
   return `--${role.replaceAll(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
 }
 
-// Convert to linear sRGB before encoding colors for Monaco, Mermaid, and Electron.
+// Convert to linear sRGB before encoding colors for Monaco, Mermaid, and the desktop host.
 export function linearSrgb(color: Oklch): [number, number, number, number] {
   const [lightness = '0', chroma = '0', hue = '0', , opacity = '1'] = color.slice(6, -1).split(' ')
   const light = Number.parseFloat(lightness) / 100

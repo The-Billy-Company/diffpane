@@ -7,7 +7,7 @@ doc_radar:
 
 # Ideas notebook
 
-The workspace mounts this notebook and handles project links and ideas given to the Creature. The panel maintains the active idea and saves notebook edits through the preload bridge.
+The workspace mounts this notebook and handles project links and ideas given to the Creature. The panel maintains the active idea and saves notebook edits through the desktop bridge.
 
 The dock and full notebook share the workspace appearance tokens. Search highlights matching titles, note excerpts, or linked paths. Markdown headings use the shared type scale, and code blocks use the editor font and size from Appearance.
 

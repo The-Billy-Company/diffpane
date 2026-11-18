@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from 'node
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'vite-plus/test'
-import { operationPath, renameEntry } from '../../../electron/workspace/repository/file-operations.ts'
+import { operationPath, renameEntry } from '../../../backend/workspace/repository/file-operations.ts'
 
 test('rename preserves files and folder descendants and rejects collisions and unsafe paths', async t => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-rename-')))

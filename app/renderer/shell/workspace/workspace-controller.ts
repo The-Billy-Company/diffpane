@@ -1,4 +1,4 @@
-import type { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
+import type { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'
 import type { WorkspaceContext, WorkspaceDraft } from '../../../shared/preferences/saved-workspaces.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import { showWorkspaceSetup } from './workspace-setup.ts'

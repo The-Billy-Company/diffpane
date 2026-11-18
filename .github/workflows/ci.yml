@@ -14,7 +14,7 @@ concurrency:
 jobs:
   verify:
     runs-on: macos-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     env:
       VP_GIT_HOOKS: '0'
     steps:
@@ -32,16 +32,17 @@ jobs:
           path: resources/howmany
           key: howmany-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('app/tooling/dependencies/howmany-tool.json', 'app/tooling/dependencies/setup-howmany.ts') }}
       - run: pnpm install --frozen-lockfile --prefer-offline
-      - run: git diff --exit-code -- app/electron/runtime/window/preload.cjs app/electron/runtime/terminal/preload.cjs
+      - run: pnpm exec playwright install webkit
       - run: pnpm run setup:howmany
       - run: pnpm run verify
+      - run: node app/tests/interface/assistant/agent-threads.integration.ts
       - name: Smoke test the macOS installer
         env:
           DIFFPANE_CODESIGN_IDENTITY: '-'
         run: |
           pnpm run install:app
           contents="$HOME/Applications/Diffpane.app/Contents"
-          unpacked="$contents/Resources/app.asar.unpacked"
+          unpacked="$contents/Resources/backend"
           pty="$unpacked/node_modules/node-pty/prebuilds/darwin-$(uname -m)"
           test -f "$pty/pty.node"
           test -x "$pty/spawn-helper"
@@ -49,5 +50,7 @@ jobs:
           test -f "$unpacked/node_modules/typescript/lib/typescript.js"
           test -f "$unpacked/node_modules/typescript-language-server/lib/cli.mjs"
           test "$(plutil -extract CFBundleDocumentTypes.0.LSHandlerRank raw -o - "$contents/Info.plist")" = Alternate
+          "$unpacked/bin/node" --version
           "$unpacked/resources/howmany/howmany" --version
           "$HOME/.local/bin/dp" --version
+          DIFFPANE_TEST_NODE="$unpacked/bin/node" node app/tests/interface/review/git.integration.ts

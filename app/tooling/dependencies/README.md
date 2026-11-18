@@ -7,6 +7,6 @@ doc_radar:
 
 # Tool setup and pins
 
-`setup-howmany.ts` verifies and builds the released HowMany source in `howmany-tool.json`. `setup-languages.ts` uses `language-tools.json` to select language tool versions. Electron discovers the installed tools when opening a supported file.
+`setup-howmany.ts` verifies and builds the released HowMany source in `howmany-tool.json`. `setup-languages.ts` uses `language-tools.json` to select language tool versions. The workspace service discovers the installed tools when opening a supported file.
 
 From the repository root, run `pnpm run setup:howmany` to prepare the bundled counter or `pnpm run setup:languages` to prepare language servers for integration checks.

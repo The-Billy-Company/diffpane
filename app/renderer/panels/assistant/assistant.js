@@ -8,8 +8,8 @@ import { creatureGlyph } from './creature-glyph.ts'
 import './assistant.css'
 
 /**
- * @import { ClaudePrompt } from '../../../electron/tools/assistant/claude-session.mjs'
- * @import { DiffpaneApi } from '../../../electron/runtime/window/preload.ts'
+ * @import { ClaudePrompt } from '../../../backend/tools/assistant/claude-session.mjs'
+ * @import { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'
  * @import { Proposal, FileTarget } from './assistant-content.js'
  */
 /** @typedef {NonNullable<ClaudePrompt['fileContext']>} FileContext */

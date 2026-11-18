@@ -3,6 +3,7 @@ import { syncTokenKeys, toKeyedTokens } from '@shikijs/magic-move/core'
 import { MagicMoveRenderer } from '@shikijs/magic-move/renderer'
 import type { editor } from 'monaco-editor'
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
+import { toWellFormedUtf16 } from '../../../shared/documents/utf16.ts'
 import { EDITOR_THEMES } from '../../editor/highlighting/editor-themes.ts'
 import { createSketch } from '../../illustrations/sketch.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
@@ -25,14 +26,14 @@ function excerpt(model: editor.ITextModel, first: number, last: number) {
     const end = model.getLineMaxColumn(line)
     clipped ||= end > MAX_COLUMNS + 1
     lines.push(
-      model
-        .getValueInRange({
+      toWellFormedUtf16(
+        model.getValueInRange({
           startLineNumber: line,
           endLineNumber: line,
           startColumn: 1,
           endColumn: Math.min(end, MAX_COLUMNS + 1),
-        })
-        .toWellFormed(),
+        }),
+      ),
     )
   }
   return { code: lines.join('\n'), clipped, lines: lines.length }
@@ -49,14 +50,13 @@ function tokensFor(code: string, language: string) {
       while (scope.includes('.') && !darkRules.has(scope)) scope = scope.slice(0, scope.lastIndexOf('.'))
       const dark = darkRules.get(scope)
       const light = lightRules.get(scope)
+      const hasColors = light?.foreground && dark?.foreground
       return {
         content: line.slice(offset, row[column + 1]?.offset),
         offset: lineOffset + offset,
-        color:
-          light?.foreground && dark?.foreground
-            ? `light-dark(#${light.foreground}, #${dark.foreground})`
-            : 'var(--editor-text)',
         htmlStyle: {
+          '--replay-token-light': hasColors ? `#${light.foreground}` : 'var(--editor-text)',
+          '--replay-token-dark': hasColors ? `#${dark.foreground}` : 'var(--editor-text)',
           'font-style': dark?.fontStyle === 'italic' ? 'italic' : 'inherit',
           'font-weight': dark?.fontStyle === 'bold' ? 'bold' : 'inherit',
         },

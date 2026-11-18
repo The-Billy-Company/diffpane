@@ -5,12 +5,12 @@ import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test, vi } from 'vite-plus/test'
-import { HowManyRuntime, discoverHowMany, validateReport } from '../../../electron/tools/analysis/howmany.mjs'
+import { HowManyRuntime, discoverHowMany, validateReport } from '../../../backend/tools/analysis/howmany.mjs'
 import { verifyHowManySource } from '../../../tooling/dependencies/setup-howmany.ts'
 
 /**
  * @import { TestContext } from 'vite-plus/test'
- * @import { HowManyEvent } from '../../../electron/tools/analysis/howmany.mjs'
+ * @import { HowManyEvent } from '../../../backend/tools/analysis/howmany.mjs'
  */
 
 /** @param {() => boolean} predicate */
@@ -40,7 +40,7 @@ function sourceReport() {
     total_size: 50,
   }
   const { file_count, ...counts } = source
-  /** @type {import('../../../electron/tools/analysis/howmany.mjs').BreakdownRow[]} */
+  /** @type {import('../../../backend/tools/analysis/howmany.mjs').BreakdownRow[]} */
   const rows = [{ ...source, language: 'JavaScript', category: 'code' }]
   return {
     basic: { ...counts, total_files: file_count, stats_by_extension: {} },

@@ -5,8 +5,9 @@ import {
   MAX_FILE_BYTES,
   MAX_MEDIA_BYTES,
   readLimit,
-} from '../../../electron/workspace/documents/file-content.ts'
+} from '../../../backend/workspace/documents/file-content.ts'
 import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../shared/documents/media-types.ts'
+import { isWellFormedUtf16, toWellFormedUtf16 } from '../../../shared/documents/utf16.ts'
 
 /** @param {Buffer | {bytes: Buffer, size: number}} bytes @param {string} filename */
 function readText(bytes, filename) {
@@ -39,6 +40,18 @@ test('unknown extensions, extensionless files, Unicode and legacy encodings rema
   const legacy = readText(Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x20, 0x93, 0x78, 0x94]), 'legacy.txt')
   assert.equal(legacy.value, 'café “x”')
   matchNote(legacy.note, /Windows-1252/)
+})
+
+test('bounded previews repair lone surrogates while path validation rejects them', () => {
+  const valid = '\uFEFF雪😀'
+  const clipped = 'a😀'.slice(0, 2)
+  const invalid = '\uDC00😀\uD800\uD800'
+  assert.equal(isWellFormedUtf16(valid), true)
+  assert.equal(toWellFormedUtf16(valid), valid)
+  assert.equal(isWellFormedUtf16(clipped), false)
+  assert.equal(toWellFormedUtf16(clipped), 'a\uFFFD')
+  assert.equal(isWellFormedUtf16(invalid), false)
+  assert.equal(toWellFormedUtf16(invalid), '\uFFFD😀\uFFFD\uFFFD')
 })
 
 test('binary inspection preserves byte offsets and ASCII and bounds its payload', () => {

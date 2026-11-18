@@ -63,6 +63,7 @@ import { createReviewFocus } from '../../review/comparison/review-focus.js'
 import { createGitWorkspace } from '../../review/git/git-workspace.ts'
 import { createReviewNotes } from '../../review/notes/review-notes.ts'
 import { createChangeReview } from '../../review/queue/change-review.js'
+import { syncNativeShortcutPrefix } from '../desktop/workspace-bridge.ts'
 import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
 import { projectIcon } from '../layout/icons.ts'
 import { createWorkspaceLayout } from '../layout/workspace-layout.ts'
@@ -77,7 +78,7 @@ import { getWorkspacePreferences } from './preferences.ts'
 import { createWorkspaceController } from './workspace-controller.ts'
 import { createWorkspaceSwitcher } from './workspace-switcher.ts'
 
-/** @import { WorkspaceComparison, WorkspaceDocument, WorkspaceFile, WorkspaceSnapshot } from '../../../electron/runtime/session/workspace-types.ts' */
+/** @import { WorkspaceComparison, WorkspaceDocument, WorkspaceFile, WorkspaceSnapshot } from '../../../backend/runtime/session/workspace-types.ts' */
 /** @import { IdeaLink } from '../../../shared/ideas/ideas.ts' */
 /** @import { ReviewAnchor } from '../../../shared/review/review-notes.ts' */
 /** @import { FileMenuAction } from '../../../shared/preferences/file-menu.ts' */
@@ -199,7 +200,7 @@ const workspaceOpening = document.getElementById('workspace-opening')
 const openingTitle = document.getElementById('workspace-opening-title')
 const openingFolder = document.getElementById('workspace-opening-folder')
 app.innerHTML = `
-  <header class="titlebar">
+  <header class="titlebar" data-tauri-drag-region="deep">
     <span class="brand-mark" aria-hidden="true"></span>
     <div class="project"><span id="project-name">Diffpane</span></div>
     <button type="button" class="branch titlebar-button" id="git-workspace-toggle" aria-label="Git workspace" aria-controls="git-workspace" aria-pressed="false" title="Inspect Git history and changes" hidden>${icons.branch}<span id="branch-name"></span></button>
@@ -2607,7 +2608,7 @@ function selectionLines(selection) {
   return { line, endLine }
 }
 
-/** @returns {import('../../../electron/tools/assistant/claude-session.mjs').FileReference | null} */
+/** @returns {import('../../../backend/tools/assistant/claude-session.mjs').FileReference | null} */
 function assistantFileContext() {
   if (!openedFile) return null
   const path = openedFile.path
@@ -3545,11 +3546,12 @@ const workspaceShortcuts = {
   find: findAction,
 }
 
-const shortcutSequence = createShortcutSequence()
+const shortcutSequence = createShortcutSequence(syncNativeShortcutPrefix)
 /** @type {string[]} */
 let workspaceChordBindings = []
-window.addEventListener('blur', () => shortcutSequence.reset())
-document.addEventListener('pointerdown', () => shortcutSequence.reset(), { capture: true })
+window.addEventListener('blur', shortcutSequence.reset)
+window.addEventListener('pagehide', shortcutSequence.reset)
+document.addEventListener('pointerdown', shortcutSequence.reset, { capture: true })
 document.addEventListener(
   'keydown',
   event => {

@@ -1,8 +1,8 @@
 ---
 doc_radar:
   sentinels:
-    - file: app/electron/runtime/window/main.mjs
-      contains: ['contextIsolation: true', 'nodeIntegration: false', 'sandbox: true']
+    - file: src-tauri/src/host/workspace/windows.rs
+      contains: ['on_navigation', 'NewWindowResponse::Deny', 'on_download']
     - file: app/renderer/shell/workspace/main.js
       contains: ['createNavigator', 'createLanguageFeatures', 'saveViewState', 'editorReadOnly', 'diff-gutter-${kind}']
     - file: app/renderer/explorer/tree/navigator.js
@@ -11,9 +11,9 @@ doc_radar:
       contains: ['configureSyntax', 'parseDocument']
     - file: app/renderer/shell/layout/icons.ts
       contains: ['material-icon-theme', 'projectIcon']
-    - file: app/electron/tools/languages/language.mjs
+    - file: app/backend/tools/languages/language.mjs
       contains: ['LanguageRuntime', 'textDocument/didOpen']
-    - file: app/electron/tools/languages/servers.ts
+    - file: app/backend/tools/languages/servers.ts
       contains: ['basedpyright', 'rust-analyzer', 'ElixirLS', 'gopls', 'SourceKit-LSP', 'typescript-language-server']
 ---
 
@@ -68,11 +68,13 @@ Diffpane calls Claude Haiku directly. Your prompts, context references, and the 
 
 ## Install with Box on Apple Silicon
 
+Diffpane supports macOS Ventura 13.0 or later.
+
 Run `box unpack diffpane-app` with Box 0.3.0 or later. Open `Diffpane.app` from your Applications folder. Box manages updates and removal under the `diffpane-app` ID.
 
 ## Build from source
 
-Use the Node.js version in `.node-version` and the pnpm version pinned in `package.json`. Building the macOS app also requires Rust 1.88+ and the Xcode command-line tools.
+Use the Node.js version in `.node-version` and the pnpm version pinned in `package.json`. Building the macOS app also requires Rustup for the toolchain in `rust-toolchain.toml` and the Xcode command-line tools.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -106,12 +108,13 @@ pnpm run verify  # check formatting, lint, types, tests, and build
 
 Run `make <target>` from the repository root to use the Make targets.
 
-Choose **View → Open Diagnostics Folder** to inspect local operation timings and failures. The [desktop diagnostics guide](app/electron/runtime/diagnostics/README.md) describes the record format, retention, and profiling tools.
+Choose **View → Open Diagnostics Folder** to inspect local operation timings and failures. The [desktop diagnostics guide](app/backend/runtime/diagnostics/README.md) describes the record format, retention, and profiling tools.
 
 ## Repository layout
 
-- [Application](app/README.md) indexes the Electron runtime, renderer, shared contracts, tooling, and tests.
-- [Branding](branding/README.md) contains the icon source and generated assets for Electron and the renderer.
+- [Application](app/README.md) indexes the workspace service, renderer, shared contracts, tooling, and tests.
+- [Desktop host](src-tauri/README.md) contains the Tauri application and native integrations.
+- [Branding](branding/README.md) contains the icon source and generated assets for the desktop app and renderer.
 - [Changelog](changelog/README.md) records shipped changes by feature.
 - [Legal](legal/README.md) holds the third-party notices included in the macOS bundle.
 

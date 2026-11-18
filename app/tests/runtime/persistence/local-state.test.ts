@@ -8,10 +8,10 @@ import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { test } from 'vite-plus/test'
-import { LocalState } from '../../../electron/persistence/database/local-state.ts'
+import { LocalState } from '../../../backend/persistence/database/local-state.ts'
 
 const runNode = promisify(execFile)
-const modulePath = fileURLToPath(new URL('../../../electron/persistence/database/local-state.ts', import.meta.url))
+const modulePath = fileURLToPath(new URL('../../../backend/persistence/database/local-state.ts', import.meta.url))
 const keyring = {
   // The production adapter wraps this key using the OS credential store.
   async wrap(key: string) {
