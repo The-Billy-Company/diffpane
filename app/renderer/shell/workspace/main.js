@@ -351,6 +351,10 @@ let welcomeRendered = false
 let navigationVersion = 0
 /** @type {Set<{path: string}>} */
 const mutations = new Set()
+/** @type {{from: string, to: string, identity: string}[]} */
+const renameHistory = []
+let renamePosition = 0
+let replayingRename = false
 let reviewVisible = false
 /** @type {ReviewScope} */
 let reviewScope = 'focus'
@@ -947,24 +951,43 @@ async function closeEditors(focusCode = false) {
   closeCurrentFile()
 }
 
-/** @param {'rename' | 'trash'} action @param {string} pathname @param {string} [name] */
-async function mutateFile(action, pathname, name) {
+/**
+ * @param {'rename' | 'trash'} action
+ * @param {string} pathname
+ * @param {string} [name]
+ * @param {{step: -1 | 1, identity: string}} [replay]
+ */
+async function mutateFile(action, pathname, name, replay) {
   if (closingRequested || closed) throw new Error('This window is closing.')
+  if (replayingRename) throw new Error('A rename is still in progress.')
   const mutation = { path: pathname }
+  replayingRename = Boolean(replay)
   mutations.add(mutation)
+  syncFileMenu()
   try {
     const current = openedFile ? cards.get(openedFile.path) : undefined
     if (current && pathAffects(pathname, current.file.path)) {
       applyEditorReadOnly(current)
       await current.autosave?.flush()
     }
-    let destination
+    let renamed
     if (action === 'rename') {
       if (name === undefined) throw new Error('Enter a name for this file.')
-      destination = await api.rename(pathname, name)
+      renamed = await api.rename(pathname, name, replay?.identity)
     } else await api.fileAction(action, pathname)
     if (closed) return
-    if (destination === pathname) return
+    if (renamed?.path === pathname) return
+    if (renamed) {
+      if (replay) {
+        renamePosition += replay.step
+        clearErrorNotice(fileMenuLabels[replay.step === -1 ? 'undoRename' : 'redoRename'])
+      } else {
+        renameHistory.splice(renamePosition)
+        renameHistory.push({ from: pathname, to: renamed.path, identity: renamed.identity })
+        renamePosition++
+      }
+    }
+    const destination = renamed?.path
     fileHistory.move(pathname, destination)
     syncFileMenu()
     if (destination) navigator.renamed(pathname, destination)
@@ -989,10 +1012,23 @@ async function mutateFile(action, pathname, name) {
     }
   } finally {
     mutations.delete(mutation)
+    replayingRename = false
+    syncFileMenu()
     const current = openedFile ? cards.get(openedFile.path) : undefined
     if (current) applyEditorReadOnly(current)
   }
 }
+
+/** @param {-1 | 1} step */
+function renameHistoryCommand(step) {
+  if (mutations.size) return undefined
+  const entry = renameHistory[step === -1 ? renamePosition - 1 : renamePosition]
+  if (!entry) return undefined
+  const { from, to, identity } = entry
+  const [source, destination] = step === -1 ? [to, from] : [from, to]
+  return () => mutateFile('rename', source, destination.slice(destination.lastIndexOf('/') + 1), { step, identity })
+}
+
 const navigator = createNavigator(ui.navigator, api, openFile, {
   onOpenChange: (file, change) => openFile(file, { compare: true, change }),
   onInitialScan: ready => {
@@ -3465,6 +3501,8 @@ function closeOtherEditors() {
 
 /** @type {Record<FileMenuAction, (card: Card | undefined) => (() => unknown) | null | undefined | false>} */
 const fileMenuCommands = {
+  undoRename: () => renameHistoryCommand(-1),
+  redoRename: () => renameHistoryCommand(1),
   searchFiles: () => snapshot && openFilePicker,
   saveFile: card => {
     const autosave = card?.autosave
@@ -3579,6 +3617,27 @@ document.addEventListener(
       event.stopPropagation()
     }
     if (!binding) return
+    const renameAction =
+      binding === 'Primary+Z'
+        ? 'undoRename'
+        : binding === (platform === 'win32' ? 'Primary+Y' : 'Primary+Shift+Z')
+          ? 'redoRename'
+          : null
+    if (renameAction && !dialog) {
+      const target = event.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.closest('input, textarea, .monaco-editor'))
+      )
+        return
+      const run = renameHistoryCommand(renameAction === 'undoRename' ? -1 : 1)
+      if (run || replayingRename) {
+        event.preventDefault()
+        event.stopPropagation()
+        if (run && !event.repeat) runTask(fileMenuLabels[renameAction], run)
+      }
+      return
+    }
     if (ideas?.handleShortcut(event, binding)) return
     for (const [action, resolve] of Object.entries(workspaceShortcuts)) {
       if (!isShortcutAction(action) || binding !== shortcutBinding(action)) continue

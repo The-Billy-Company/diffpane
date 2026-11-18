@@ -8,7 +8,12 @@ export interface Workspace {
   commonDir: string
 }
 
-const RENAMES = new Map<string, Promise<void>>()
+export interface RenameResult {
+  path: string
+  identity: string
+}
+
+const RENAMES = new Map<string, Promise<string>>()
 
 function within(root: string, candidate: string) {
   const relative = path.relative(root, candidate)
@@ -43,17 +48,36 @@ export async function operationPath(workspace: Workspace, filename: unknown) {
   return resolved
 }
 
-export async function renameEntry(workspace: Workspace, filename: unknown, name: unknown) {
-  if (typeof name !== 'string' || !name.trim() || ['.', '..', '.git'].includes(name) || /[/\\\0]/u.test(name))
+async function entryIdentity(source: string) {
+  const { dev, ino } = await lstat(source, { bigint: true })
+  return `${dev}:${ino}`
+}
+
+export async function renameEntry(
+  workspace: Workspace,
+  filename: unknown,
+  name: unknown,
+  expectedIdentity?: unknown,
+): Promise<RenameResult> {
+  if (
+    typeof name !== 'string' ||
+    !name ||
+    (!name.trim() && typeof expectedIdentity !== 'string') ||
+    ['.', '..', '.git'].includes(name) ||
+    /[/\\\0]/u.test(name)
+  )
     throw new Error('Enter a name without slashes.')
   if (typeof filename !== 'string') throw new Error('Choose a file or folder inside this project.')
   const source = await operationPath(workspace, filename)
-  if (name === path.basename(source)) return filename
+  if (name === path.basename(source)) return { path: filename, identity: await entryIdentity(source) }
   const destination = path.join(path.dirname(source), name)
   const previous = RENAMES.get(destination)
   const pending = (async () => {
     // A failed earlier rename does not block another attempt on this destination.
     await previous?.catch(() => {})
+    const identity = await entryIdentity(source)
+    if (expectedIdentity !== undefined && identity !== expectedIdentity)
+      throw new Error('This file or folder has changed since it was renamed.')
     try {
       await lstat(destination)
       throw new Error('A file or folder with that name already exists.')
@@ -61,12 +85,12 @@ export async function renameEntry(workspace: Workspace, filename: unknown, name:
       if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error
     }
     await rename(source, destination)
+    return identity
   })()
   RENAMES.set(destination, pending)
   try {
-    await pending
+    return { path: path.posix.join(path.posix.dirname(filename), name), identity: await pending }
   } finally {
     if (RENAMES.get(destination) === pending) RENAMES.delete(destination)
   }
-  return path.posix.join(path.posix.dirname(filename), name)
 }

@@ -7,6 +7,7 @@ import type {
   WorkspaceFile,
   WorkspaceSnapshot,
 } from '../../../backend/runtime/session/workspace-types.ts'
+import { isRenameResult } from '../../../shared/bridge/validators/workspace.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import type { ErrorDetails } from '../../../shared/recovery/app-errors.ts'
 
@@ -132,7 +133,7 @@ const RESPONSE_VALIDATORS = {
   files: isInventory,
   'files-delta': isInventoryUpdate,
   performance: isPerformance,
-  rename: isString,
+  rename: isRenameResult,
   save: isNull,
   'claude-check-create': isNull,
   'claude-save-files': isNull,

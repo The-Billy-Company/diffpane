@@ -1,4 +1,6 @@
 export const fileMenuLabels = {
+  undoRename: 'Undo Rename',
+  redoRename: 'Redo Rename',
   searchFiles: 'Quick Open…',
   saveFile: 'Save File',
   findInFile: 'Find in File…',

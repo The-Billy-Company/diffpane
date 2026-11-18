@@ -941,8 +941,9 @@ async function receive({ id, method, args }) {
         const expanded = [...repository.expandedIgnored].filter(
           directory => directory === filename || directory.startsWith(`${filename}/`),
         )
-        const renamed = await renameEntry(repository, filename, args[1])
-        if (filename === renamed) return renamed
+        const result = await renameEntry(repository, filename, args[1], args[2])
+        const { path: renamed } = result
+        if (filename === renamed) return result
         // Move expansion state after any older inventory scan that still has the source.
         await catalogLoading?.catch(() => {})
         for (const directory of expanded) {
@@ -957,7 +958,7 @@ async function receive({ id, method, args }) {
           force = true
           await refresh().catch(() => {})
         }
-        return renamed
+        return result
       })
     } else if (method === 'files') value = (await files()).filter(file => !file.ignored)
     else if (method === 'content-search') {

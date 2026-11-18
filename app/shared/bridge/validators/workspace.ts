@@ -7,6 +7,7 @@ import type {
 } from '../../../backend/runtime/session/workspace-types.ts'
 import type { FileContent } from '../../../backend/workspace/documents/file-content.ts'
 import type { ContentMatch, ContentSearchResult } from '../../../backend/workspace/repository/content-search.mjs'
+import type { RenameResult } from '../../../backend/workspace/repository/file-operations.ts'
 import { isWorkspaceMediaUrl } from '../../documents/media-types.ts'
 import type { GitChanges, GitCommit, GitFile, GitFileContents, GitOverview, GitRef } from '../../review/git.ts'
 import {
@@ -36,6 +37,10 @@ function isContentMatch(value: unknown): value is ContentMatch {
 
 export function isContentSearchResult(value: unknown): value is ContentSearchResult {
   return isRecord(value) && arrayOf(isContentMatch)(value.matches) && isBoolean(value.truncated)
+}
+
+export function isRenameResult(value: unknown): value is RenameResult {
+  return isRecord(value) && isString(value.path) && isString(value.identity)
 }
 
 export function isInventoryFile(value: unknown): value is InventoryFile {

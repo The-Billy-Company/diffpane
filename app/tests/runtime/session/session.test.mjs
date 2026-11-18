@@ -337,7 +337,7 @@ test('a committed rename returns its destination even if the following refresh f
     `,
   })
   repo.signal({ testFailSnapshot: true })
-  assert.equal(await repo.call('rename', 'src/file0.txt', 'renamed.txt'), 'src/renamed.txt')
+  assert.equal((await repo.call('rename', 'src/file0.txt', 'renamed.txt')).path, 'src/renamed.txt')
   assert.deepEqual(repo.updateFailures, [
     {
       message: 'temporary Git failure',
@@ -426,7 +426,7 @@ test('renaming an expanded ignored folder preserves its nested expansions', asyn
   const before = await repo.call('files-delta', null)
   assert.ok(before.files.some(file => file.path === 'cache/inner/note.txt'))
 
-  assert.equal(await repo.call('rename', 'cache', 'cache-renamed'), 'cache-renamed')
+  assert.equal((await repo.call('rename', 'cache', 'cache-renamed')).path, 'cache-renamed')
   const after = await repo.call('files-delta', before.revision)
   assert.ok(after.files.some(file => file.path === 'cache-renamed/inner/note.txt'))
   assert.ok(after.removed.includes('cache/inner/note.txt'))
