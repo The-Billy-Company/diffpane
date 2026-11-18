@@ -160,14 +160,18 @@ export function createFileSearch<T extends SearchableFile>() {
       if (next === files) return
       files = next
       cancelQueued()
-      if (files.length >= WORKER_THRESHOLD) {
-        cancelRunning()
-        try {
-          prepareWorker()
-        } catch (cause) {
-          workerFailed(cause)
-        }
-      } else releaseWorker()
+      if (files.length < WORKER_THRESHOLD) {
+        releaseWorker()
+        return
+      }
+      cancelRunning()
+      // Browsing and filtering a blank query can use the existing inventory directly.
+      if (!worker) return
+      try {
+        prepareWorker()
+      } catch (cause) {
+        workerFailed(cause)
+      }
     },
     search(query: string): FileSearchResults<T> | Promise<FileSearchResults<T> | null> {
       const hasQuery = Boolean(query.trim())

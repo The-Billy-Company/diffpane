@@ -1,10 +1,7 @@
 import type { RendererRequest } from '../../../desktop/host/desktop.ts'
 import { WorkspaceWindow } from '../../../desktop/host/desktop.ts'
 import { dialog } from '../../../desktop/services/shell.ts'
-import { readBillyClaims } from '../billy-claims/claims.ts'
-import { readBillyContractDiff } from '../billy-contracts/contracts.ts'
 import { listLanes, readLaneChecks, readLaneLog } from '../billy-lanes/lanes.ts'
-import { createBillyReplayReader } from '../billy-replay/reader.ts'
 import { readBillySiblings } from '../billy-siblings/siblings.ts'
 import { createBillyContext, isBillyPath, isBillyWorkspace } from './native.ts'
 import { billySetupCommand, checkBillySetup } from './setup.ts'
@@ -21,7 +18,7 @@ type Register = (
 interface BillySession {
   controller: AbortController
   context: ReturnType<typeof createBillyContext>
-  replay: ReturnType<typeof createBillyReplayReader>
+  replay: () => ReturnType<typeof createReplayReader>
   operations: Map<string, Promise<unknown>>
   pickingReplay: boolean
 }
@@ -47,6 +44,23 @@ function billyRoot(session: BillyWindow) {
   return result
 }
 
+async function createReplayReader(sender: RendererRequest['sender'], signal: AbortSignal) {
+  const { createBillyReplayReader } = await import('../billy-replay/reader.ts')
+  signal.throwIfAborted()
+  return createBillyReplayReader(async () => {
+    const owner = WorkspaceWindow.fromRenderer(sender)
+    if (!owner || owner.isDestroyed() || signal.aborted) return null
+    const selected = await dialog.showOpenDialog(owner, {
+      title: 'Open a Billy Replay run',
+      buttonLabel: 'Open Replay run',
+      properties: ['openFile'],
+      filters: [{ name: 'Replay run', extensions: ['json'] }],
+    })
+    if (selected.canceled || signal.aborted) return null
+    return selected.filePaths[0] ?? null
+  })
+}
+
 async function getBillySession(window: BillyWindow, event: RendererRequest) {
   const rootPromise = billyRoot(window)
   const root = await rootPromise
@@ -55,21 +69,11 @@ async function getBillySession(window: BillyWindow, event: RendererRequest) {
   let session = sessions.get(window)
   if (!session) {
     const controller = new AbortController()
+    let replay: ReturnType<typeof createReplayReader> | undefined
     session = {
       controller,
       context: createBillyContext(root, controller.signal),
-      replay: createBillyReplayReader(async () => {
-        const owner = WorkspaceWindow.fromRenderer(event.sender)
-        if (!owner || owner.isDestroyed() || controller.signal.aborted) return null
-        const selected = await dialog.showOpenDialog(owner, {
-          title: 'Open a Billy Replay run',
-          buttonLabel: 'Open Replay run',
-          properties: ['openFile'],
-          filters: [{ name: 'Replay run', extensions: ['json'] }],
-        })
-        if (selected.canceled || controller.signal.aborted) return null
-        return selected.filePaths[0] ?? null
-      }),
+      replay: () => (replay ??= createReplayReader(event.sender, controller.signal)),
       operations: new Map(),
       pickingReplay: false,
     }
@@ -127,28 +131,38 @@ export function registerBillyReview(handle: Register) {
       throw new Error('Choose a saved check log.')
     return readLaneLog(session.context, slug, check, capture)
   })
-  register(handle, 'claims', (session, [filename]) => readBillyClaims(session.context, checkedPath(filename)))
+  register(handle, 'claims', async (session, [filename]) => {
+    const projectPath = checkedPath(filename)
+    const { readBillyClaims } = await import('../billy-claims/claims.ts')
+    return readBillyClaims(session.context, projectPath)
+  })
   register(handle, 'siblings', (session, [filename, line]) => {
     if (typeof line !== 'number' || !Number.isSafeInteger(line) || line < 1)
       throw new Error('Select a source line to compare sibling functions.')
     return readBillySiblings(session.context, checkedPath(filename), line)
   })
-  register(handle, 'contract', (session, [input]) => {
+  register(handle, 'contract', async (session, [input]) => {
     if (!input || typeof input !== 'object' || !('path' in input) || !('changedPaths' in input))
       throw new Error('Choose a changed file or a contract projection.')
     const projectPath = checkedPath(input.path)
     const changed: unknown = input.changedPaths
     if (!Array.isArray(changed) || changed.length > 8000 || !changed.every(isBillyPath))
       throw new Error('The comparison file list is unavailable or too large.')
+    const { readBillyContractDiff } = await import('../billy-contracts/contracts.ts')
     return readBillyContractDiff(session.context, { path: projectPath, changedPaths: changed })
   })
-  register(handle, 'playbook', (session, [filename]) =>
-    session.replay.playbook(session.context.root, checkedPath(filename)),
-  )
-  register(handle, 'pick-replay', session => session.replay.pickRun())
-  register(handle, 'replay-case', (session, [runId, scenario]) => {
+  register(handle, 'playbook', async (session, [filename]) => {
+    const projectPath = checkedPath(filename)
+    const replay = await session.replay()
+    session.controller.signal.throwIfAborted()
+    return replay.playbook(session.context.root, projectPath)
+  })
+  register(handle, 'pick-replay', async session => (await session.replay()).pickRun())
+  register(handle, 'replay-case', async (session, [runId, scenario]) => {
     if (typeof runId !== 'string' || runId.length > 128 || typeof scenario !== 'string' || scenario.length > 256)
       throw new Error('Choose a retained Replay run and scenario.')
-    return session.replay.readCase(runId, scenario)
+    const replay = await session.replay()
+    session.controller.signal.throwIfAborted()
+    return replay.readCase(runId, scenario)
   })
 }

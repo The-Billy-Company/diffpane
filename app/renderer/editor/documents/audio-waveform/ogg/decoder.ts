@@ -1,4 +1,5 @@
 import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../../../shared/documents/media-types.ts'
+import { decodeBase64 } from '../../base64.ts'
 import type { DecodedPreview, OggFormat } from './wave.ts'
 import { createWaveWriter, MAX_PCM_BYTES } from './wave.ts'
 
@@ -103,7 +104,7 @@ export async function decodeOggPreview(encoded: string): Promise<DecodedPreview>
   if (encoded.length > Math.ceil(MAX_AUDIO_WAVEFORM_BYTES / 3) * 4) {
     throw new Error('The Ogg audio exceeds its preview budget.')
   }
-  const bytes = Uint8Array.from(atob(encoded), byte => byte.charCodeAt(0))
+  const bytes = decodeBase64(encoded)
   if (bytes.length > MAX_AUDIO_WAVEFORM_BYTES) throw new Error('The Ogg audio exceeds its preview budget.')
   const format = streamFormat(bytes)
   const writer = createWaveWriter(format)

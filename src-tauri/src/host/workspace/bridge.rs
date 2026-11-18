@@ -1,7 +1,10 @@
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{Value, json, value::RawValue};
 use std::{collections::HashMap, sync::Mutex};
-use tauri::{AppHandle, Manager, Url, Webview, ipc::Channel};
+use tauri::{
+    AppHandle, Manager, Url, Webview,
+    ipc::{Channel, InvokeResponseBody},
+};
 
 const INVOKE: &[&str] = &[
     "agent-threads-children",
@@ -202,8 +205,11 @@ pub(in crate::host) async fn desktop_invoke(
     channel: String,
     args: Vec<Value>,
     undefined_args: Option<Vec<usize>>,
-) -> Result<Value, String> {
-    route(webview, channel, args, undefined_args, true).await
+) -> Result<InvokeResponseBody, String> {
+    let response = route(webview, channel, args, undefined_args, true).await?;
+    Ok(InvokeResponseBody::Json(
+        Box::<str>::from(response).into_string(),
+    ))
 }
 
 #[tauri::command]
@@ -223,7 +229,7 @@ async fn route(
     args: Vec<Value>,
     undefined_args: Option<Vec<usize>>,
     invoke: bool,
-) -> Result<Value, String> {
+) -> Result<Box<RawValue>, String> {
     let app = webview.app_handle();
     let url = webview
         .url()
@@ -261,9 +267,9 @@ async fn route(
         .request(
             method,
             vec![
-                json!(label),
-                json!(channel),
-                json!(args),
+                Value::String(label.to_owned()),
+                Value::String(channel),
+                Value::Array(args),
                 json!(undefined_args),
             ],
         )

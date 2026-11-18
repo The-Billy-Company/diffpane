@@ -1,5 +1,6 @@
 import type WaveSurferPlayer from 'wavesurfer.js'
 import { MAX_WAVEFORM_PEAKS, MAX_WAVEFORM_SECONDS } from '../../../../shared/documents/media-types.ts'
+import { decodeBase64 } from '../base64.ts'
 import { prepareOggPlayback } from './ogg/preview.ts'
 import './audio-waveform.css'
 
@@ -166,7 +167,7 @@ export function showAudioPreview(
 async function decodeWaveform(data: string) {
   // Keep native playback on its original stream while calculating peaks from bounded document bytes.
   const encoder = new OfflineAudioContext(1, 1, WAVEFORM_SAMPLE_RATE)
-  const bytes = Uint8Array.from(atob(data), character => character.charCodeAt(0))
+  const bytes = decodeBase64(data)
   const decoded = await encoder.decodeAudioData(bytes.buffer)
   return Array.from({ length: Math.min(decoded.numberOfChannels, 2) }, (_, channel) =>
     compactPeaks(decoded.getChannelData(channel)),

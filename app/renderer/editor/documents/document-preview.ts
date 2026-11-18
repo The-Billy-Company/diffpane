@@ -4,6 +4,7 @@ import type { ContentMatch } from '../../explorer/project-search/content-search.
 import { createDocumentArt } from '../../illustrations/editor-art.ts'
 import { reportError } from '../../shell/recovery/errors.ts'
 import { showAudioPreview } from './audio-waveform/audio-waveform.ts'
+import { decodeBase64 } from './base64.ts'
 import { createImageDiff } from './image-diff/image-diff.ts'
 import { createImageWipe } from './image-diff/image-wipe.ts'
 import { appendImagePalette } from './image-palette/image-palette.ts'
@@ -199,7 +200,7 @@ export function showDocumentPreview(
           const { data: encoded, mime: type } = value
           const result = attempt(
             () => {
-              const data = Uint8Array.from(atob(encoded), character => character.charCodeAt(0))
+              const data = decodeBase64(encoded)
               return URL.createObjectURL(new Blob([data], { type }))
             },
             { operation: 'Decode document preview' },

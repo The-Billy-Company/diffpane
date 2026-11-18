@@ -44,6 +44,23 @@ function workers(t) {
 }
 const inventory = () => Array.from({ length: 5000 }, (_, index) => ({ path: `file${index}` }))
 
+test('blank queries browse large inventories without starting a worker', t => {
+  const Worker = vi.fn()
+  vi.stubGlobal('Worker', Worker)
+  t.onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  const search = createFileSearch()
+  const files = inventory()
+  search.setFiles(files)
+  const matches = search.search('  ')
+  assert.ok(!(matches instanceof Promise))
+  assert.equal(matches.length, files.length)
+  assert.equal(matches.fileAt(0), files[0])
+  assert.equal(Worker.mock.calls.length, 0)
+  search.dispose()
+})
+
 test('releasing search settles active and queued queries and drops the worker and inventory', async t => {
   const created = workers(t)
   const search = createFileSearch()

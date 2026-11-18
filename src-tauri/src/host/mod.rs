@@ -78,7 +78,8 @@ fn setup(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                         vec![json!(label), json!(token), json!(path)],
                     )
                     .await?;
-                decode_value(response)
+                serde_json::from_str(response.get())
+                    .map_err(|error| format!("Invalid desktop response: {error}"))
             }
         })?;
     paths.media_origin = Some(server.origin().to_owned());
@@ -205,6 +206,9 @@ async fn native_request(app: &AppHandle, method: &str, args: Vec<Value>) -> Resu
         Some("window") => windows::request(app, method, args).await,
         Some("menu") => menu::request(app, method, args).await,
         Some("dialog") => dialogs::request(app, method, args).await,
+        Some("diagnostics") if method == "diagnostics.memory-pressure" && args.is_empty() => {
+            Ok(json!(platform::diagnostics::memory_pressure()))
+        }
         Some("shell" | "clipboard") => desktop::request(app, method, args).await,
         Some("keychain") => keychain::request(method, args).await,
         Some("terminal") => {

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { lstat } from 'node:fs/promises'
 import { createConnection } from 'node:net'
 import { promisify } from 'node:util'
+import { hostRequest } from '../../../desktop/host/transport.ts'
 import type { AgentMemorySnapshot, MemoryPressure } from '../../../shared/agent-memory.ts'
 
 type MachineMemory = Omit<AgentMemorySnapshot, 'activities'>
@@ -16,11 +17,6 @@ const run = promisify(execFile)
 const maxFeedBytes = 1024
 const maxFeedAgeMs = 5_000
 const platform = process.platform
-const macPressureLevels = new Map<string, MemoryPressure>([
-  ['1', 'normal'],
-  ['2', 'warning'],
-  ['4', 'critical'],
-])
 
 function isPressure(value: unknown): value is MemoryPressure {
   return value === 'normal' || value === 'warning' || value === 'critical' || value === 'unknown'
@@ -99,16 +95,8 @@ async function machineMemory(uid: number | undefined): Promise<MachineMemory> {
   if (platform === 'darwin' && uid !== undefined) {
     const windows = await windowsPressure(uid)
     if (windows) return windows
-    try {
-      const { stdout } = await run('/usr/sbin/sysctl', ['-n', 'kern.memorystatus_vm_pressure_level'], {
-        timeout: 750,
-        maxBuffer: 1024,
-      })
-      const pressure = macPressureLevels.get(stdout.trim())
-      if (pressure) return { source: 'system', pressure, sampledAt: Date.now() }
-    } catch {
-      // The kernel level is unavailable on this host.
-    }
+    const pressure = await hostRequest('diagnostics.memory-pressure').catch(() => undefined)
+    if (isPressure(pressure)) return { source: 'system', pressure, sampledAt: Date.now() }
   }
   return { source: 'system', pressure: 'unknown', sampledAt: Date.now() }
 }

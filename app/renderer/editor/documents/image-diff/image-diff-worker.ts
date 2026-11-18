@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import pixelmatch from 'pixelmatch'
+import { decodeBase64 } from '../base64.ts'
 
 declare const self: DedicatedWorkerGlobalScope
 
@@ -16,7 +17,7 @@ const MAX_PIXELS = 8_388_608
 const MAX_DIMENSION = 8192
 
 function decode({ data, mime }: ImageDiffSource) {
-  const bytes = Uint8Array.from(atob(data), byte => byte.charCodeAt(0))
+  const bytes = decodeBase64(data)
   return createImageBitmap(new Blob([bytes], { type: mime }))
 }
 
