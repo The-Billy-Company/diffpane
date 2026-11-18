@@ -21,11 +21,30 @@ test('YAML and lint associations preserve more specific Material icons', () => {
     assert.match(iconPath(name), /\/file-icons\/yaml-logo\.svg$/)
   }
   assert.match(iconPath('.swiftlint.yml'), /\/swift\.svg$/)
-  assert.match(iconPath('oxlint.config.mts'), /\/oxc\.svg$/)
-  assert.match(iconPath('.oxlintrc.safety.json'), /\/oxc\.svg$/)
   assert.match(iconPath('.eslintrc.yaml'), /\/eslint\.svg$/)
   assert.match(iconPath('compose.override.yaml'), /\/docker\.svg$/)
   assert.match(iconPath('compose.frontend.yml'), /\/docker\.svg$/)
+})
+
+test('named Oxlint configs use the Oxc icon', () => {
+  for (const name of [
+    'oxlint.config.mts',
+    'oxlint.hooks.config.mts',
+    'oxlint.reactcompiler.config.mts',
+    'oxlint.types.config.mts',
+    '.oxlint.react-hooks.strict.config.cts',
+    '.oxlintrc.safety.json',
+  ]) {
+    assert.match(iconPath(name), /\/oxc\.svg$/, name)
+  }
+  assert.match(iconPath('oxlint.helpers.mts'), /\/typescript\.svg$/)
+})
+
+test('named Pyright configs use the Python config icon', () => {
+  for (const name of ['pyrightconfig.json', 'pyright.strict.json', 'pyrightconfig.strict.json']) {
+    assert.match(iconPath(name), /\/python-misc\.svg$/, name)
+  }
+  assert.match(iconPath('pyright-utils.json'), /\/json\.svg$/)
 })
 
 test('Tool configuration variants share their tool icon', () => {
@@ -53,7 +72,7 @@ test('Tool configuration variants share their tool icon', () => {
       assert.ok(iconPath(name).endsWith(`/file-icons/${icon}.svg`), name)
     }
   }
-  for (const name of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', '.pnpmfile.cjs', '.pnpmfile.mjs']) {
+  for (const name of ['pnpm-lock.yaml', 'pnpm-workspace.yaml', 'pnpm-policy.yaml', '.pnpmfile.cjs', '.pnpmfile.mjs']) {
     assert.match(iconPath(name), /\/pnpm\.svg$/)
   }
   assert.match(iconPath('.worktreeinclude'), /\/git\.svg$/)

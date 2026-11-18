@@ -36,8 +36,7 @@ const FILE_NAMES = new Map(
     lychee: ['lychee.toml', '.lycheeignore'],
     nix: ['flake.nix', 'flake.lock'],
     'osv-scanner': ['osv-scanner.toml'],
-    pnpm: ['.pnpmfile.mjs'],
-    'python-misc': ['pyrightconfig.json'],
+    pnpm: ['.pnpmfile.mjs', 'pnpm-policy.yaml'],
     rust: ['.rustfmt.toml', 'rustfmt.toml', 'rust-toolchain', 'rust-toolchain.toml'],
     semgrep: ['.semgrep.yaml', '.semgrep.yml', 'semgrep.yaml'],
     spectral: ['.spectral.yaml', '.spectral.yml', '.spectral.json', '.spectral.js'],
@@ -57,7 +56,8 @@ const FILE_EXTENSIONS = new Map([
   ['zone', 'zoning'],
 ])
 const SWIFTLINT = /^\.swiftlint(?:[-_][\w-]+)?\.ya?ml$/
-const OXLINT = /^(?:\.?oxlint\.config\.[cm]?ts|\.oxlintrc(?:\.[\w-]+)*\.jsonc?)$/
+const OXLINT = /^(?:\.?oxlint(?:\.[\w-]+)*\.config\.[cm]?ts|\.oxlintrc(?:\.[\w-]+)*\.jsonc?)$/
+const PYRIGHT = /^pyright(?:config)?(?:\.[\w-]+)*\.json$/
 const CARGO_CONFIG = /(?:^|\/)\.cargo\/config(?:\.toml)?$/i
 const COMPOSE = /^(?:docker-)?compose(?:\.[\w-]+)*\.ya?ml$/
 const MISE = /^\.?mise(?:\.[\w-]+)*\.(?:toml|lock)$/
@@ -71,6 +71,7 @@ function fileIconName(name: string, path: string | undefined) {
   if (namedIcon) return namedIcon
   if (SWIFTLINT.test(name)) return 'swift'
   if (OXLINT.test(name)) return 'oxc'
+  if (PYRIGHT.test(name)) return 'python-misc'
   if (COMPOSE.test(name)) return 'docker'
   if (MISE.test(name)) return 'mise'
   if (NOTICE.test(name)) return 'notice'
