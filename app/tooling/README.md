@@ -9,7 +9,7 @@ doc_radar:
 
 The root pnpm scripts are the entry points for these development and release tools.
 
-- [Commands](commands/README.md) owns the Make targets, development launcher, and preload generator.
+- [Commands](commands/README.md) covers Make targets, desktop launch commands, and terminal setup.
 - [Distribution](distribution/README.md) owns the macOS installer and terminal launcher.
 - [Dependencies](dependencies/README.md) owns language tool setup and the bundled HowMany release pin.
 - [Grammars](grammars/README.md) owns the syntax catalog and pinned grammar data.

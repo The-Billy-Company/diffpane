@@ -86,7 +86,7 @@ export async function unwrapSecret(purpose: Purpose, envelope: Buffer) {
   }
 }
 
-/** Read the Chromium macOS v10 format used in previously released profiles. */
+/** Read the macOS v10 envelope used by older Diffpane profiles. */
 export async function openLegacySecret(envelope: Buffer, password: Buffer) {
   const ciphertext = envelope.subarray(legacyFormat.length)
   if (!envelope.subarray(0, legacyFormat.length).equals(legacyFormat) || !ciphertext.length || ciphertext.length % 16)

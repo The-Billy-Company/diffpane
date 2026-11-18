@@ -18,7 +18,7 @@ export function validatedTransport(transport: DesktopTransport) {
     code: 'IPC_UNAVAILABLE' | 'INVALID_IPC_RESPONSE',
   ): ErrorDetails {
     try {
-      transport.send('preload-diagnostic', operation, Math.round((performance.now() - startedAt) * 100) / 100, code)
+      transport.send('bridge-diagnostic', operation, Math.round((performance.now() - startedAt) * 100) / 100, code)
     } catch {
       // Diagnostics must not replace the failure the renderer needs to handle.
     }

@@ -41,7 +41,7 @@ test('new envelopes use separate authenticated keys and reject tampered records'
   await assert.rejects(unwrapSecret('Local state', encrypted))
 })
 
-test('the Tauri adapter reopens a database with an Electron Safe Storage key', async () => {
+test('the Keychain adapter reopens a database with a legacy Safe Storage key', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'diffpane-keychain-upgrade-'))
   const filename = path.join(directory, 'local.sqlite')
   const previous = new LocalState(filename, {

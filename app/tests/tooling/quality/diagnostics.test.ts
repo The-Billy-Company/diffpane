@@ -108,14 +108,14 @@ test('the desktop bridge reports transport and malformed replies while preservin
   invoke.mockResolvedValueOnce({ ok: true, value: 'invalid reply' })
   await expect(bridge.openExternal('https://example.test')).rejects.toMatchObject({ code: 'INVALID_IPC_RESPONSE' })
   expect(send).toHaveBeenLastCalledWith(
-    'preload-diagnostic',
+    'bridge-diagnostic',
     'open-external',
     expect.any(Number),
     'INVALID_IPC_RESPONSE',
   )
   invoke.mockRejectedValueOnce(new Error('Disconnected'))
   await expect(bridge.openExternal('https://example.test')).rejects.toMatchObject({ code: 'IPC_UNAVAILABLE' })
-  expect(send).toHaveBeenLastCalledWith('preload-diagnostic', 'open-external', expect.any(Number), 'IPC_UNAVAILABLE')
+  expect(send).toHaveBeenLastCalledWith('bridge-diagnostic', 'open-external', expect.any(Number), 'IPC_UNAVAILABLE')
   const event = {
     source: 'renderer',
     operation: 'renderer.error',

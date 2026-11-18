@@ -88,9 +88,9 @@ const INVOKE: &[&str] = &[
 ];
 
 const SEND: &[&str] = &[
+    "bridge-diagnostic",
     "file-menu-actions",
     "onboarding-release",
-    "preload-diagnostic",
     "renderer-diagnostic",
     "renderer-ready",
     "save-state",

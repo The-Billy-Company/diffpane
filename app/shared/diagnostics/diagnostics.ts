@@ -1,6 +1,6 @@
 import { serializeAppError } from '../recovery/app-errors.ts'
 
-export type DiagnosticSource = 'main' | 'preload' | 'renderer' | 'workspace'
+export type DiagnosticSource = 'main' | 'bridge' | 'renderer' | 'workspace'
 export type DiagnosticLevel = 'info' | 'warn' | 'error'
 export type DiagnosticUnit = 'ms' | 'count' | 'bytes' | 'percent'
 

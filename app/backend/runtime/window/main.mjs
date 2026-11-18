@@ -314,22 +314,22 @@ desktopBridge.on('renderer-diagnostic', (event, value) => {
     diagnosticLog.record(record, { windowId: event.sender.id })
 })
 desktopBridge.on(
-  'preload-diagnostic',
+  'bridge-diagnostic',
   (event, /** @type {unknown} */ channel, /** @type {unknown} */ durationMs, /** @type {unknown} */ code) => {
     const owner = attempt(() => sessionFor(event))
     if (!owner.ok || !diagnosticLog || typeof channel !== 'string' || !invokeChannels.has(channel)) return
     if (code !== 'INVALID_IPC_RESPONSE' && code !== 'IPC_UNAVAILABLE') return
     const record = parseDiagnostic(
       {
-        source: 'preload',
+        source: 'bridge',
         kind: 'duration',
         level: 'error',
-        operation: `preload.${channel}`,
+        operation: `bridge.${channel}`,
         durationMs,
         outcome: 'failure',
         failure: { code, recoverable: true },
       },
-      'preload',
+      'bridge',
     )
     if (record && allowRendererDiagnostic(owner.value, true))
       diagnosticLog.record(record, { windowId: event.sender.id })

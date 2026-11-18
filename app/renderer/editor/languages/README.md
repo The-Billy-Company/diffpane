@@ -7,7 +7,7 @@ doc_radar:
 
 # Language features
 
-The workspace attaches these Monaco providers to visible models. They use the preload API to talk to the workspace language runtime and discard results from stale requests.
+The workspace attaches these Monaco providers to visible models. They use the desktop bridge to talk to the workspace language runtime and discard results from stale requests.
 
 - [`languages.js`](languages.js) — Manages provider registration, capabilities, diagnostics, and cancellation.
 - [`language-protocol.js`](language-protocol.js) — Validates and translates language server positions, symbols, and diagnostics.

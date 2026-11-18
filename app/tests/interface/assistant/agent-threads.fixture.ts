@@ -124,7 +124,7 @@ export async function run(longCommand: string, transcriptRoute: string) {
     { id: 'cursor:2', provider: 'cursor', title: 'Update release notes', cwd: '/projects/marigold', updatedAt },
   ]
   const bridge = window.diffpane?.agentThreads
-  assert(bridge, 'The Agent Threads preload bridge did not load.')
+  assert(bridge, 'The Agent Threads desktop bridge did not load.')
   async function publish(stage: 'append' | 'grow' | 'reply' | 'late') {
     const response = await window.fetch(`${transcriptRoute}/${stage}`, { method: 'POST' })
     assert(response.ok, `The fixture failed to publish the ${stage} update.`)

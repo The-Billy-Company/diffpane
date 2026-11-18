@@ -11,4 +11,4 @@ doc_radar:
 
 The adapter connects the Node.js workspace service to the Tauri host over private standard I/O. It tracks windows and routes the workspace and terminal command sets to their owners. The services directory holds typed adapters for native dialogs, menus, desktop actions, and Keychain-backed encryption.
 
-The Keychain service reads values written by the earlier Electron release. New records use authenticated AES-256-GCM envelopes and separate Keychain keys for the database and Claude credentials.
+The Keychain service can read encrypted values from older Diffpane profiles. New records use authenticated AES-256-GCM envelopes and separate Keychain keys for the database and Claude credentials.

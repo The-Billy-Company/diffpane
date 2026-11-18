@@ -42,15 +42,15 @@ jobs:
         run: |
           pnpm run install:app
           contents="$HOME/Applications/Diffpane.app/Contents"
-          unpacked="$contents/Resources/backend"
-          pty="$unpacked/node_modules/node-pty/prebuilds/darwin-$(uname -m)"
+          backend="$contents/Resources/backend"
+          pty="$backend/node_modules/node-pty/prebuilds/darwin-$(uname -m)"
           test -f "$pty/pty.node"
           test -x "$pty/spawn-helper"
-          test -f "$unpacked/node_modules/basedpyright/dist/pyright-langserver.js"
-          test -f "$unpacked/node_modules/typescript/lib/typescript.js"
-          test -f "$unpacked/node_modules/typescript-language-server/lib/cli.mjs"
+          test -f "$backend/node_modules/basedpyright/dist/pyright-langserver.js"
+          test -f "$backend/node_modules/typescript/lib/typescript.js"
+          test -f "$backend/node_modules/typescript-language-server/lib/cli.mjs"
           test "$(plutil -extract CFBundleDocumentTypes.0.LSHandlerRank raw -o - "$contents/Info.plist")" = Alternate
-          "$unpacked/bin/node" --version
-          "$unpacked/resources/howmany/howmany" --version
+          "$backend/bin/node" --version
+          "$backend/resources/howmany/howmany" --version
           "$HOME/.local/bin/dp" --version
-          DIFFPANE_TEST_NODE="$unpacked/bin/node" node app/tests/interface/review/git.integration.ts
+          DIFFPANE_TEST_NODE="$backend/bin/node" node app/tests/interface/review/git.integration.ts

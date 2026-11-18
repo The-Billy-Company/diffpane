@@ -11,8 +11,8 @@ const MAX_FILES: usize = 64;
 const MAX_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_VALUE_BYTES: usize = 64 * 1024;
 
-// Chromium Local Storage v1 stores the serialized origin and a NUL before the Blink string key.
-// A file origin is serialized as "file://". Blink tags Latin-1 as 1 and UTF-16 as 0.
+// The legacy Local Storage format prefixes each key with its serialized origin and a NUL.
+// File origins are stored as "file://". String tags 1 and 0 indicate Latin-1 and UTF-16.
 const KEYS: [(&str, &[u8]); 3] = [
     ("appearance", b"_file://\x00\x01diffpane.appearance"),
     ("layout", b"_file://\x00\x01diffpane.workspace-layout.v1"),
