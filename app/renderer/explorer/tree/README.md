@@ -9,7 +9,7 @@ doc_radar:
 
 The workspace turns workspace inventory and status updates into a virtualized tree. Opening, renaming, or trashing an entry goes through callbacks owned by the workspace.
 
-The Explorer colors edits blue, moves purple, and moves with edits rose. A folder takes on a move color when all of its changed files share that status. Deleted filenames are struck through, and merge conflicts use the warning color. Hover over an entry to see its Git status or the number of changed files in the folder.
+The Explorer colors edits blue, moves purple, and moves with edits rose. A moved file colors every folder above it, even when those folders also contain other changes. Rose takes priority when any descendant moved with edits. Deleted filenames are struck through, and merge conflicts use the warning color. Hover over an entry to see its Git status or the number of changed files in the folder.
 
 In a scrolling tree, the change map beside the rows shows where Git changes are. A dotted mark represents changes inside a collapsed folder. Hover to see the filename or folder at that position, then click or drag to scroll. You can also focus the map and use the arrow keys, Page Up, Page Down, Home, or End.
 

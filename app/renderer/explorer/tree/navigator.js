@@ -577,11 +577,12 @@ export function createNavigator(
       row.dataset.status = status
       row.dataset.changed = String(node.changedCount > 0)
       row.dataset.ignored = String(node.file?.ignored === true)
-      const statusLabel = status ? (STATUS_LABELS[status] ?? 'Changed') : ''
-      const description =
-        node.kind === 'directory' && node.changedCount
-          ? `${node.changedCount} ${statusLabel.toLowerCase() || 'changed'} ${node.changedCount === 1 ? 'file' : 'files'}`
-          : statusLabel
+      let description = status ? (STATUS_LABELS[status] ?? 'Changed') : ''
+      if (node.kind === 'directory' && node.changedCount) {
+        description = `${node.changedCount} changed ${node.changedCount === 1 ? 'file' : 'files'}`
+        if (status === 'R') description += '. Contains a move'
+        else if (status === 'RM') description += '. Contains a move with edits'
+      }
       const titlePath = node.path || (snapshot?.scope ?? snapshot?.root ?? '')
       row.title = description ? `${titlePath}\n${description}` : titlePath
       if (description) row.setAttribute('aria-description', description)
@@ -620,13 +621,10 @@ export function createNavigator(
     folderMoves.clear()
     for (const file of snapshot?.files ?? []) {
       const status = navigationStatus(file)
+      const moved = status === 'R' || status === 'RM'
       let node = tree.files.get(file.path)
       while (node) {
-        // Only color a folder as moved when all of its changed files share that status.
-        if (node.kind === 'directory') {
-          if (node.changedCount === 0 && (status === 'R' || status === 'RM')) folderMoves.set(node, status)
-          else if (folderMoves.get(node) !== status) folderMoves.delete(node)
-        }
+        if (moved && node.kind === 'directory' && folderMoves.get(node) !== 'RM') folderMoves.set(node, status)
         node.changedCount++
         statusNodes.add(node)
         node = node.parentKey === null ? undefined : tree.nodes.get(node.parentKey)
