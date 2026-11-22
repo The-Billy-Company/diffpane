@@ -1,6 +1,6 @@
 [package]
 name = "diffpane"
-version = "1.1.0"
+version = "1.1.1"
 description = "A quiet, live view of your working tree"
 edition = "2024"
 
