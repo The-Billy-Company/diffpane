@@ -9,7 +9,14 @@
 }
 
 .navigator-tree-region:has(.navigator-change-rail:not([hidden])) .navigator-tree {
+  scrollbar-gutter: auto;
   scrollbar-width: none;
+}
+
+.navigator-tree-region:has(.navigator-change-rail:not([hidden])) .navigator-tree::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .navigator-change-rail {

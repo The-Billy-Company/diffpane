@@ -13,6 +13,8 @@ The Explorer colors edits blue, moves purple, and moves with edits rose. A moved
 
 In a scrolling tree, the change map beside the rows shows where Git changes are. A dotted mark represents changes inside a collapsed folder. Hover to see the filename or folder at that position, then click or drag to scroll. You can also focus the map and use the arrow keys, Page Up, Page Down, Home, or End.
 
+The tree keeps spare rendered rows above and below the viewport for fast scrolling. Inventory updates preserve the first visible entry and its pixel offset after updating the list height.
+
 - [`navigator.js`](navigator.js) — Projects the inventory into visible rows and manages expansion, scrolling, and focus.
 - [`navigation-reconcile.ts`](navigation-reconcile.ts) — Reconciles snapshots and incremental inventory changes.
 - [`file-actions.ts`](file-actions.ts) — Provides the contextual menu and actions for files and directories.

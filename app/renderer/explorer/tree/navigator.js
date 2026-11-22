@@ -57,7 +57,7 @@ import { applyNavigationDelta, reconcileNavigationTree } from './navigation-reco
  */
 
 const ROW_HEIGHT = 24
-const OVERSCAN = 4
+const OVERSCAN_VIEWPORTS = 2
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 /** @type {Readonly<Record<string, string>>} */
 const STATUS_LABELS = {
@@ -442,6 +442,8 @@ export function createNavigator(
     }
     rootButton.setAttribute('aria-expanded', String(expanded.has(tree.root.path)))
     if (activeKey === null || !visibleIndex.has(activeKey)) activeKey = visible[0]?.node.key ?? null
+    // Restore against the new scroll range so inserted rows do not clamp the anchor.
+    rows.style.height = `${visible.length * ROW_HEIGHT}px`
     if (anchor) {
       const next = visibleIndex.get(anchor)
       if (next !== undefined) list.scrollTop = next * ROW_HEIGHT + offset
@@ -457,7 +459,6 @@ export function createNavigator(
         ? 'Reading files…'
         : `${changes.size.toLocaleString()} changed ${changes.size === 1 ? 'file' : 'files'}`
     total.textContent = tree.files.size.toLocaleString()
-    rows.style.height = `${visible.length * ROW_HEIGHT}px`
     render()
   }
 
@@ -515,9 +516,11 @@ export function createNavigator(
   function render() {
     if (disposed || container.hidden) return
     const height = list.clientHeight || 400
+    // Keep rows ready while native scrolling advances ahead of the next render.
+    const overscan = Math.ceil(height / ROW_HEIGHT) * OVERSCAN_VIEWPORTS
     const scrollTop = list.scrollTop
-    const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN)
-    const end = Math.min(visible.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + OVERSCAN)
+    const start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - overscan)
+    const end = Math.min(visible.length, Math.ceil((scrollTop + height) / ROW_HEIGHT) + overscan)
     const showingResults = searching()
     empty.hidden =
       !inventoryReady ||

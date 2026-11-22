@@ -12,6 +12,7 @@ These suites cover projecting the file inventory into a tree and searching it wi
 - [File search](file-search.test.mjs). Check ranking, multi-term queries and Unicode highlight positions.
 - [Tree reconciliation](navigation-reconcile.test.mjs). Preserve tree identity across inventory deltas and folder moves.
 - [Navigator](navigator.test.mjs). Project visible rows for sorted, scoped and collapsed inventories and resolve Git status.
+- [Scrolling](scrolling/README.md). Keep rows visible during fast scrolling and preserve the viewport across inventory updates.
 - [Search runtime](search-runtime.test.mjs). Settle stale and queued queries, restart failed workers and release inventory on close.
 
 Run `pnpm test app/tests/interface/explorer` from the repository root.
