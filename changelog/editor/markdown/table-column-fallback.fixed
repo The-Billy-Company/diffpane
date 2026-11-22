@@ -1,0 +1,1 @@
+Markdown tables keep readable column widths on older WebKit versions, preventing code labels from wrapping one character per line.
