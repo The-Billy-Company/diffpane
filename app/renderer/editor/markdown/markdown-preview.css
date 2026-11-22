@@ -390,6 +390,8 @@
   border-bottom: 1px solid var(--line);
 }
 .md-table-cell {
+  /* Keep columns readable in WebKit versions without calc-size(). */
+  min-width: 12ch;
   /* Give short labels their natural width while letting long values wrap. */
   min-width: calc-size(max-content, min(size, 12ch));
 }
