@@ -23,10 +23,7 @@ if (
   new URL(pinConfig.url).protocol !== 'https:' ||
   !('sha256' in pinConfig) ||
   typeof pinConfig.sha256 !== 'string' ||
-  !/^[0-9a-f]{64}$/.test(pinConfig.sha256) ||
-  !('patchSha256' in pinConfig) ||
-  typeof pinConfig.patchSha256 !== 'string' ||
-  !/^[0-9a-f]{64}$/.test(pinConfig.patchSha256)
+  !/^[0-9a-f]{64}$/.test(pinConfig.sha256)
 )
   throw new Error('Invalid HowMany source pin.')
 export const howmanyPin = {
@@ -34,30 +31,11 @@ export const howmanyPin = {
   revision: pinConfig.revision,
   url: pinConfig.url,
   sha256: pinConfig.sha256,
-  patchSha256: pinConfig.patchSha256,
 }
 
 export function verifyHowManySource(archive: Buffer) {
   if (createHash('sha256').update(archive).digest('hex') !== howmanyPin.sha256)
     throw new Error('HowMany source checksum mismatch')
-}
-
-export function verifyHowManyPatch(patch: Buffer) {
-  if (createHash('sha256').update(patch).digest('hex') !== howmanyPin.patchSha256)
-    throw new Error('HowMany source patch checksum mismatch')
-}
-
-/** Apply a checksum-verified patch without inheriting a containing checkout's path scope. */
-export async function applyHowManyPatch(source: string, patchfile: string) {
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(source) }
-  delete env.GIT_DIR
-  delete env.GIT_WORK_TREE
-  delete env.GIT_INDEX_FILE
-  const options = { cwd: source, env }
-  const { stdout } = await execute('git', ['apply', '--numstat', patchfile], options)
-  if (!stdout.trim()) throw new Error('HowMany source patch selected no files')
-  await execute('git', ['apply', '--check', '--whitespace=error', patchfile], options)
-  await execute('git', ['apply', '--whitespace=error', patchfile], options)
 }
 
 /** Codesigning changes the executable bytes; stamp the copy packaged with the app afterward. */
@@ -165,9 +143,7 @@ export async function setupHowMany(options: SetupOptions = {}) {
   }
   const local = sourcePath ? await inspectHowManySource(sourcePath) : undefined
   const version = local?.version ?? howmanyPin.version
-  const sourcePatch = local ? undefined : await readFile(new URL('./howmany-source.patch', import.meta.url))
-  if (sourcePatch) verifyHowManyPatch(sourcePatch)
-  const sourceIdentity = local ? `local-${local.sha256}` : `${howmanyPin.revision}-${howmanyPin.patchSha256}`
+  const sourceIdentity = local ? `local-${local.sha256}` : howmanyPin.revision
   const identity = `${sourceIdentity}-${process.platform}-${process.arch}`
   try {
     const hash = createHash('sha256')
@@ -223,10 +199,6 @@ export async function setupHowMany(options: SetupOptions = {}) {
       await writeFile(tarball, archive)
       await execute('/usr/bin/tar', ['-xzf', tarball, '-C', temporary])
       source = path.join(temporary, `howmany-${howmanyPin.revision}`)
-      if (!sourcePatch) throw new Error('Missing HowMany source patch')
-      const patchfile = path.join(temporary, 'howmany-source.patch')
-      await writeFile(patchfile, sourcePatch)
-      await applyHowManyPatch(source, patchfile)
       // The pinned archive omits its declared benchmark; local checkouts include theirs.
       const manifestPath = path.join(source, 'Cargo.toml')
       const manifest = await readFile(manifestPath, 'utf8')
@@ -256,7 +228,8 @@ export async function setupHowMany(options: SetupOptions = {}) {
       build.once('exit', code => (code === 0 ? resolve() : reject(new Error(`HowMany build failed (${code})`))))
     })
     const compiled = path.join(cache, 'build/release/howmany')
-    const { stdout } = await execute(compiled, ['--version'], { timeout: 5000 })
+    // Allow macOS first-launch verification for a newly compiled executable.
+    const { stdout } = await execute(compiled, ['--version'], { timeout: 30_000 })
     if (stdout.trim() !== `howmany ${version}`) throw new Error('Unexpected bundled HowMany version')
     await mkdir(directory, { recursive: true })
     await cp(compiled, binary)
@@ -271,7 +244,6 @@ export async function setupHowMany(options: SetupOptions = {}) {
           revision: howmanyPin.revision,
           url: howmanyPin.url,
           sha256: howmanyPin.sha256,
-          patchSha256: howmanyPin.patchSha256,
         }
     await writeFile(marker, `${JSON.stringify({ identity, sha256, version, source: provenance }, null, 2)}\n`)
     return binary

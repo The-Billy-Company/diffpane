@@ -10,10 +10,8 @@ import { promisify } from 'node:util'
 import { test, vi } from 'vite-plus/test'
 import { HowManyRuntime, discoverHowMany, validateReport } from '../../../backend/tools/analysis/howmany.mjs'
 import {
-  applyHowManyPatch,
   inspectHowManySource,
   stampHowManyBinary,
-  verifyHowManyPatch,
   verifyHowManySource,
 } from '../../../tooling/dependencies/setup-howmany.ts'
 
@@ -306,25 +304,6 @@ test('shutdown waits for a language runtime being replaced by a config reload', 
 
 test('bundling rejects a changed source archive before compilation', () => {
   assert.throws(() => verifyHowManySource(Buffer.from('changed source')), /checksum mismatch/)
-  assert.throws(() => verifyHowManyPatch(Buffer.from('changed patch')), /patch checksum mismatch/)
-})
-
-test('source patches apply inside extracted sources nested under another Git checkout', async t => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-howmany-patch-')))
-  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
-  await execute('git', ['init', '--quiet', root])
-  const source = path.join(root, 'target/source')
-  const file = path.join(source, 'src/value.rs')
-  await mkdir(path.dirname(file), { recursive: true })
-  await writeFile(file, 'const BEFORE: u8 = 1;\n')
-  const patchfile = path.join(root, 'source.patch')
-  await writeFile(
-    patchfile,
-    'diff --git a/src/value.rs b/src/value.rs\n--- a/src/value.rs\n+++ b/src/value.rs\n@@ -1 +1 @@\n-const BEFORE: u8 = 1;\n+const AFTER: u8 = 2;\n',
-  )
-  await applyHowManyPatch(source, patchfile)
-  assert.equal(await readFile(file, 'utf8'), 'const AFTER: u8 = 2;\n')
-  await assert.rejects(applyHowManyPatch(source, patchfile), /patch failed|does not apply/)
 })
 
 test('packaged provenance hashes the signed executable and preserves source identity', async t => {

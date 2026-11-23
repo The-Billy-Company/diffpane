@@ -1,1 +1,1 @@
-Count Lean proofs and C++ modules with the bundled scanner. Recognize explicit multiline generator banners and verified Lake, CMake and GN build output while retaining copied tests and authored integration code. Verify the bundled source patch and retain its build provenance.
+Bundle HowMany 3.2.0 to count Lean proofs and C++ modules. Recognize explicit multiline generator banners and verified Lake, CMake and GN build output while retaining copied tests and authored integration code. Verify the released source and retain its build provenance.
