@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { OnboardingAppearance, OnboardingState } from '../../backend/persistence/preferences/onboarding.ts'
 import type { UiPreferencesBridge } from '../../backend/persistence/preferences/ui-preferences.ts'
 import type { WorkspaceComparison, WorkspaceSnapshot } from '../../backend/runtime/session/workspace-types.ts'

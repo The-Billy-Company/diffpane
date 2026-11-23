@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 /** Count LF-delimited model lines without allocating an array of every line. */
 export function countLines(text: string) {
   let count = 1

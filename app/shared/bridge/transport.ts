@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { ErrorDetails } from '../recovery/app-errors.ts'
 import type { Validator } from './validators/values.ts'
 import { isErrorDetails, isRecord, isTimestamp } from './validators/values.ts'

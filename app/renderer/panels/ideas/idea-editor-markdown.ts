@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { isolateHistory } from '@codemirror/commands'
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState, Range } from '@codemirror/state'

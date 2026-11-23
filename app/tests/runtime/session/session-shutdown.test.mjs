@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // Keep the native watcher library loaded while the session worker exits naturally.
 import '@parcel/watcher'
 import assert from 'node:assert/strict'

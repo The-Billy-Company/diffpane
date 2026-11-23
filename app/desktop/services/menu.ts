@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { hostEvent, hostRequest, reportHostError } from '../host/desktop.ts'
 
 export interface MenuItemOptions {

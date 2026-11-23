@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const rendererOperations = new Set([
   'renderer.action',
   'renderer.autosave-write',

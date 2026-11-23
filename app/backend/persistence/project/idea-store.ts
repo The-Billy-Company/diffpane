@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { SQLOutputValue } from 'node:sqlite'

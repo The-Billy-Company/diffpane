@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { appError } from '../../../shared/recovery/app-errors.ts'
 
 const API = 'https://api.anthropic.com/v1'

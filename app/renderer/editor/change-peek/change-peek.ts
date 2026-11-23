@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { editor } from 'monaco-editor/editor/editor.api.js'
 import type { WorkspaceDocument } from '../../../backend/runtime/session/workspace-types.ts'
 import type { LineDecoration } from '../../../backend/workspace/comparison/changes.ts'

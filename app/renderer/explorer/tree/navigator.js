@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { IDEA_FILE_DRAG_TYPE } from '../../../shared/ideas/ideas.ts'
 // MONOLITHIC: Incremental tree reconciliation, virtualized rows and keyboard focus share one navigation state. Extract the viewport once focus restoration and expansion can be verified at its boundary.
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'

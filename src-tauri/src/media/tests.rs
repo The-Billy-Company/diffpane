@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use super::{MediaFile, MediaServer};
 use std::{
     path::PathBuf,

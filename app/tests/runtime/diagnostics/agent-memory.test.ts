@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { describe, expect, it } from 'vite-plus/test'
 import { parseProcessMemory, parseWindowsPressure } from '../../../backend/runtime/diagnostics/agent-memory.ts'
 

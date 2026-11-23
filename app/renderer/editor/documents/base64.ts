@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 let decode: ((encoded: string) => Uint8Array<ArrayBuffer>) | undefined
 
 function selectDecoder() {

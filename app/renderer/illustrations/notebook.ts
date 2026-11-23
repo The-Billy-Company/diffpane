@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createSketch } from './sketch.ts'
 
 export function drawNotebook(svg: SVGSVGElement) {

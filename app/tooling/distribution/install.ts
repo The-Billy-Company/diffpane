@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { lstat, mkdir, mkdtemp, readFile, readlink, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const appIcon = `${import.meta.env.BASE_URL}img/diffpane.png`
 
 export function introArt() {

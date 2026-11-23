@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes } from 'node:crypto'
 import { closeSync, lstatSync, mkdirSync, openSync, unlinkSync } from 'node:fs'
 import path from 'node:path'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { editor, languages } from 'monaco-editor'
 import sourceCatalog from 'virtual:syntax-catalog'
 import type { SyntaxCatalogEntry } from 'virtual:syntax-catalog'

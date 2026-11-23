@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use serde_json::{Value, json};
 use tauri::AppHandle;
 use tauri_plugin_clipboard_manager::ClipboardExt;

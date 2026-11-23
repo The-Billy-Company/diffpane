@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { AgentMemoryActivity, AgentMemorySnapshot, MemoryPressure } from '../../../shared/agent-memory.ts'
 import { agentProviderNames } from '../../../shared/agent-threads.ts'
 import type { AgentProvider, AgentThread, AgentThreadEvent, AgentThreadFile } from '../../../shared/agent-threads.ts'

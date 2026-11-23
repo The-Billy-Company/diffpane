@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .onboarding-tour {
   --tour-scrim: light-dark(rgb(31 29 26 / 44%), rgb(9 9 9 / 65%));
   --tour-paper: light-dark(#fdfcf9, #242322);

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 /// <reference lib="webworker" />
 
 import { processDocument } from './document-processing.ts'

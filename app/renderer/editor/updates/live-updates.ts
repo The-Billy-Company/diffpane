@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 /** A bounded frame batch; event storms never retain a growing history of paths. */
 export class LivePathBatch {
   private paths = new Set<string>()

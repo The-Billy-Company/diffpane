@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Desktop window registration, worker ownership, save flushing and application shutdown share the session registry. Extract IPC families once their session and shutdown boundaries can be tested independently.
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'

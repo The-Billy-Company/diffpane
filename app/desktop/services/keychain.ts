@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createCipheriv, createDecipheriv, pbkdf2, randomBytes } from 'node:crypto'
 import { promisify } from 'node:util'
 import { hostRequest } from '../host/transport.ts'

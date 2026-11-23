@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'

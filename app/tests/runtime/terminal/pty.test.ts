@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { accessSync } from 'node:fs'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 const runtimeSingletons = ['react', 'react-dom', 'yjs', '@codemirror/state', '@codemirror/view']
 
 /**

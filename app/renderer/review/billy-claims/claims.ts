@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillyClaim, BillyClaimsResult } from '../../../shared/billy/claims.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { createBillyStatusArt } from '../billy/status-art.ts'

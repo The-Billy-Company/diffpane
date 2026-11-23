@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { constants } from 'node:fs'
 import { open, realpath } from 'node:fs/promises'
 import path from 'node:path'

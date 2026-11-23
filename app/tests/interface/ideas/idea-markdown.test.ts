@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import { describe, expect, it } from 'vite-plus/test'
 import { formatIdeaSelection, nextIdeaListItem } from '../../../renderer/panels/ideas/ideas.ts'

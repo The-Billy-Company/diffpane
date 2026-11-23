@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { execFile } from 'node:child_process'
 import { monitorEventLoopDelay, performance } from 'node:perf_hooks'
 import type { createDiagnostics } from '../../../shared/diagnostics/diagnostics.ts'

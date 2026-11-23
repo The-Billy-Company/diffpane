@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { InventoryFile, InventoryUpdate } from '../../../backend/runtime/session/inventory-delta.ts'
 import type {
   WorkspaceCheckpoint,

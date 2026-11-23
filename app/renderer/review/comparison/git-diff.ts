@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { IDisposable } from 'monaco-editor/editor/editor.api.js'
 import { editor, Uri } from 'monaco-editor/editor/editor.api.js'
 import type { Appearance } from '../../../backend/persistence/preferences/ui-preferences.ts'

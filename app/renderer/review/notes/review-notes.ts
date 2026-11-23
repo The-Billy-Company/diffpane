@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: The note panel coordinates draft anchors, persistence, conflict feedback and focus restoration. Extract the composer once it has an independent save and dismissal contract.
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { MAX_REVIEW_NOTE_LENGTH } from '../../../shared/review/review-notes.ts'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { expect, test } from 'vite-plus/test'
 import { AppError, appError, attempt, attemptAsync, serializeAppError } from '../../../shared/recovery/app-errors.ts'
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { FileContent } from '../../../../backend/workspace/documents/file-content.ts'
 import { isPixelDiffImage, MAX_PIXEL_DIFF_IMAGE_BYTES } from '../../../../shared/documents/media-types.ts'
 import type { ImageDiffInput, ImageDiffResult, ImageDiffSource } from './image-diff-worker.ts'

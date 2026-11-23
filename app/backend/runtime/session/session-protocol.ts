@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export interface SessionVersions {
   revision?: number
   catalogRevision?: number

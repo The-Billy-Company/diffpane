@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: The panel reconciles streamed activity, the selected context and proposal actions against one request lifecycle. Extract the activity view once its updates can be verified without sharing panel state.
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'

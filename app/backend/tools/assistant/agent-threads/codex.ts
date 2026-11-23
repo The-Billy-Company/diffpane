@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { execFile } from 'node:child_process'
 import { open, readdir, stat } from 'node:fs/promises'
 import { homedir, userInfo } from 'node:os'

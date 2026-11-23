@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { expect, test, vi } from 'vite-plus/test'
 import type { ClaudeActivity } from '../../../backend/tools/assistant/claude-session.mjs'
 import { createWorkspaceBridge } from '../../../shared/bridge/workspace-bridge.ts'

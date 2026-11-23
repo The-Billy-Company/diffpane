@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import { setImmediate } from 'node:timers/promises'
 import { test, vi } from 'vite-plus/test'

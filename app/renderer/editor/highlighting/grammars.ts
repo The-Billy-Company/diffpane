@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createHighlighterCore } from '@shikijs/core'
 import type { LanguageRegistration, ThemeRegistration } from '@shikijs/core'
 import { createOnigurumaEngine } from '@shikijs/engine-oniguruma'

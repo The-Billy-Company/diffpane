@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .git-diff {
   --git-diff-chrome: color-mix(in oklab, var(--surface) 70%, var(--workbench-background));
   container: git-comparison / inline-size;

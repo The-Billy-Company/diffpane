@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { accessSync, constants, statSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { userInfo } from 'node:os'

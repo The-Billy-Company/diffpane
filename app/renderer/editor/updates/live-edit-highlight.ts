@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { diffLines } from 'diff'
 import type { editor } from 'monaco-editor/editor/editor.api.js'
 import './live-edit-highlight.css'

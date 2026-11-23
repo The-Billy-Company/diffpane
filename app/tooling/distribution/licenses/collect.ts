@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { execFile } from 'node:child_process'
 import { copyFile, mkdir, readdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { parentPort } from 'node:worker_threads'
 import { decorations } from './changes.ts'
 import type { DiffDecorations } from './changes.ts'

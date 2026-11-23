@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export type ColorScheme = 'light' | 'dark'
 type Oklch = `oklch(${string})`
 

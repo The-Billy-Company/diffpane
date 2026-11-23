@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { execFile } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'
 import { realpath } from 'node:fs/promises'

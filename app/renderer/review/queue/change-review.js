@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Queue order, focus, baseline selection and reviewed revisions update together. Extract the review model once keyboard selection and checkpoint replacement have independent coverage.
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { celebrate } from '../../shell/celebration/celebration.ts'

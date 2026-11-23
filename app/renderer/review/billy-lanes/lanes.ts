@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillyLaneChecks, BillyLaneLog, BillyLanePage } from '../../../backend/tools/billy-lanes/lanes.ts'
 import { runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'

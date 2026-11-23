@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export interface SearchEntry {
   path: string
   directory?: boolean

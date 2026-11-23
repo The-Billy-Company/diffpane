@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { AgentThreadEvent } from '../../../../shared/agent-threads.ts'
 
 type Delegation = NonNullable<AgentThreadEvent['delegation']>

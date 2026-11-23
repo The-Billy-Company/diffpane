@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { editor } from 'monaco-editor'
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import type { ColorRole, ColorScheme } from '../../../shared/appearance/palette.ts'

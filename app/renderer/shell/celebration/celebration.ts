@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { Shape } from 'canvas-confetti'
 import { colorHex } from '../../../shared/appearance/palette.ts'
 import { runTask } from '../recovery/errors.ts'

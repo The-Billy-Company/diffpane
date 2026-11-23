@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{

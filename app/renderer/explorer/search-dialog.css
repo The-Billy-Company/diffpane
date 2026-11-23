@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .search-dialog {
   --search-dialog-tint: var(--accent-surface);
   top: clamp(12px, 8vh, 76px);

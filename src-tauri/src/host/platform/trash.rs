@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use std::{
     ffi::CString,
     fs::{Metadata, symlink_metadata},

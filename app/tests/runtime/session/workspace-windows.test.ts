@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdtemp, realpath, rename, rm, writeFile } from 'node:fs/promises'

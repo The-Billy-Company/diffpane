@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 const historyLimit = 64
 
 export class FileHistory {

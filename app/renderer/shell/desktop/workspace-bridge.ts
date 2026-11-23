@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { createWorkspaceBridge } from '../../../shared/bridge/workspace-bridge.ts'
 import { createTauriTransport } from './tauri-transport.ts'

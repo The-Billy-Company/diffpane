@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { ThemedToken } from '@shikijs/core'
 import { syncTokenKeys, toKeyedTokens } from '@shikijs/magic-move/core'
 import { MagicMoveRenderer } from '@shikijs/magic-move/renderer'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: The renderer composition root coordinates card selection, editor lifetime, save flushing and workspace updates. Extract the card controller once it owns these transitions through a verified interface.
 import * as monaco from 'monaco-editor/editor/editor.api.js'
 import 'monaco-editor/basic-languages/monaco.contribution.js'

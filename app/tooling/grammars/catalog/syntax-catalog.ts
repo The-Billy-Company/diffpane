@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { readFileSync } from 'node:fs'
 import type { RawGrammar } from '@shikijs/core'
 import jinja from '@shikijs/langs/jinja'

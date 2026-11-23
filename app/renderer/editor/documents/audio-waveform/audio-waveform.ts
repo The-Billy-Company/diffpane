@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type WaveSurferPlayer from 'wavesurfer.js'
 import { MAX_WAVEFORM_PEAKS, MAX_WAVEFORM_SECONDS } from '../../../../shared/documents/media-types.ts'
 import { decodeBase64 } from '../base64.ts'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

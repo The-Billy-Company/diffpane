@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use std::{
     io::{self, SeekFrom},
     path::{Component, PathBuf},

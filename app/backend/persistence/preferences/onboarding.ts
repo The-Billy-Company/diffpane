@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { StateRecords } from '../database/local-state.ts'
 import type { Appearance } from './ui-preferences.ts'
 

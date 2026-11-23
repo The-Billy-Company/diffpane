@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export interface BillySiblingExcerpt {
   readonly path: string
   readonly line: number

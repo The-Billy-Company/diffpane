@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmod, copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'

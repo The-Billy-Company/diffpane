@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { LiveEditCounts } from '../live-edit-highlight.ts'
 import './edit-activity.css'
 

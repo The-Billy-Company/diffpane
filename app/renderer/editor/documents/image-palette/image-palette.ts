@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 const SAMPLE_EDGE = 64
 
 export async function appendImagePalette(host: HTMLElement, image: HTMLImageElement, signal: AbortSignal) {

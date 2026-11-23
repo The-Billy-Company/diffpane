@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../shared/documents/media-types.ts'
 import { attempt } from '../../../shared/recovery/app-errors.ts'
 import type { ContentMatch } from '../../explorer/project-search/content-search.ts'

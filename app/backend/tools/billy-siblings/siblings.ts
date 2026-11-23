@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { posix } from 'node:path'
 import type { BillySiblingExcerpt, BillySiblingMatch, BillySiblingResult } from '../../../shared/billy/siblings.ts'
 import { isBillyPath, readBillyText } from '../billy/native.ts'

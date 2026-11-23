@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Git inventory, content, checkpoint and save paths share repository confinement and byte limits. Extract checkpoint storage once its captured-identity and read-budget contract is independent.
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'

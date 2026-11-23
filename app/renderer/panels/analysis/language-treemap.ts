@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { hierarchy, treemap } from 'd3-hierarchy'
 import type { BreakdownRow } from '../../../backend/tools/analysis/howmany.mjs'
 

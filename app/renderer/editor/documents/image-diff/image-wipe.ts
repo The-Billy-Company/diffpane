@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import './image-wipe.css'
 
 export interface ImageWipeState {

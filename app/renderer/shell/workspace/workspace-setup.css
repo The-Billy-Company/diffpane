@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .workspace-setup {
   --workspace-ink: var(--violet);
   width: min(460px, calc(100% - 32px));

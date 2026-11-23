@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import Diff from 'diff/lib/diff/base.js'
 import { countLines } from '../../../shared/documents/text-lines.ts'
 

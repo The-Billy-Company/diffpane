@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use rfd::{AsyncMessageDialog, MessageButtons, MessageDialogResult};
 use serde::Deserialize;
 use std::{collections::HashMap, sync::Mutex};

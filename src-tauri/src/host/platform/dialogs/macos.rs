@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use block2::RcBlock;
 use objc2::MainThreadMarker;
 use objc2_app_kit::{NSModalResponse, NSModalResponseOK, NSOpenPanel, NSWindow};

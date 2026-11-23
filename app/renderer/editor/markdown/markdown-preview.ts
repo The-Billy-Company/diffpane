@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import DOMPurify from 'dompurify'
 import type { Mermaid } from 'mermaid'
 import { colorHex } from '../../../shared/appearance/palette.ts'

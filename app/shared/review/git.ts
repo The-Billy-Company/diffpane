@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export interface GitRef {
   name: string
   kind: 'branch' | 'remote' | 'tag'

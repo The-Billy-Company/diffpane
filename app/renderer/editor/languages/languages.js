@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Monaco registrations, document versions and language-service cancellation share one editor attachment. Extract providers once their disposer and request ownership can be tested independently.
 import { CancellationError } from 'monaco-editor/base/common/errors.js'
 import 'monaco-editor/editor/contrib/folding/browser/folding.js'
