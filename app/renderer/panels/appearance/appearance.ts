@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import {
   defaultAppearance as DEFAULTS,
   maxFontSize as MAX_FONT_SIZE,

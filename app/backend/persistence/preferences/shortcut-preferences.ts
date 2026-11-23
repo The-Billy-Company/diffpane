@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { DatabaseSync } from 'node:sqlite'
 import {
   defaultBinding,

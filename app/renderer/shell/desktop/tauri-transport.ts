@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { Channel, invoke } from '@tauri-apps/api/core'
 import type { DesktopTransport } from '../../../shared/bridge/transport.ts'
 import { isRecord } from '../../../shared/bridge/validators/values.ts'

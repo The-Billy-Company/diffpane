@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

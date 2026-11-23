@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .change-review {
   --queue-inset: clamp(10px, 6.75cqi, 24px);
   --queue-row-inset: max(4px, var(--queue-inset) - 8px);

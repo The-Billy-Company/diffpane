@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { SavedWorkspace, WorkspaceContext, WorkspaceDraft } from '../../../shared/preferences/saved-workspaces.ts'

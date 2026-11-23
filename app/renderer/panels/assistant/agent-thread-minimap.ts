@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { requireElement } from '../../shell/workspace/dom.js'
 
 export function createAgentThreadMinimap(conversation: HTMLElement) {

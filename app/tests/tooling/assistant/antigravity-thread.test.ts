@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { ok } from 'node:assert/strict'
 import { appendFile, mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

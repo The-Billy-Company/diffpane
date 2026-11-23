@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Idea selection, drafts, saves and incoming cross-window edits share one controller. Extract persistence transitions once they expose the same conflict and close behavior independently.
 import { marked } from 'marked'
 import {

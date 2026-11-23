@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { workspaceFolderLabel } from '../../../shared/preferences/saved-workspaces.ts'
 import type { SavedWorkspace } from '../../../shared/preferences/saved-workspaces.ts'
 import { requireElement } from './dom.js'

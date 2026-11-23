@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { fileURLToPath } from 'node:url'
 import { defineConfig, lazyPlugins } from 'vite-plus'
 import { safetyLint } from './app/tooling/quality/oxlint-safety.ts'

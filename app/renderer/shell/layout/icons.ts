@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import theme from 'material-icon-theme/dist/material-icons.json' with { type: 'json' }
 
 interface IconTheme {

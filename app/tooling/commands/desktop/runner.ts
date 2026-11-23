@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { spawn } from 'node:child_process'
 
 export async function runDesktop(command: string, args: string[], options: { cwd?: string; env: NodeJS.ProcessEnv }) {

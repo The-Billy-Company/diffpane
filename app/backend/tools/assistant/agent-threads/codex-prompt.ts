@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import path from 'node:path'
 import type { AgentThreadFile } from '../../../../shared/agent-threads.ts'
 

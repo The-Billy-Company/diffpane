@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'

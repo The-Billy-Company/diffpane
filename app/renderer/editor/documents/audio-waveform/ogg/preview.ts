@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { DecodedPreview } from './wave.ts'
 
 const decoderTimeoutMs = 15_000

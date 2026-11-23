@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { CancellationError } from 'monaco-editor/base/common/errors.js'
 import { afterEach, expect, test, vi } from 'vite-plus/test'
 import { installErrorHandlers } from '../../../renderer/shell/recovery/errors.ts'

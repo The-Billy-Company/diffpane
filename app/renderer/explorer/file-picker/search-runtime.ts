@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import { rendererDiagnostics } from '../../shell/diagnostics/diagnostics.ts'
 import { compileFileQuery, rankFiles } from './file-search.ts'

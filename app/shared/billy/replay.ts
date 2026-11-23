@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export interface BillyPlaybookRoute {
   kind: 'Mission' | 'Surface' | 'Tool' | 'Connector' | 'Native format'
   values: string[]

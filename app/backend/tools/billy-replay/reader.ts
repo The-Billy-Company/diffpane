@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, open, realpath } from 'node:fs/promises'

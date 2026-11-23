@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { MenuItemOptions } from '../../../desktop/services/menu.ts'
 import { setNativeMenu } from '../../../desktop/services/menu.ts'
 import type { FileMenuAction } from '../../../shared/preferences/file-menu.ts'

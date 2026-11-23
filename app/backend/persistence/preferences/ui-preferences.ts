@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { editorDefaultSize } from '../../../shared/appearance/typography.ts'
 
 const themes = ['dark', 'light', 'system'] as const

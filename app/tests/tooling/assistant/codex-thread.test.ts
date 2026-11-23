@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { appendFile, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'

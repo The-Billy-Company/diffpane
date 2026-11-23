@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { editor as monacoEditor } from 'monaco-editor/editor/editor.api.js'
 import { createSketch } from '../../illustrations/sketch.ts'
 import { createRollingNumber } from '../../shell/number-flow/number-flow.ts'

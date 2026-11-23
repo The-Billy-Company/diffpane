@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createDiagnostics } from '../../../shared/diagnostics/diagnostics.ts'
 
 export const rendererDiagnostics = createDiagnostics('renderer', event => {

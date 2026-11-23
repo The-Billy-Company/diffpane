@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const billySetupActions = [
   {
     id: 'igor-auth',

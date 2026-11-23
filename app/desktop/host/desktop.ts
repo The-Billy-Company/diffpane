@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { EventEmitter } from 'node:events'
 import { handleHost, hostEvent, hostRequest, notifyHost } from './transport.ts'
 

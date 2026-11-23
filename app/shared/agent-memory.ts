@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { AgentProvider } from './agent-threads.ts'
 
 export type MemoryPressure = 'normal' | 'warning' | 'critical' | 'unknown'

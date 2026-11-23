@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { GitChanges, GitCommit, GitComparison, GitFile, GitOverview } from '../../../shared/review/git.ts'
 import { projectIcon } from '../../shell/layout/icons.ts'
 import { runTask } from '../../shell/recovery/errors.ts'

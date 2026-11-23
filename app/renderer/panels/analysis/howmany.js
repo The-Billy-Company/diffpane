@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { isArray, isDiagnostic, isRecord } from '../../editor/languages/language-protocol.js'
 import { afterPaint } from '../../shell/layout/after-paint.ts'

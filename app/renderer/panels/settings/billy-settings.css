@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .billy-settings > .appearance-header {
   background:
     radial-gradient(ellipse at 78% 0, color-mix(in oklab, var(--violet-surface) 64%, transparent), transparent 58%),

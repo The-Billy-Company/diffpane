@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { isCancellationError } from 'monaco-editor/base/common/errors.js'
 import { appError, attempt, attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import type { AppError, ErrorContext } from '../../../shared/recovery/app-errors.ts'

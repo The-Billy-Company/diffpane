@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 const MAX_QUERY_LENGTH = 256
 const MAX_MATCHES = 250
 const MAX_SCAN_BYTES = 256 * 1024 * 1024

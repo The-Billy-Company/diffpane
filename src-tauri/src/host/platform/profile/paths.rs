@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::{

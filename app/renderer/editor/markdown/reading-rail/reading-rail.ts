@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import './reading-rail.css'
 
 export interface ReadingSection {

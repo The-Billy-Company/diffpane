@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const WORKSPACE_NAME_MAX_LENGTH = 100
 
 export function workspaceFolderLabel(folder: string) {

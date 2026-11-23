@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { RendererRequest } from '../../../desktop/host/desktop.ts'
 import { WorkspaceWindow } from '../../../desktop/host/desktop.ts'
 import { dialog } from '../../../desktop/services/shell.ts'

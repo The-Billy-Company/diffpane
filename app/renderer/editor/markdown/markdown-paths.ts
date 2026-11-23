@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export function isMarkdown(filename: string) {
   return /\.(md|markdown|mdown|mkd|mdc)$/i.test(filename)
 }

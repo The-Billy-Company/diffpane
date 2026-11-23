@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { isAbsolute } from 'node:path'
 import type { WorkspaceWindow } from '../host/desktop.ts'
 import { hostRequest, reportHostError } from '../host/desktop.ts'

@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .billy-status-art {
   --billy-art-paper: color-mix(in oklab, var(--muted) 66%, var(--surface));
   display: block;

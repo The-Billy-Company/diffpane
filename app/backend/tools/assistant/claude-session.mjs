@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: The turn owns its streamed tool activity, read editions, proposal identity and apply decision. Extract tool dispatch once it can carry the same per-turn read evidence independently.
 import { randomUUID } from 'node:crypto'
 import {

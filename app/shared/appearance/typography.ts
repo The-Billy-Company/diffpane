@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const uiFont = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
 export const monoFont = "'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', monospace"
 

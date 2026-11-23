@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createHash } from 'node:crypto'
 import { lstat, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'

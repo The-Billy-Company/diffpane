@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { TerminalBridge, TerminalStartResult } from '../terminal/protocol.ts'
 import type { DesktopTransport } from './transport.ts'
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { OnboardingStep } from '../../../backend/persistence/preferences/onboarding.ts'
 import type { Appearance } from '../../../backend/persistence/preferences/ui-preferences.ts'
 import { bindingLabel, effectiveBinding } from '../../../shared/preferences/shortcuts.ts'

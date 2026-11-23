@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { ClaudeCredentials } from '../../../backend/tools/assistant/claude-credentials.mjs'
 import type { ClaudeActivity } from '../../../backend/tools/assistant/claude-session.mjs'
 import type { ClaudeSession } from '../../../backend/tools/assistant/claude-session.mjs'

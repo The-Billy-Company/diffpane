@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .monaco-editor :is(.live-edit-line, .live-edit-gutter) {
   --live-edit-ink: var(--accent);
   pointer-events: none;

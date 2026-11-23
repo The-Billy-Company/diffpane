@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { runDesktop } from './desktop/runner.ts'
 
 process.exitCode = await runDesktop(

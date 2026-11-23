@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { WORKSPACE_NAME_MAX_LENGTH, workspaceFolderLabel } from '../../../shared/preferences/saved-workspaces.ts'
 import { runTask } from '../recovery/errors.ts'
 import { requireElement } from './dom.js'

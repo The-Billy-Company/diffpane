@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { NavigationFile } from '../../../../renderer/explorer/tree/navigation-reconcile.ts'
 import { createNavigator } from '../../../../renderer/explorer/tree/navigator.js'
 import { requireElement } from '../../../../renderer/shell/workspace/dom.js'

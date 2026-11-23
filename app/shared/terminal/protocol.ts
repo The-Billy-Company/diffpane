@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const terminalMinimumColumns = 2
 export const terminalMaximumColumns = 500
 export const terminalMinimumRows = 1

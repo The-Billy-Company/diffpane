@@ -1,3 +1,4 @@
+# Copyright (c) 2026 The Billy Company
 .PHONY: setup dev build test install verify lint-doc-radar
 setup:
 	pnpm install --frozen-lockfile

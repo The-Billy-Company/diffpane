@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { chmodSync, lstatSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'

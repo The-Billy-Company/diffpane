@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Language-server negotiation, document versions and request cancellation share connection state. Extract the framed transport once its process-lifetime contract is independently exercised.
 import { spawn } from 'node:child_process'
 import { realpath, stat } from 'node:fs/promises'

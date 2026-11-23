@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { ensurePopoverSupport } from '../desktop/popovers.ts'
 import { connectWorkspace } from '../desktop/workspace-bridge.ts'

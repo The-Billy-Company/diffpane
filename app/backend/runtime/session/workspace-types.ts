@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { DiffDecorations } from '../../workspace/comparison/changes.ts'
 import type { FileContent } from '../../workspace/documents/file-content.ts'
 

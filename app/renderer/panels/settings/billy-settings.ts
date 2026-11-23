@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillySetupAction, BillySetupStartResult, BillySetupStatus } from '../../../shared/billy/setup.ts'
 import { billySetupActions } from '../../../shared/billy/setup.ts'
 import { appError } from '../../../shared/recovery/app-errors.ts'

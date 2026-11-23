@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use rfd::{AsyncMessageDialog, MessageDialogResult};
 use tauri::AppHandle;
 use tokio::sync::oneshot;

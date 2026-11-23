@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import { expect, test, vi } from 'vite-plus/test'
 import { ClaudeSession } from '../../../backend/tools/assistant/claude-session.mjs'

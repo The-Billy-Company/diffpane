@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { randomUUID } from 'node:crypto'
 import { diffArrays } from 'diff'
 import { claudeVisiblePath, MAX_CLAUDE_EDIT_FILES, MAX_CLAUDE_FILE_BYTES } from './claude-workspace.mjs'

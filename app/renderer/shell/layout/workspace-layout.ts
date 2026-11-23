@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Panel placement, resize, drag and notebook mode share a single geometry and focus owner. Extract geometry once its persisted bounds and drag behavior can be tested independently.
 import {
   defaultPaneSizes as DEFAULTS,

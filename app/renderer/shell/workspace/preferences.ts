@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createUiPreferences } from '../../panels/appearance/ui-preferences.ts'
 import type { UiPreferenceController } from '../../panels/appearance/ui-preferences.ts'
 

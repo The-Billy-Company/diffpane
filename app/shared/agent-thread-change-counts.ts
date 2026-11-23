@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { diffArrays, parsePatch } from 'diff'
 import type { StructuredPatchHunk } from 'diff'
 import type { AgentThreadChange } from './agent-threads.ts'

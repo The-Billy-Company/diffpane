@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .file-picker {
   height: min(570px, calc(100vh - clamp(12px, 8vh, 76px) - 18px));
 }

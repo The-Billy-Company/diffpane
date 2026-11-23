@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { creatureGlyph } from '../../panels/assistant/creature-glyph.ts'
 import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
 

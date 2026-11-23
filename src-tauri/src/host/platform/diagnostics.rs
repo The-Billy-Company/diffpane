@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 #[cfg(target_os = "macos")]
 pub(in crate::host) fn memory_pressure() -> Option<&'static str> {
     let mut level = 0_u32;

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: The worker owns a single repository session with shared revision, watcher and document-cache lifetimes. Extract polling when its state and native shutdown join have an independent contract.
 import { lstat, realpath } from 'node:fs/promises'
 import path from 'node:path'

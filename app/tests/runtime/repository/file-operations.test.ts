@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from 'node:fs/promises'
 import os from 'node:os'

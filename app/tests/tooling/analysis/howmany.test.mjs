@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { mkdtemp, writeFile, mkdir, rm, realpath, symlink, readFile } from 'node:fs/promises'

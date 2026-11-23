@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { expect, test } from 'vite-plus/test'
 import { agentThreadChangeCounts } from '../../../shared/agent-thread-change-counts.ts'
 import type { AgentThreadChange } from '../../../shared/agent-threads.ts'

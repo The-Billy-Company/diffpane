@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { appError } from '../../../shared/recovery/app-errors.ts'
 import { rendererDiagnostics } from '../diagnostics/diagnostics.ts'
 import './error-boundary.css'

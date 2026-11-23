@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createSketch } from '../../../illustrations/sketch.ts'
 
 function makeSvg(host: HTMLElement, viewBox: string) {

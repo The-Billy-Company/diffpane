@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { changedFunctionRanges } from '../../review/comparison/function-ranges.ts'
 import { parseMarkdown } from '../markdown/markdown-document.ts'
 

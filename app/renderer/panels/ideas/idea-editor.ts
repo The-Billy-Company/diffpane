@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { history, historyKeymap, isolateHistory, standardKeymap } from '@codemirror/commands'
 import { markdownLanguage } from '@codemirror/lang-markdown'
 import { syntaxTree } from '@codemirror/language'

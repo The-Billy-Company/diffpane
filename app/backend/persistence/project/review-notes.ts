@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'

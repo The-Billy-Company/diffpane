@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import assert from 'node:assert/strict'
 import type { MessagePort, Worker } from 'node:worker_threads'
 import type { InventoryUpdate } from '../../../backend/runtime/session/inventory-delta.ts'

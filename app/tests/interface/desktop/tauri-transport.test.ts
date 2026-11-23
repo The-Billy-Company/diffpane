@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { afterEach, expect, test, vi } from 'vite-plus/test'
 import { createTauriTransport } from '../../../renderer/shell/desktop/tauri-transport.ts'
 import { createTerminalBridge } from '../../../shared/bridge/terminal-bridge.ts'

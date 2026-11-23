@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use tauri::Webview;
 
 #[cfg(target_os = "macos")]

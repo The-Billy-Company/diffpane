@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { OnboardingState } from '../../../backend/persistence/preferences/onboarding.ts'
 import type { RecentTarget } from '../../../backend/persistence/preferences/recent-targets.ts'
 import type {

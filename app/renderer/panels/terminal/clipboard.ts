@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // xterm 6.0.0 wraps bracketed paste without escaping embedded ESC characters.
 // Display control characters as text so clipboard data cannot end the paste early.
 export function terminalPasteText(text: string) {

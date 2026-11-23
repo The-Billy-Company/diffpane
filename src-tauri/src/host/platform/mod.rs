@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 pub(super) mod desktop;
 pub(super) mod diagnostics;
 pub(super) mod dialogs;

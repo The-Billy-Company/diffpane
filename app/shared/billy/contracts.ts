@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { isWellFormedUtf16 } from '../documents/utf16.ts'
 
 export interface BillyContractRequest {

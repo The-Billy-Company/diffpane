@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { createAgentThreadTranscript } from '../../../renderer/panels/assistant/agent-thread-conversation.ts'
 import { createAgentThreadPanel } from '../../../renderer/panels/assistant/agent-threads.ts'
 import { requireElement } from '../../../renderer/shell/workspace/dom.js'

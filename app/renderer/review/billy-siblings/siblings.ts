@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillySiblingExcerpt, BillySiblingMatch, BillySiblingResult } from '../../../shared/billy/siblings.ts'
 import { serializeAppError } from '../../../shared/recovery/app-errors.ts'
 import { runTask } from '../../shell/recovery/errors.ts'

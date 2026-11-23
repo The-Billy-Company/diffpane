@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { area, curveBumpY } from 'd3-shape'
 import type { editor } from 'monaco-editor'
 import { requireElement } from '../../shell/workspace/dom.js'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 const MEDIA_TYPES: Readonly<Record<string, string>> = {
   png: 'image/png',
   apng: 'image/apng',

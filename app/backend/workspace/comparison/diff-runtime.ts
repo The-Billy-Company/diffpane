@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { availableParallelism } from 'node:os'
 import { Worker } from 'node:worker_threads'
 import type { createDiagnostics } from '../../../shared/diagnostics/diagnostics.ts'

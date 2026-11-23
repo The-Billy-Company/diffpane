@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { ErrorDetails } from '../../recovery/app-errors.ts'
 
 export type Validator<T> = (value: unknown) => value is T

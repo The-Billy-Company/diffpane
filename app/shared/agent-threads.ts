@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export type AgentProvider = 'claude' | 'cursor' | 'codex' | 'antigravity'
 
 export type AgentThreadStatus = 'running' | 'idle' | 'recent' | 'unknown'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { isUtf8 } from 'node:buffer'
 import path from 'node:path'
 import { mediaType, streamedMediaInlineLimit } from '../../../shared/documents/media-types.ts'

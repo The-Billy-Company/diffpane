@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { GitCommit } from '../../../shared/review/git.ts'
 
 interface Lane {

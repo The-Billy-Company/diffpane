@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createServer } from 'vite'

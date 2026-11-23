@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { lstat, realpath, rename } from 'node:fs/promises'
 import path from 'node:path'
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { isWorkspaceMediaUrl } from '../../../shared/documents/media-types.ts'
 
 export function showMedia(

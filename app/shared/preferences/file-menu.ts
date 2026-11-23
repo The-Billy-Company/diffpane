@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 export const fileMenuLabels = {
   undoRename: 'Undo Rename',
   redoRename: 'Redo Rename',

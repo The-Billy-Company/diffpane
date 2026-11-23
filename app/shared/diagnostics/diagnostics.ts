@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { serializeAppError } from '../recovery/app-errors.ts'
 
 export type DiagnosticSource = 'main' | 'bridge' | 'renderer' | 'workspace'

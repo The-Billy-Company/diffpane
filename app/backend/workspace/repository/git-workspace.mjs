@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 /** @import { GitCommit, GitComparison, GitFile, GitOverview, GitRef } from '../../../shared/review/git.ts' */
 /** @typedef {(args: readonly string[]) => Promise<Buffer>} ReadGit */
 

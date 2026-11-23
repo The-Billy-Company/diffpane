@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { diffLines } from 'diff'
 import DOMPurify from 'dompurify'
 import { Marked } from 'marked'

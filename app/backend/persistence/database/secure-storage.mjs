@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { unwrapSecret, wrapSecret } from '../../../desktop/services/keychain.ts'
 
 export const localStateKeys = {

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import { reportError, runTask } from '../../shell/recovery/errors.ts'
 import { requireElement } from '../../shell/workspace/dom.js'

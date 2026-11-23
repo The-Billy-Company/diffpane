@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(target_os = "macos")]
 use security_framework::os::macos::{keychain::SecKeychain, passwords::find_generic_password};

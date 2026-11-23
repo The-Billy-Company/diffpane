@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 const CALLABLE_KINDS = new Set([5, 8, 11]) // Monaco Method, Constructor, Function.
 const CONTROLS = new Set(['if', 'for', 'while', 'switch', 'catch', 'with', 'match'])
 const DECLARATION = /\b(?:function\s*\*?\s*|defp?\s+|defmacro\s+|fn\s+|func\s+|fun\s+)([\w$!?]+)/

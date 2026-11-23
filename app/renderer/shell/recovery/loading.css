@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 [data-loading-status]::before,
 .placeholder-line {
   background: linear-gradient(90deg, transparent 42%, var(--loading-highlight, currentColor) 50%, transparent 58%) 100%

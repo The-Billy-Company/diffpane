@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { AnalysisState, HowManyEvent, HowManyFile, Report } from '../../../backend/tools/analysis/howmany.mjs'
 import { isRecord, optional, nullable, isBoolean, isString, isCount, isPositive, isTimestamp } from './values.ts'
 

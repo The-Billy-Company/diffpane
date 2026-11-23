@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { hostRequest, reportHostError } from '../../../desktop/host/desktop.ts'
 
 interface Prompt {

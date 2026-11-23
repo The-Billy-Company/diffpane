@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { access } from 'node:fs/promises'
 import path from 'node:path'
 import { isMap, isScalar, isSeq, LineCounter, parseDocument } from 'yaml'

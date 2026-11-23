@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { MAX_AUDIO_WAVEFORM_BYTES } from '../../../../../shared/documents/media-types.ts'
 import { decodeBase64 } from '../../base64.ts'
 import type { DecodedPreview, OggFormat } from './wave.ts'

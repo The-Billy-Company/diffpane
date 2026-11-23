@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillyContractDiff, BillyContractRequest } from '../../../shared/billy/contracts.ts'
 import { MAX_BILLY_CONTRACT_PATHS } from '../../../shared/billy/contracts.ts'
 import type { DiffpaneApi } from '../../../shared/bridge/workspace-bridge.ts'

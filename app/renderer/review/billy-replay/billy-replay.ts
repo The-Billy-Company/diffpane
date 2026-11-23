@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillyPlaybook, BillyReplayApi, BillyReplayCase, BillyReplayRun } from '../../../shared/billy/replay.ts'
 import { requireElement } from '../../shell/workspace/dom.js'
 import { createBillyStatusArt } from '../billy/status-art.ts'

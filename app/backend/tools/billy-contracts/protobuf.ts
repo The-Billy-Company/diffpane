@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { BillyContractDiff, BillyContractFile } from '../../../shared/billy/contracts.ts'
 import type { BillyContext } from '../billy/native.ts'
 import { isBillyPath, readBillyText } from '../billy/native.ts'

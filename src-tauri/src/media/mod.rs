@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 mod files;
 #[cfg(test)]
 mod tests;

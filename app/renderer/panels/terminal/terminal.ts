@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { FitAddon } from '@xterm/addon-fit'
 import type { ITheme } from '@xterm/xterm'
 import { Terminal } from '@xterm/xterm'

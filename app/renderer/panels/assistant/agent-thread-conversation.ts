@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { agentThreadChangeCounts } from '../../../shared/agent-thread-change-counts.ts'
 import { agentProviderNames, isAgentThreadImageDataUrl } from '../../../shared/agent-threads.ts'
 import type {

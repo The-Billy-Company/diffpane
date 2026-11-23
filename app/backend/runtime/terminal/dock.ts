@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { realpath, stat } from 'node:fs/promises'
 import type { WorkspaceWindow } from '../../../desktop/host/desktop.ts'
 import { emitRenderer, hostEvent, hostRequest, reportHostError } from '../../../desktop/host/desktop.ts'

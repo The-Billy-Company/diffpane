@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { attemptAsync } from '../../../shared/recovery/app-errors.ts'
 import type { AppError, Result } from '../../../shared/recovery/app-errors.ts'
 import { rendererDiagnostics } from '../../shell/diagnostics/diagnostics.ts'

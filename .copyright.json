@@ -1,0 +1,12 @@
+{
+  "exclude": [
+    {
+      "path": "app/tooling/grammars/snapshots/**",
+      "reason": "Pinned grammar snapshots retain their original upstream licensing and provenance."
+    },
+    {
+      "path": "legal/**",
+      "reason": "Third-party license texts and notices must remain unchanged."
+    }
+  ]
+}

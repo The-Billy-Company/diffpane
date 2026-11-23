@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 mod dialogs;
 mod host;
 mod media;

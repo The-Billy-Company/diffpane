@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { initializeDesktop } from './desktop.ts'
 import { hostEvent, hostRequest, readHost } from './transport.ts'
 

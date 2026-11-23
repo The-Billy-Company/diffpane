@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import { parse } from 'smol-toml'
 
 import type {

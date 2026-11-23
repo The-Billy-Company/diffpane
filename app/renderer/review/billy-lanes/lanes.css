@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 The Billy Company */
 .billy-lanes {
   --lane-label-width: var(--review-context-label-width, 48px);
   --lane-control-size: 24px;

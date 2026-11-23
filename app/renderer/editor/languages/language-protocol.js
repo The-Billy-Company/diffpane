@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 /** @typedef {{ line: number, character: number }} ProtocolPosition */
 /** @typedef {{ start: ProtocolPosition, end: ProtocolPosition }} ProtocolRange */
 /** @typedef {{ message: string, range: ProtocolRange, source?: string, severity?: number, code?: string | number, tags?: number[], relatedInformation?: unknown[] }} ProtocolDiagnostic */

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 /** Give visible content a paint opportunity before starting optional background work. */
 export function afterPaint(run: () => void) {
   let frame: number | undefined

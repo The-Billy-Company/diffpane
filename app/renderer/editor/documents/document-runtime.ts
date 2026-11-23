@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 import type { DocumentTask, processDocument } from './document-processing.ts'
 
 type DocumentResult = ReturnType<typeof processDocument>

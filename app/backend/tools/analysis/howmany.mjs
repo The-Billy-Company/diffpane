@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // MONOLITHIC: Workspace report and file-analysis generations share subprocess cancellation and teardown. Extract file analysis once its invalidation and shutdown are independently owned.
 import { spawn } from 'node:child_process'
 import { accessSync, constants } from 'node:fs'

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 The Billy Company
 // Keep the native watcher library loaded while worker teardown joins its native threads.
 import '@parcel/watcher'
 import assert from 'node:assert/strict'
