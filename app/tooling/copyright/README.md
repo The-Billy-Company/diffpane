@@ -1,3 +1,10 @@
+---
+doc_radar:
+  sentinels:
+    - file: app/tooling/copyright/check.py
+      contains: ['def check(', 'def add_notice(']
+---
+
 # Source copyright headers
 
 Use Python 3.11 or newer from the repository root:
