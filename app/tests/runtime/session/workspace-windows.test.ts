@@ -63,6 +63,28 @@ class WindowFixture {
   }
 }
 
+test('saved workspaces open ordinary folders and restore their last files', async t => {
+  const { first, second, manager } = await fixture(t)
+  await Promise.all([first, second].map(folder => rm(path.join(folder, '.git'), { recursive: true })))
+  await Promise.all([writeFile(path.join(first, 'one.txt'), 'one'), writeFile(path.join(second, 'other.txt'), 'other')])
+  const window = new WindowFixture()
+  const folders = await manager.approvePickedFolders(window, [first, second])
+  const workspace = await manager.save(window, { name: 'Folders', folders, activeFolder: first }, { open: true })
+  assert.equal(window.directory, first)
+  assert.deepEqual(window.workspace?.unavailableFolders, [])
+  manager.rememberFile(window, 'one.txt')
+  await manager.switchFolder(window, second)
+  manager.rememberFile(window, 'other.txt')
+  await manager.close(window)
+
+  await manager.open(window, workspace.id)
+  assert.equal(window.directory, second)
+  assert.equal(window.rememberedFile, path.join(second, 'other.txt'))
+  await manager.switchFolder(window, first)
+  assert.equal(window.directory, first)
+  assert.equal(window.rememberedFile, path.join(first, 'one.txt'))
+})
+
 test('persisted workspaces remember each folder’s last file and survive reopening local storage', async t => {
   const { first, second, filename, manager } = await fixture(t)
   const window = new WindowFixture()

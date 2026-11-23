@@ -4,8 +4,8 @@ import path from 'node:path'
 export interface Workspace {
   root: string
   scope: string
-  gitDir: string
-  commonDir: string
+  gitDir: string | null
+  commonDir: string | null
 }
 
 export interface RenameResult {
@@ -39,7 +39,7 @@ export async function operationDestination(workspace: Workspace, filename: unkno
     !within(workspace.scope, absolute) ||
     !within(workspace.scope, resolved) ||
     [workspace.gitDir, workspace.commonDir].some(
-      directory => within(directory, resolved) || within(resolved, directory),
+      directory => directory !== null && (within(directory, resolved) || within(resolved, directory)),
     )
   )
     throw new Error('The project root and Git metadata cannot be changed.')

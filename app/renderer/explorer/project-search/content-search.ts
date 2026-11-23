@@ -86,6 +86,8 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
   const matchCaseButton = requireElement(dialog, '.content-search-case', HTMLButtonElement)
   const failure = requireElement(dialog, '.content-search-error', HTMLElement)
   const scopes = dialog.querySelectorAll<HTMLButtonElement>('[data-scope]')
+  const changedScope = requireElement(dialog, '[data-scope="changed"]', HTMLButtonElement)
+  let gitRepository = false
   let scope: Scope = 'workspace'
   let matchCase = false
   let matches: ContentMatch[] = []
@@ -200,7 +202,9 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
         lines
           ? ''
           : truncated
-            ? 'No matches in the files checked. Try searching changed files.'
+            ? gitRepository
+              ? 'No matches in the files checked. Try searching changed files.'
+              : 'No matches in the files checked. Try a more specific search term.'
             : 'Try a different search term or scope.',
         preserve,
       )
@@ -296,6 +300,7 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
     button.addEventListener('click', () => {
       const next = button.dataset.scope
       if (next !== 'workspace' && next !== 'changed') return
+      if (next === 'changed' && !gitRepository) return
       if (scope !== next) {
         scope = next
         for (const item of scopes) item.setAttribute('aria-pressed', String(item === button))
@@ -345,6 +350,15 @@ export function createContentSearch(api: SearchApi, onSelect: (match: ContentMat
       input.select()
     },
     refresh,
+    setGitRepository(available: boolean) {
+      gitRepository = available
+      changedScope.hidden = !available
+      if (!available && scope === 'changed') {
+        scope = 'workspace'
+        for (const button of scopes) button.setAttribute('aria-pressed', String(button.dataset.scope === scope))
+        if (dialog.open) start()
+      }
+    },
     dispose() {
       close()
       dialog.remove()

@@ -78,6 +78,7 @@ const { repository, initialPath, initialLine, versions } = await diagnostics.run
     versions: launch.versions,
   }
 })
+const gitDirectories = repository.metadataDirectories
 const languages = new LanguageRuntime(repository.root, value => port.postMessage({ event: 'language-event', value }), {
   diagnostics,
 })
@@ -231,7 +232,7 @@ function reportUpdateError(cause, operation) {
 /** @param {string} file */
 function gitMetadata(file) {
   let inside = false
-  for (const base of [repository.gitDir, repository.commonDir]) {
+  for (const base of gitDirectories) {
     const relative = path.relative(base, file)
     if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
       inside = true
@@ -250,7 +251,8 @@ function gitMetadata(file) {
 function collapsedIgnoredParent(filename) {
   let parent = path.posix.dirname(filename)
   while (parent !== '.' && parent !== '/') {
-    if (repository.inventoryMetadata.get(parent)?.directory && !repository.expandedIgnored.has(parent)) return true
+    const entry = repository.inventoryMetadata.get(parent)
+    if (entry?.directory && entry.ignored && !repository.expandedIgnored.has(parent)) return true
     parent = path.posix.dirname(parent)
   }
   return false
@@ -326,7 +328,7 @@ async function pollState(result) {
     ...repository.expandedIgnored,
   ])
   const metadataPaths = new Set(
-    [repository.gitDir, repository.commonDir].flatMap(directory =>
+    gitDirectories.flatMap(directory =>
       ['config', 'info/exclude'].map(filename => path.relative(repository.root, path.join(directory, filename))),
     ),
   )
@@ -619,7 +621,10 @@ async function performRefresh() {
       return snapshot
     languages.changed([...languageEvents.values()])
     const start = performance.now()
-    const result = await diagnostics.run('workspace.git.status', () => repository.snapshot())
+    const result = await diagnostics.run(
+      repository.isGitRepository ? 'workspace.git.status' : 'workspace.folder.status',
+      () => repository.snapshot(),
+    )
     let changedPaths = paths.map(file => path.relative(repository.root, file))
     const observed = fallbackActive && (poll || !fallbackState) ? await pollState(result) : null
     const review = await versionReviewFiles(result.files, changedPaths, all, observed?.files)
@@ -655,7 +660,7 @@ async function performRefresh() {
           fallbackState = observed
           // The editor poll tracks scoped documents. Git can also show other refs
           // and files across the repository, so let its open view reconcile them.
-          port.postMessage({ event: 'git-change', value: null })
+          if (repository.isGitRepository) port.postMessage({ event: 'git-change', value: null })
           return snapshot
         }
         if ((statusChanged || metadataChanged) && !all) {
@@ -730,13 +735,14 @@ async function performRefresh() {
       checkpoint: checkpointReview.value,
       root: repository.root,
       scope: repository.scope,
+      isGitRepository: repository.isGitRepository,
       initialPath,
       ...(initialLine !== undefined ? { initialLine } : {}),
       revision,
       changedPaths,
       inventoryRevision: catalogRevision,
       watchError,
-      gitMs: performance.now() - start,
+      gitMs: repository.isGitRepository ? performance.now() - start : 0,
     }
     publishSnapshot()
     if (firstSnapshot) diagnostics.measure('workspace.ready', startupTime)
@@ -1147,7 +1153,7 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
     return
   }
   const { default: watcher } = watcherLoad.value
-  for (const watchPath of new Set([repository.root, repository.gitDir, repository.commonDir])) {
+  for (const watchPath of new Set([repository.root, ...gitDirectories])) {
     if (shuttingDown) break
     try {
       // oxlint-disable-next-line eslint/no-await-in-loop -- A shutdown may interrupt setup after any individual subscription.
@@ -1183,6 +1189,7 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
               ((!known && !snapshotIndex.has(relative) && collapsedIgnoredParent(relative)) ||
                 (event.type === 'update' &&
                   repository.inventoryMetadata.get(relative)?.directory &&
+                  repository.inventoryMetadata.get(relative)?.ignored &&
                   !repository.expandedIgnored.has(relative)))
             )
               continue
@@ -1215,7 +1222,8 @@ const watchSetup = diagnostics.run('workspace.watch.setup', async () => {
         }
         // Editor reads can proceed while status and inventory subprocesses run.
         if (force || livePaths.size) port.postMessage({ event: 'paths', value: force ? ['*'] : [...livePaths] })
-        if (outsideScopeChanged && !force) port.postMessage({ event: 'git-change', value: null })
+        if (repository.isGitRepository && outsideScopeChanged && !force)
+          port.postMessage({ event: 'git-change', value: null })
         if (force || changes.size) schedule()
       })
       // Disposal joins setup before unsubscribing, including a subscription

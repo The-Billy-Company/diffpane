@@ -696,7 +696,8 @@
   font-size: 12px;
 }
 
-.onboarding-setup[data-step='ready'] .onboarding-stage {
+.onboarding-setup[data-step='ready'] .onboarding-stage,
+.onboarding-setup[data-git-repository='false'] .onboarding-stage {
   grid-template-columns: minmax(0, 1fr);
   min-height: 0;
 }

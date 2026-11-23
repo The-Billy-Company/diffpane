@@ -14,9 +14,10 @@ interface Options {
   surface: () => Surface | undefined
   appearance: () => Appearance
   shortcutLabel: (action: ShortcutAction) => string
+  isGitRepository: () => boolean
 }
 
-export function createOnboarding({ api, surface, appearance, shortcutLabel }: Options) {
+export function createOnboarding({ api, surface, appearance, shortcutLabel, isGitRepository }: Options) {
   let active: { close: () => void } | undefined
   let starting = false
   let finishing = false
@@ -29,7 +30,7 @@ export function createOnboarding({ api, surface, appearance, shortcutLabel }: Op
 
   function presentTour(target: Surface, track: boolean) {
     active = startOnboardingTour({
-      stops: target === 'home' ? homeTourStops : workspaceTourStops,
+      stops: target === 'home' ? homeTourStops : workspaceTourStops.filter(stop => !stop.gitOnly || isGitRepository()),
       onFinish(reason) {
         active = undefined
         if (disposed) return
@@ -69,6 +70,7 @@ export function createOnboarding({ api, surface, appearance, shortcutLabel }: Op
       startStep: track ? stage : 'intro',
       appearance: { ...original, ...draft },
       inWorkspace: initialSurface === 'workspace',
+      isGitRepository: isGitRepository(),
       shortcutLabel,
       onStep(step, look) {
         if (track)

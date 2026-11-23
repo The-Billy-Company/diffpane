@@ -162,6 +162,7 @@ export function isSnapshot(value: unknown): value is WorkspaceSnapshot {
     isString(value.scope) &&
     nullable(isString)(value.initialPath) &&
     optional(isPositive)(value.initialLine) &&
+    isBoolean(value.isGitRepository) &&
     isString(value.branch) &&
     nullable(isString)(value.head) &&
     arrayOf(isWorkspaceFile)(value.files) &&

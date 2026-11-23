@@ -13,3 +13,4 @@ These fragments record how users recognize and open Diffpane from a terminal, th
 - [Application artwork](06-app-artwork.added). Build the desktop icon and browser favicons reproducibly.
 - [Terminal shortcut](terminal-shortcut.added). Open the current project with `dp`.
 - [Window shortcuts](window-shortcuts.changed). Assign the standard new-window and folder-picker bindings.
+- [Ordinary folders](ordinary-folders.fixed). Browse and edit folders without Git, showing Git controls only for repositories.

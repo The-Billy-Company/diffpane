@@ -41,6 +41,7 @@ export function isWorkspaceSnapshot(value: unknown): value is WorkspaceSnapshot 
     isSessionRecord(value) &&
     isString(value.root) &&
     isString(value.scope) &&
+    typeof value.isGitRepository === 'boolean' &&
     (value.initialPath === null || isString(value.initialPath)) &&
     (value.initialLine === undefined || (isSessionRevision(value.initialLine) && value.initialLine > 0)) &&
     isString(value.branch) &&

@@ -12,6 +12,7 @@ These suites check watcher-driven refreshes and the workspace worker lifecycle. 
 - [Inventory deltas](inventory-delta.test.mjs). Check incremental changes and metadata updates without path changes.
 - [Session fixtures](session-fixture.ts). Validate worker messages and method-specific responses for the session suites.
 - [Shutdown](session-shutdown.test.mjs). Hold watcher startup and unsubscribe separately and require natural worker exit.
-- [Session](session.test.mjs). Exercise save refreshes, cache lifetimes, inventory reconciliation and watcher fallbacks.
+- [Session](session.test.mjs). Exercise save refreshes, cache lifetimes, inventory reconciliation and watcher fallbacks, including ordinary folders with or without Git installed.
+- [Workspace windows](workspace-windows.test.ts). Check saved folder navigation and last-file restoration for Git repositories and ordinary folders.
 
 Run `pnpm test app/tests/runtime/session` from the repository root.

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
-import { chmod, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { test } from 'vite-plus/test'
 import { readClaudeFile } from '../../../backend/tools/assistant/claude-workspace.mjs'
+import { searchRepositoryContent } from '../../../backend/workspace/repository/content-search.mjs'
 import { Repository } from '../../../backend/workspace/repository/repository.mjs'
 import { MAX_PIXEL_DIFF_IMAGE_BYTES } from '../../../shared/documents/media-types.ts'
 
@@ -87,6 +88,126 @@ async function fixture(t) {
   await git(['config', 'commit.gpgsign', 'false'])
   return { root, git, write, commit, open: () => Repository.open(root) }
 }
+
+test('ordinary folders expose confined editable files without Git comparisons', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-folder-')))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  await mkdir(path.join(root, 'nested'))
+  await writeFile(path.join(root, 'nested/file.txt'), 'folder contents\n')
+  await writeFile(path.join(root, '.hidden'), 'hidden file\n')
+  await symlink(root, path.join(root, 'nested/link'))
+
+  const repository = await Repository.open(root)
+  assert.equal(repository.isGitRepository, false)
+  assert.equal(repository.root, root)
+  assert.equal(repository.scope, root)
+  const files = await repository.files()
+  assert.deepEqual(
+    files.map(file => file.path),
+    ['.hidden', 'nested', 'nested/file.txt', 'nested/link'],
+  )
+  assert.equal(find({ files }, 'nested').directory, true)
+  assert.notEqual(find({ files }, 'nested/link').directory, true)
+  const file = find({ files }, 'nested/file.txt')
+  const comparisons = await Promise.all(['head', 'unstaged', 'staged'].map(mode => repository.contents(file, mode)))
+  for (const contents of comparisons) {
+    assert.deepEqual(contents, {
+      before: 'folder contents\n',
+      after: 'folder contents\n',
+      note: null,
+    })
+  }
+  assert.equal(await repository.editable(file.path), true)
+  await repository.save(file.path, 'saved contents\n', 'folder contents\n')
+  assert.equal(await readFile(path.join(root, file.path), 'utf8'), 'saved contents\n')
+  assert.deepEqual((await repository.snapshot()).files, [])
+  await assert.rejects(repository.save('../outside.txt', 'outside', ''), /invalid repository-relative/u)
+
+  const scoped = await Repository.open(path.join(root, file.path))
+  assert.equal(scoped.root, path.join(root, 'nested'))
+  assert.deepEqual(
+    (await scoped.files()).map(entry => entry.path),
+    ['file.txt', 'link'],
+  )
+  assert.equal(await scoped.editable('../.hidden'), false)
+  await assert.rejects(repository.gitOverview(Date.now() - 1000, Date.now()), /Git repository/u)
+  await assert.rejects(repository.gitChanges({ kind: 'working', mode: 'head' }), /Git repository/u)
+})
+
+test('ordinary folders retain readable files and search results beside inaccessible descendants', async t => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-folder-access-')))
+  const locked = path.join(root, 'locked')
+  t.onTestFinished(async () => {
+    await chmod(root, 0o700)
+    await chmod(locked, 0o700)
+    await rm(root, { recursive: true, force: true })
+  })
+  await mkdir(locked)
+  await writeFile(path.join(locked, 'hidden.txt'), 'needle behind permissions\n')
+  await writeFile(path.join(root, 'readable.txt'), 'readable needle\n')
+  await chmod(locked, 0)
+  let readable = true
+  try {
+    await readdir(locked)
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || !['EACCES', 'EPERM'].includes(String(error.code)))
+      throw error
+    readable = false
+  }
+  if (readable) t.skip('The host user can read directories despite their permission bits.')
+
+  const repository = await Repository.open(root)
+  const files = await repository.files()
+  assert.deepEqual(
+    files.map(file => file.path),
+    ['locked', 'readable.txt'],
+  )
+  assert.equal(find({ files }, 'locked').directory, true)
+  const result = await searchRepositoryContent(
+    repository,
+    { query: 'needle', scope: 'workspace', matchCase: false },
+    new AbortController().signal,
+  )
+  assert.deepEqual(
+    result?.matches.map(match => match.path),
+    ['readable.txt'],
+  )
+  assert.equal(result?.truncated, false)
+
+  await chmod(root, 0)
+  try {
+    await assert.rejects(repository.files(), { code: 'EACCES' })
+  } finally {
+    await chmod(root, 0o700)
+  }
+})
+
+test.for([false, true])(
+  'folders can be opened and read when Git is unavailable (repository present: %s)',
+  async (repositoryPresent, t) => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), 'diffpane-no-git-')))
+    t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+    if (repositoryPresent) await execute('git', ['init', '-q', root])
+    await writeFile(path.join(root, 'file.txt'), 'without Git\n')
+    const source = `
+    import assert from 'node:assert/strict';
+    import { Repository } from ${JSON.stringify(new URL('../../../backend/workspace/repository/repository.mjs', import.meta.url).href)};
+    const repository = await Repository.open(${JSON.stringify(root)});
+    assert.equal(repository.isGitRepository, false);
+    const files = await repository.files();
+    assert.equal(files.length, 1);
+    assert.deepEqual(await repository.contents(files[0]), {
+      before: 'without Git\\n', after: 'without Git\\n', note: null,
+    });
+  `
+    await assert.doesNotReject(() =>
+      execute(process.execPath, ['--input-type=module', '--eval', source], {
+        env: { ...process.env, PATH: root },
+        timeout: 10000,
+      }),
+    )
+  },
+)
 
 test('Git Today and History preserve day boundaries, merge parents, ref tips and historical patches', async t => {
   const repo = await fixture(t)

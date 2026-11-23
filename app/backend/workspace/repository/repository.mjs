@@ -227,7 +227,7 @@ export class Repository {
     return this.#lastStatus?.fingerprint
   }
 
-  /** @param {string} root @param {string} scope @param {string} gitDir @param {string} commonDir */
+  /** @param {string} root @param {string} scope @param {string | null} gitDir @param {string | null} commonDir */
   constructor(root, scope, gitDir, commonDir) {
     this.root = root
     this.scope = scope
@@ -242,11 +242,36 @@ export class Repository {
     this.expandedIgnored = new Set()
   }
 
+  get isGitRepository() {
+    return this.gitDir !== null
+  }
+
+  get metadataDirectories() {
+    return [this.gitDir, this.commonDir].filter(directory => directory !== null)
+  }
+
   /** @param {string} directory */
   static async open(directory) {
     let scope = await realpath(directory)
-    if ((await lstat(scope)).isFile()) scope = path.dirname(scope)
-    const root = await realpath(await gitPath(scope, ['rev-parse', '--show-toplevel']))
+    const metadata = await lstat(scope)
+    if (metadata.isFile()) scope = path.dirname(scope)
+    else if (!metadata.isDirectory()) throw new Error('Choose a file or folder to open.')
+    // Ordinary folders must remain usable even when Git is not installed.
+    let ancestor = scope
+    while (true) {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Stop at the nearest repository without probing unrelated ancestors.
+      if (await existingEntry(path.join(ancestor, '.git'))) break
+      const parent = path.dirname(ancestor)
+      if (parent === ancestor) return new Repository(scope, scope, null, null)
+      ancestor = parent
+    }
+    let root
+    try {
+      root = await realpath(await gitPath(scope, ['rev-parse', '--show-toplevel']))
+    } catch (error) {
+      if (errorCode(error) === 'ENOENT') return new Repository(scope, scope, null, null)
+      throw error
+    }
     const [gitDir, commonDir] = await Promise.all([
       gitPath(root, ['rev-parse', '--absolute-git-dir']),
       gitPath(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
@@ -257,6 +282,7 @@ export class Repository {
 
   /** @param {boolean} trackFingerprint */
   async #status(trackFingerprint) {
+    if (!this.isGitRepository) return { branch: '', head: null, files: [] }
     const bytes = await git(this.root, statusArguments, MAX_STATUS_BYTES)
     // The worktree may change without changing Git's status records. Reuse the
     // parsed result unless the bytes of an inferred rename destination might have changed.
@@ -265,7 +291,7 @@ export class Repository {
     if (this.#lastStatus && this.#lastStatus.fingerprint === fingerprint) return this.#lastStatus.result
     const { renameSources, ...status } = parseStatus(bytes)
     let snapshot = status
-    if (hash && renameSources.size && renameSources.size <= MAX_WORKING_RENAME_INPUTS) {
+    if (hash && this.commonDir && renameSources.size && renameSources.size <= MAX_WORKING_RENAME_INPUTS) {
       const candidates = status.files.filter(file => file.index === '?' && !file.path.endsWith('/'))
       if (candidates.length && candidates.length <= MAX_WORKING_RENAME_INPUTS) {
         /** @type {Set<string>} */
@@ -323,6 +349,7 @@ export class Repository {
 
   /** @param {unknown} dayStartMs @param {unknown} dayEndMs @param {unknown} [historyLimit] */
   async gitOverview(dayStartMs, dayEndMs, historyLimit) {
+    this.#requireGit()
     const [revision, symbolic] = await Promise.all([
       command(this.root, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], 4096),
       command(this.root, ['symbolic-ref', '--quiet', 'HEAD'], 4096),
@@ -348,6 +375,7 @@ export class Repository {
 
   /** @param {unknown} selection @returns {Promise<GitChanges>} */
   async gitChanges(selection) {
+    this.#requireGit()
     const comparison = parseGitComparison(selection)
     if (comparison.kind === 'revision') {
       const base = comparison.base ?? (await this.#gitEmptyTree())
@@ -405,6 +433,7 @@ export class Repository {
 
   /** @param {unknown} selection @param {unknown} file @returns {Promise<GitFileContents>} */
   async gitContents(selection, file) {
+    this.#requireGit()
     const comparison = parseGitComparison(selection)
     if (!file || typeof file !== 'object' || !('path' in file) || !('originalPath' in file) || !('status' in file)) {
       throw new Error('Invalid Git change file.')
@@ -450,7 +479,7 @@ export class Repository {
       absolute !== this.scope &&
       !filename.split('/').some(part => part.toLowerCase() === '.git') &&
       within(this.scope, absolute) &&
-      ![this.gitDir, this.commonDir].some(directory => within(directory, absolute))
+      !this.metadataDirectories.some(directory => within(directory, absolute))
     )
   }
 
@@ -470,6 +499,7 @@ export class Repository {
 
   /** @returns {Promise<Checkpoint>} */
   async captureCheckpoint() {
+    this.#requireGit()
     const status = await this.#status(false)
     const candidates = [...this.#checkpointStatusPaths(status)]
     const algorithm = status.head
@@ -665,7 +695,7 @@ export class Repository {
       if (
         !within(this.scope, resolvedParent) ||
         resolvedParent.split(path.sep).some(part => part.toLowerCase() === '.git') ||
-        [this.gitDir, this.commonDir].some(directory => within(directory, resolvedParent)) ||
+        this.metadataDirectories.some(directory => within(directory, resolvedParent)) ||
         (parent !== resolvedParent && !(await realDirectories(this.scope, parent)))
       )
         return null
@@ -754,6 +784,12 @@ export class Repository {
 
   /** @param {boolean} changed @param {AbortSignal} signal */
   async contentSearchPaths(changed, signal) {
+    if (!this.isGitRepository) {
+      signal.throwIfAborted()
+      if (changed) return { paths: [], truncated: false }
+      const paths = (await this.#folderFiles(signal)).filter(file => !file.directory).map(file => file.path)
+      return { paths: paths.slice(0, MAX_CONTENT_SEARCH_PATHS), truncated: paths.length > MAX_CONTENT_SEARCH_PATHS }
+    }
     const relative = path.relative(this.root, this.scope)
     const scope = relative ? [relative] : []
     const args = changed ? statusArguments : ['ls-files', '--cached', '--others', '--exclude-standard', '-z']
@@ -799,7 +835,7 @@ export class Repository {
     if (
       filename.split('/').includes('.git') ||
       !within(this.scope, absolute) ||
-      [this.gitDir, this.commonDir].some(directory => within(directory, absolute)) ||
+      this.metadataDirectories.some(directory => within(directory, absolute)) ||
       readLimit(filename) > MAX_FILE_BYTES
     )
       return null
@@ -817,7 +853,7 @@ export class Repository {
         current.dev !== metadata.dev ||
         current.ino !== metadata.ino ||
         !within(this.scope, resolvedParent) ||
-        [this.gitDir, this.commonDir].some(directory => within(directory, resolvedParent)) ||
+        this.metadataDirectories.some(directory => within(directory, resolvedParent)) ||
         (resolvedParent !== parent && !(await realDirectories(this.scope, parent)))
       )
         return null
@@ -846,6 +882,12 @@ export class Repository {
 
   /** @returns {Promise<InventoryEntry[]>} */
   async files() {
+    if (!this.isGitRepository) {
+      const files = await this.#folderFiles()
+      this.inventoryMetadata = new Map(files.map(file => [file.path, file]))
+      this.inventoryDirectories = new Set(['', ...files.filter(file => file.directory).map(file => file.path)])
+      return files
+    }
     const scope = path.relative(this.root, this.scope).split(path.sep).join('/')
     const bytes = await git(
       this.root,
@@ -1005,7 +1047,7 @@ export class Repository {
 
   /** @param {readonly string[]} names @returns {Promise<Set<string>>} */
   async #ignored(names, untrackedOnly = false) {
-    if (!names.length) return new Set()
+    if (!this.isGitRepository || !names.length) return new Set()
     const result = await command(
       this.root,
       ['check-ignore', ...(untrackedOnly ? [] : ['--no-index']), '-z', '--stdin'],
@@ -1024,8 +1066,44 @@ export class Repository {
       return await readdir(absolute, { withFileTypes: true })
     } catch (error) {
       if (missing(error)) return []
+      if (!this.isGitRepository && directory !== '' && ['EACCES', 'EPERM'].includes(errorCode(error) ?? '')) return []
       throw error
     }
+  }
+
+  /** @param {AbortSignal} [signal] @returns {Promise<InventoryEntry[]>} */
+  async #folderFiles(signal) {
+    /** @type {InventoryEntry[]} */
+    const files = []
+    let parents = ['']
+    while (parents.length) {
+      signal?.throwIfAborted()
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Each level discovers the directories for the next bounded read pool.
+      const entries = await mapFileReads(parents, async directory => {
+        signal?.throwIfAborted()
+        return (await this.#directoryEntries(directory))
+          .filter(entry => entry.name.toLowerCase() !== '.git')
+          .map(entry => ({ path: directory ? `${directory}/${entry.name}` : entry.name, entry }))
+      })
+      parents = []
+      for (const { path: filename, entry } of entries.flat()) {
+        validatePath(filename)
+        if (!entry.isDirectory() && !entry.isFile() && !entry.isSymbolicLink()) continue
+        const directory = entry.isDirectory()
+        files.push({
+          path: filename,
+          originalPath: null,
+          index: ' ',
+          worktree: ' ',
+          conflicted: false,
+          submodule: false,
+          ...(directory ? { directory: true } : {}),
+        })
+        if (directory) parents.push(filename)
+      }
+    }
+    signal?.throwIfAborted()
+    return files.toSorted((a, b) => comparePaths(a.path, b.path))
   }
 
   /** @param {string} filename @param {boolean} expanded */
@@ -1108,6 +1186,7 @@ export class Repository {
 
   /** @param {readonly string[]} paths */
   async hasRelevantPaths(paths) {
+    if (!this.isGitRepository) return true
     paths = [...new Set(paths)]
     if (!paths.length || paths.some(name => name === this.root || !within(this.root, name))) {
       return true
@@ -1140,6 +1219,10 @@ export class Repository {
     validatePath(file.path)
     if (file.originalPath) validatePath(file.originalPath)
     if (!['head', 'unstaged', 'staged'].includes(comparison)) throw new Error('Unknown comparison mode.')
+    if (!this.isGitRepository) {
+      const bytes = await this.#workingFile(file.path, true)
+      return comparedContents(bytes, bytes, file.path, file.path)
+    }
     if (file.submodule) {
       return unavailable('Git submodule. Open the submodule directory to inspect its files.')
     }
@@ -1178,6 +1261,7 @@ export class Repository {
 
   /** @param {WorkspaceFile} file */
   async readClaudeHead(file) {
+    this.#requireGit()
     const filename = file.originalPath ?? file.path
     if (!claudeVisiblePath(filename) || !within(this.scope, path.join(this.root, filename)))
       throw new Error('No regular HEAD text file is available at this path.')
@@ -1193,6 +1277,10 @@ export class Repository {
     return contents.value
   }
 
+  #requireGit() {
+    if (!this.isGitRepository) throw new Error('This folder does not have a Git repository.')
+  }
+
   /** @param {string} filename */
   async #editPath(filename) {
     validatePath(filename)
@@ -1203,7 +1291,7 @@ export class Repository {
       !within(this.scope, absolute) ||
       !within(this.scope, resolved) ||
       filename.split('/').includes('.git') ||
-      [this.gitDir, this.commonDir].some(directory => within(directory, resolved)) ||
+      this.metadataDirectories.some(directory => within(directory, resolved)) ||
       !(await lstat(absolute)).isFile()
     )
       throw new Error('Only regular text files in this directory can be edited.')
@@ -1352,7 +1440,7 @@ export class Repository {
     const parent = path.dirname(absolute)
     if (
       !within(this.scope, parent) ||
-      [this.gitDir, this.commonDir].some(directory => within(directory, absolute) || within(absolute, directory))
+      this.metadataDirectories.some(directory => within(directory, absolute) || within(absolute, directory))
     )
       throw new Error('Choose a project text file in this workspace.')
     const identity = async () => {
@@ -1509,7 +1597,7 @@ export class Repository {
     }
     if (
       protectGit &&
-      ([this.gitDir, this.commonDir].some(directory => within(directory, parent)) ||
+      (this.metadataDirectories.some(directory => within(directory, parent)) ||
         path
           .relative(this.root, parent)
           .split(path.sep)
@@ -1893,7 +1981,9 @@ function command(directory, args, limit, input, { truncate = false, signal, envi
     )
     timer.unref()
     signal?.addEventListener('abort', abort, { once: true })
-    child.on('error', error => fail(new Error(`Cannot run Git: ${error.message}`)))
+    child.on('error', error =>
+      fail(Object.assign(new Error(`Cannot run Git: ${error.message}`), { code: errorCode(error) })),
+    )
     child.stdin.on('error', error => {
       if (errorCode(error) !== 'EPIPE') fail(error)
     })

@@ -1214,7 +1214,7 @@ handle('agent-threads-file', async (session, event, selection, filename, childId
   if (file.kind === 'workspace') return file
   const repository = await attemptAsync(() => Repository.open(file.path))
   if (!repository.ok)
-    throw appError('This linked file must be in a Git working tree to open it in Diffpane.', {
+    throw appError('This linked file could not be opened in Diffpane.', {
       code: 'WORKSPACE_REQUIRED',
     })
   const source = WorkspaceWindow.fromRenderer(event.sender)
@@ -1617,7 +1617,8 @@ function syncFileMenu(session) {
       .map(id => {
         const available = actions?.has(id) === true
         let visible = true
-        if (id === 'showDiff') visible = !actions || !(actions.has('showWorkingFile') || actions.has('closeComparison'))
+        if (id === 'showDiff')
+          visible = available && !(actions?.has('showWorkingFile') || actions?.has('closeComparison'))
         else if (id === 'showWorkingFile' || id === 'closeComparison' || id === 'undoDelete' || id === 'redoDelete')
           visible = available
         else if (id === 'undoRename') visible = !actions?.has('undoDelete')
@@ -1634,6 +1635,7 @@ function fileMenuItem(action) {
     label: fileMenuLabels[action],
     enabled: false,
     visible:
+      action !== 'showDiff' &&
       action !== 'showWorkingFile' &&
       action !== 'closeComparison' &&
       action !== 'undoDelete' &&

@@ -29,6 +29,7 @@ export interface WorkspaceSnapshot {
   scope: string
   initialPath: string | null
   initialLine?: number
+  isGitRepository: boolean
   branch: string
   head: string | null
   files: WorkspaceFile[]

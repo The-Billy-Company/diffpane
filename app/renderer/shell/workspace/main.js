@@ -230,7 +230,7 @@ app.innerHTML = `
       <div class="start-intro">
         <div class="start-copy">
           <h1 id="start-title">Welcome to Diffpane</h1>
-          <p id="start-description">Open a file or folder in a Git working tree to get started.</p>
+          <p id="start-description">Open a file or folder to get started.</p>
           <div id="start-error" hidden></div>
           <div class="start-actions" id="start-actions" hidden>
             <button type="button" id="open-folder">${icons.folder}Open Folder…</button>
@@ -522,6 +522,7 @@ const onboarding =
   api.onboarding &&
   createOnboarding({
     api: api.onboarding,
+    isGitRepository: () => Boolean(snapshot?.isGitRepository),
     appearance: () => uiPreferences.get('appearance'),
     shortcutLabel,
     surface: () => {
@@ -682,7 +683,7 @@ function showStartScreen(failed = false) {
     ? 'Choose a folder to continue in this workspace.'
     : missingWorkspace
       ? 'The folders in this workspace are unavailable. Add a folder or reconnect one to continue.'
-      : 'Open a file or folder in a Git working tree to get started.'
+      : 'Open a file or folder to get started.'
   ui.startActions.hidden = missingWorkspace
   ui.workspaceRecoveryActions.hidden = !missingWorkspace
   ui.chooseRecoveryFolder.hidden = !canReconnect
@@ -1135,7 +1136,7 @@ const gitWorkspace = createGitWorkspace(ui.gitWorkspace, {
   openReview: openGitReviewQueue,
 })
 ui.gitToggle.addEventListener('click', () => {
-  if (!snapshot || closed || closingRequested) return
+  if (!snapshot?.isGitRepository || closed || closingRequested) return
   if (closeGitWorkspace()) {
     ui.gitToggle.focus()
     return
@@ -1165,6 +1166,7 @@ function closeGitWorkspace() {
 }
 
 function openGitReviewQueue() {
+  if (!snapshot?.isGitRepository) return
   closeGitWorkspace()
   reviewVisible = true
   setSidebarVisible(true)
@@ -1487,6 +1489,11 @@ async function openFile(
   } = {},
 ) {
   if (closingRequested || closed) return false
+  if (!snapshot?.isGitRepository) {
+    compare = focusReview = false
+    comparison = 'head'
+    if (anchor?.side === 'head') anchor = { ...anchor, side: 'working' }
+  }
   const openedAt = performance.now()
   const version = ++navigationVersion
   const current = openedFile ? cards.get(openedFile.path) : undefined
@@ -1778,7 +1785,7 @@ function switchToPreviousFile() {
 }
 
 function toggleReview() {
-  if (!snapshot) return
+  if (!snapshot?.isGitRepository) return
   if (!ui.gitWorkspace.hidden) {
     openGitReviewQueue()
     return
@@ -1820,7 +1827,7 @@ function setSidebarVisible(visible) {
   ui.sidebar.hidden = !visible
   const showFiles = visible && !reviewVisible
   if (showFiles !== !ui.navigator.hidden) navigator.toggle()
-  const showReview = visible && reviewVisible
+  const showReview = visible && reviewVisible && Boolean(snapshot?.isGitRepository)
   review.setVisible(showReview)
   if (showReview) refreshBillyLanes()
   ui.reviewToggle.setAttribute('aria-pressed', String(showReview))
@@ -1847,12 +1854,12 @@ function createCard(file, openedAt) {
       <span class="file-icon">${icons.file}</span>
       <div class="file-path"><span class="file-directory"></span><strong class="file-name"></strong></div>
       <div class="file-actions">
-        <button class="diff-toggle change-button" type="button" aria-pressed="false" title="Compare with Git HEAD" disabled>
+        <button class="diff-toggle change-button" type="button" aria-pressed="false" title="Compare with Git HEAD" disabled hidden>
           <svg viewBox="0 0 18 18" fill="none" aria-hidden="true"><rect x="1.75" y="3" width="14.5" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M9 3v12m-5.5-6H7m4 0h3.5m-1.75-1.75v3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
           <span>Diff</span><span class="file-diff-baseline" hidden></span>
         </button>
         <details class="symbol-outline" hidden><summary title="Document symbols">Symbols</summary><div class="symbol-list"></div></details>
-        <button class="file-next-change change-button" type="button" title="Next change" aria-label="Next change in file" disabled>${icons.down}</button>
+        <button class="file-next-change change-button" type="button" title="Next change" aria-label="Next change in file" disabled hidden>${icons.down}</button>
         <button class="billy-review-trigger change-button" type="button" aria-expanded="false" hidden>Billy</button>
         <button class="file-action-toggle change-button" type="button" aria-label="File actions" title="File actions">${icons.more}</button>
         <div class="file-action-popover" role="group" aria-label="File actions" popover></div>
@@ -2077,9 +2084,9 @@ function populateFileActions(card, popover, trigger) {
   }
 
   const canCompareSiblings = billyAvailable && billyContext && !mediaType(card.file.path) && !card.file.submodule
-  if (reviewNotes || ideas || assistant || canCompareSiblings) {
+  if ((reviewNotes && snapshot?.isGitRepository) || ideas || assistant || canCompareSiblings) {
     const add = group('Workspace')
-    if (reviewNotes) {
+    if (reviewNotes && snapshot?.isGitRepository) {
       add('Add file review note', () => reviewNotes.openComposer(captureReviewAnchor(card, 'working', false)))
     }
     if (ideas) add('Link to an idea', () => attachIdeaLink(captureIdeaLink(card)))
@@ -2108,13 +2115,21 @@ function renderSnapshot(next) {
   if (snapshot && next.revision === snapshot.revision && next.inventoryRevision < snapshot.inventoryRevision) return
   const first = !snapshot
   const rootChanged = next.root !== snapshot?.root
-  const allDirty = !next.changedPaths || next.changedPaths.includes('*') || rootChanged
+  const gitChanged = next.isGitRepository !== snapshot?.isGitRepository
+  const allDirty = !next.changedPaths || next.changedPaths.includes('*') || rootChanged || gitChanged
   const watchChanged = next.watchError !== snapshot?.watchError
   const searchChanged = next.revision !== snapshot?.revision || next.inventoryRevision !== snapshot?.inventoryRevision
   snapshot = next
-  if (rootChanged) {
+  if (rootChanged || gitChanged) {
     closeGitWorkspace()
     gitWorkspace.reset()
+    if (!next.isGitRepository) {
+      for (const card of cards.values()) {
+        card.comparing = false
+        card.reviewComparison = false
+        setDocumentComparison(card, 'head')
+      }
+    }
   } else if (searchChanged || next.changedPaths.length) refreshGitWorkspace()
   ui.startError.replaceChildren()
   if (!workspaceFailure) clearErrorNotice('workspace')
@@ -2142,17 +2157,21 @@ function renderSnapshot(next) {
   }
   if (first) {
     setSidebarVisible(true)
-    ui.gitToggle.hidden = false
     requireElement(document, '.statusbar-end', HTMLElement).hidden = false
     ui.contentSearchToggle.hidden = !contentSearch
     ui.terminalToggle.hidden = !api.terminal
-    ui.reviewToggle.hidden = false
-    reviewNotes?.setContext(true)
     if (ideas) {
       ui.ideasToggle.hidden = false
       syncIdeasVisibility(uiPreferences.get('ideasVisible'))
       runTask('Load ideas', () => ideas.load())
     }
+  }
+  ui.gitToggle.hidden = ui.reviewToggle.hidden = !next.isGitRepository
+  reviewNotes?.setContext(next.isGitRepository)
+  contentSearch.setGitRepository(next.isGitRepository)
+  if (!next.isGitRepository && reviewVisible) {
+    reviewVisible = false
+    setSidebarVisible(!ui.sidebar.hidden)
   }
   navigator.update(next)
   updateReviewBaseline(undefined, next.changedPaths.includes('contracts/operate/codegen/generators.toml'))
@@ -2160,7 +2179,7 @@ function renderSnapshot(next) {
   ui.projectPath.textContent = next.scope
   ui.projectPath.title = next.scope
   ui.projectName.title = next.scope
-  ui.branchName.textContent = next.branch || 'HEAD'
+  ui.branchName.textContent = next.isGitRepository ? next.branch || 'HEAD' : ''
   ui.gitToggle.title = `Inspect Git history and changes · ${next.branch || 'Detached HEAD'}`
   ui.gitToggle.setAttribute('aria-description', next.branch || 'Detached HEAD')
   if (first || rootChanged) workspaceController.update()
@@ -2206,7 +2225,9 @@ function renderSnapshot(next) {
     }
   }
   syncReviewState()
-  ui.statusText.textContent = `${next.files.length.toLocaleString()} changed ${next.files.length === 1 ? 'file' : 'files'} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+  ui.statusText.textContent = next.isGitRepository
+    ? `${next.files.length.toLocaleString()} changed ${next.files.length === 1 ? 'file' : 'files'} · ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}`
+    : 'Folder open'
   revealWorkspaceWhenReady()
 }
 
@@ -2379,10 +2400,11 @@ function renderDocument(card, document, wipeState) {
   const preview = document.preview
   card.element.toggleAttribute(
     'data-changed',
-    document.decorations.length > 0 ||
-      document.beforeDecorations.length > 0 ||
-      Boolean(card.file.index?.trim()) ||
-      Boolean(card.file.worktree?.trim()),
+    Boolean(snapshot?.isGitRepository) &&
+      (document.decorations.length > 0 ||
+        document.beforeDecorations.length > 0 ||
+        Boolean(card.file.index?.trim()) ||
+        Boolean(card.file.worktree?.trim())),
   )
   const reading = !preview && isMarkdown(card.file.path) && !card.markdownSource
   const text = document.after
@@ -2424,10 +2446,10 @@ function renderDocument(card, document, wipeState) {
   for (const control of card.element.querySelectorAll('.symbol-outline, .language-state')) {
     if (control instanceof HTMLElement) control.hidden = Boolean(preview) || reading
   }
-  card.nextChange.hidden = Boolean(preview) || reading || card.comparing
+  card.nextChange.hidden = !snapshot?.isGitRepository || Boolean(preview) || reading || card.comparing
   const button = requireElement(card.element, '.diff-toggle', HTMLButtonElement)
   button.disabled = false
-  button.hidden = false
+  button.hidden = !snapshot?.isGitRepository
   button.setAttribute('aria-pressed', String(card.comparing))
   const baselineText = baseline === 'HEAD' ? 'Git HEAD' : baseline
   button.title = card.comparing ? 'Show working file' : 'Compare with Git HEAD'
@@ -2615,9 +2637,13 @@ function renderDocument(card, document, wipeState) {
   const changeLines = new Set()
   const lineCount = model.getLineCount()
   const hasChangePeek = card.changePeek?.update(
-    card.renderedComparison === 'head' && card.decorationEditVersion === (card.editVersion ?? 0) ? document : null,
+    snapshot?.isGitRepository &&
+      card.renderedComparison === 'head' &&
+      card.decorationEditVersion === (card.editVersion ?? 0)
+      ? document
+      : null,
   )
-  for (const change of document.decorations) {
+  for (const change of snapshot?.isGitRepository ? document.decorations : []) {
     const start = Math.max(1, Math.min(lineCount, change.startLine))
     const end = Math.max(start, Math.min(lineCount, change.endLine))
     changeLines.add(start)
@@ -2890,7 +2916,7 @@ function renderCurrentDocument(card) {
 
 /** @param {Card} card */
 function canToggleDiff(card) {
-  return Boolean(card.document && !closingRequested)
+  return Boolean(snapshot?.isGitRepository && card.document && !closingRequested)
 }
 
 /** @param {Card} card */
@@ -2901,6 +2927,7 @@ function fileComparisonActionLabel(card) {
 
 /** @param {Card} card */
 function toggleDiff(card) {
+  if (!canToggleDiff(card)) return undefined
   const comparing = !card.comparing
   if (!comparing && isCheckpointOnlyDeletion(card)) return closeCurrentFile()
   return changeDocumentMode(card, () => {
@@ -2998,6 +3025,7 @@ function bindEditorMenu(card, editor, side) {
     return editor.createContextKey(name, false)
   }
   const canAnchor = flag('diffpaneCanAnchor')
+  const gitRepository = flag('diffpaneGitRepository')
   let order = 0
   /** @param {string} group @param {string} id @param {string} label @param {() => unknown} run @param {string} [precondition] */
   function add(group, id, label, run, precondition) {
@@ -3028,7 +3056,7 @@ function bindEditorMenu(card, editor, side) {
       () => {
         reviewNotes.openComposer(captureReviewAnchor(card, side))
       },
-      'diffpaneCanAnchor',
+      'diffpaneCanAnchor && diffpaneGitRepository',
     )
   if (ideas)
     add(
@@ -3093,6 +3121,7 @@ function bindEditorMenu(card, editor, side) {
       focusedChanges.set(actions.scope === 'focus')
       closesComparison.set(Boolean(isCheckpointOnlyDeletion(card)))
       canAnchor.set(side === 'head' ? comparisonLabel(card) === 'HEAD' : !card.document?.workingMissing)
+      gitRepository.set(Boolean(snapshot?.isGitRepository))
     }
   }
 
@@ -3107,10 +3136,17 @@ function bindEditorMenu(card, editor, side) {
   )
   add('navigation', 'goto-line', 'Go to line…', () => runMonacoAction('editor.action.gotoLine'))
   add('navigation', 'show-symbols', 'Show document symbols', () => showDocumentSymbols(card))
-  add('1_view', 'compare-head', 'Compare with Git HEAD', () => toggleDiff(card))
-  add('1_view', 'next-change', 'Next change in file', () => card.nextChange.click(), 'diffpaneHasSourceChanges')
+  add('1_view', 'compare-head', 'Compare with Git HEAD', () => toggleDiff(card), 'diffpaneGitRepository')
+  add(
+    '1_view',
+    'next-change',
+    'Next change in file',
+    () => card.nextChange.click(),
+    'diffpaneHasSourceChanges && diffpaneGitRepository',
+  )
   return () => {
     canAnchor.set(!card.document?.workingMissing)
+    gitRepository.set(Boolean(snapshot?.isGitRepository))
     hasSourceChanges.set(card.changes.length > 0)
   }
 }
@@ -3585,8 +3621,8 @@ const workspaceShortcuts = {
   searchFiles: () => searchFiles,
   quickOpen: () => searchFiles,
   searchProject: () => contentSearch && snapshot && openContentSearch,
-  reviewNotes: () => reviewNotes && snapshot && (() => ui.reviewNotesToggle.click()),
-  reviewChanges: () => snapshot && toggleReview,
+  reviewNotes: () => reviewNotes && snapshot?.isGitRepository && (() => ui.reviewNotesToggle.click()),
+  reviewChanges: () => snapshot?.isGitRepository && toggleReview,
   toggleClaude: () => assistant && (() => ui.claudeToggle.click()),
   openClaudeAgent: () => assistant?.openEditor,
   toggleAssistantSidebar: () => assistant && (() => ui.claudeToggle.click()),

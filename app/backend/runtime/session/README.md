@@ -18,4 +18,6 @@ doc_radar:
 
 The [main process](../window/README.md) launches a worker for each open workspace. Run `pnpm test app/tests/runtime/session` from the repository root.
 
+Ordinary folders use the same document, search, save, and filesystem watcher paths as Git workspaces. Every snapshot reports `isGitRepository`; ordinary folders identify Git as unavailable, and the session skips Git metadata watches and history notifications.
+
 The worker reports repository readiness, refresh and catalog timings, document reads and diffs, request durations, and watcher fallback through the main process's local diagnostics. Main-process and worker timings for the same request share a request ID. A one-minute sample tracks event-loop utilization, V8 memory and document cache usage for each open workspace.

@@ -2,7 +2,7 @@
 import '@parcel/watcher'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtemp, mkdir, writeFile, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, writeFile, realpath, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -24,8 +24,20 @@ import {
 /** @import { WorkspaceSnapshot } from '../../../backend/runtime/session/workspace-types.ts' */
 /** @import { TestedMethod, SessionResponse } from './session-fixture.ts' */
 
-/** @param {TestContext} t @param {{fileCount?: number, setup?: string, scope?: string, versions?: SessionVersions, initialFile?: string, initialLine?: number}} [options] */
-async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, initialFile, initialLine } = {}) {
+/** @param {TestContext} t @param {{fileCount?: number, setup?: string, scope?: string, versions?: SessionVersions, initialFile?: string, initialLine?: number, gitRepository?: boolean, gitAvailable?: boolean}} [options] */
+async function fixture(
+  t,
+  {
+    fileCount = 1000,
+    setup = '',
+    scope = '',
+    versions,
+    initialFile,
+    initialLine,
+    gitRepository = true,
+    gitAvailable = true,
+  } = {},
+) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'diffpane-session-'))
   /** @param {...string} args */
   const git = (...args) =>
@@ -34,12 +46,11 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, 
     })
   /** @param {string} name @param {string | Buffer} value */
   const write = (name, value) => writeFile(path.join(root, name), value)
-  git('init', '-q')
+  if (gitRepository) git('init', '-q')
   await mkdir(path.join(root, 'src'))
   await Promise.all(
     Array.from({ length: fileCount }, (_, index) => write(`src/file${index}.txt`, `baseline ${index}\n`)),
   )
-  git('add', '.')
   const commit = () =>
     git(
       '-c',
@@ -52,7 +63,10 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, 
       '-qm',
       'baseline',
     )
-  commit()
+  if (gitRepository) {
+    git('add', '.')
+    commit()
+  }
   const sessionUrl = new URL('../../../backend/runtime/session/session.mjs', import.meta.url)
   // An alternative native backend makes integration checks possible when the
   // host's shared FSEvents stream is dropping events during unrelated builds.
@@ -75,6 +89,7 @@ async function fixture(t, { fileCount = 1000, setup = '', scope = '', versions, 
         )
       : sessionUrl
   const worker = new Worker(workerUrl, {
+    env: gitAvailable ? process.env : { ...process.env, PATH: root },
     workerData: {
       directory: path.join(root, scope),
       versions,
@@ -198,6 +213,52 @@ const injectedWatchSetup = `
         if (message.testEvents) callbacks[0](message.testWatchError ? new Error(message.testWatchError) : null, message.testEvents);
       });
     `
+
+test.for([true, false])(
+  'ordinary folder sessions support editing and inventory updates (Git available: %s)',
+  async (gitAvailable, t) => {
+    const filename = 'src/file0.txt'
+    const repo = await fixture(t, {
+      fileCount: 1,
+      initialFile: filename,
+      gitRepository: false,
+      gitAvailable,
+      setup: injectedWatchSetup,
+    })
+    const initial = await repo.call('snapshot')
+    assert.equal(initial.isGitRepository, false)
+    assert.equal(initial.root, await realpath(repo.root))
+    assert.equal(initial.scope, initial.root)
+    assert.equal(initial.initialPath, filename)
+    assert.equal(initial.branch, '')
+    assert.equal(initial.head, null)
+    assert.deepEqual(initial.files, [])
+    assert.deepEqual(
+      (await repo.call('files')).map(file => file.path),
+      ['src', filename],
+    )
+    const document = await repo.call('document', filename, 'head')
+    assert.equal(document.before, 'baseline 0\n')
+    assert.equal(document.after, document.before)
+    assert.equal(document.editable, true)
+    assert.deepEqual(document.decorations, [])
+
+    await repo.call('save', filename, 'saved\n', document.after)
+    assert.equal(await readFile(path.join(repo.root, filename), 'utf8'), 'saved\n')
+    assert.equal((await repo.call('document', filename, 'head')).after, 'saved\n')
+    const saved = await repo.call('snapshot')
+    await repo.write('src/created.txt', 'created\n')
+    repo.emit([{ path: 'src/created.txt', type: 'create' }])
+    const refreshed = await repo.waitFor(snapshot => snapshot.inventoryRevision > saved.inventoryRevision)
+    assert.equal(refreshed.isGitRepository, false)
+    assert.deepEqual(refreshed.files, [])
+    assert.deepEqual(
+      (await repo.call('files')).map(file => file.path),
+      ['src', 'src/created.txt', filename],
+    )
+    assert.deepEqual(repo.updateFailures, [])
+  },
+)
 
 test('opens a linked file at its line within the full project scope', async t => {
   const initialFile = 'src/file0.txt'

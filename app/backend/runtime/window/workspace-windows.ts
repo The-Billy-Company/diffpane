@@ -64,7 +64,7 @@ async function openableFolder(folder: string) {
   try {
     return (await Repository.open(folder)).scope
   } catch {
-    throw appError(`“${name}” needs to be inside an accessible Git working tree.`, {
+    throw appError(`“${name}” could not be opened.`, {
       code: 'WORKSPACE_FOLDER_UNAVAILABLE',
     })
   }
@@ -83,7 +83,7 @@ async function planWorkspace(draft: WorkspaceDraft, preferredFolder = draft.acti
   for (const folder of candidates) {
     if (alternate && unavailable.has(folder)) continue
     try {
-      // oxlint-disable-next-line eslint/no-await-in-loop -- Only probe another Git working tree when this one fails.
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Only probe another folder when this one fails.
       const scope = await openableFolder(folder)
       return { folder, scope, unavailableFolders: [...unavailable] }
     } catch (error) {
@@ -176,7 +176,7 @@ export class WorkspaceWindows {
     const plan = await planWorkspace(draft)
     return this.#withNavigation(window, async () => {
       // An old active-folder selection can be unavailable. Keep it in the saved
-      // list and resume in another working tree where possible.
+      // list and resume in another folder where possible.
       const workspace = await this.#workspaces.save(
         { ...draft, activeFolder: plan.folder ?? draft.activeFolder },
         expectedUpdatedAt,

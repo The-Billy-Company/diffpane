@@ -10,7 +10,7 @@ const steps = ['intro', 'welcome', 'appearance', 'ready'] as const
 const stepLabels = ['Welcome', 'Appearance', 'Ready']
 export type { OnboardingStep }
 type SetupAppearance = Pick<Appearance, 'theme' | 'layout'>
-type SetupShortcut = 'searchFiles' | 'reviewChanges' | 'reviewNotes'
+type SetupShortcut = 'searchFiles' | 'searchProject' | 'reviewChanges' | 'reviewNotes'
 type PreviewWidth = 'wide' | 'narrow'
 
 interface SetupOptions {
@@ -21,6 +21,7 @@ interface SetupOptions {
   onClosed?: () => void
   shortcutLabel?: (action: SetupShortcut) => string
   inWorkspace?: boolean
+  isGitRepository?: boolean
 }
 
 const themeChoices = [
@@ -36,6 +37,7 @@ const layoutChoices = [
 
 const shortcutExamples: ReadonlyArray<{ action: SetupShortcut; label: string }> = [
   { action: 'searchFiles', label: 'Find a file' },
+  { action: 'searchProject', label: 'Search in project' },
   { action: 'reviewChanges', label: 'Review changes' },
   { action: 'reviewNotes', label: 'Open review notes' },
 ]
@@ -47,7 +49,7 @@ function introMarkup() {
     <div class="onboarding-intro-mark">
       <img src="${appIcon}" alt="" width="96" height="96">
       <h1 id="onboarding-setup-title" tabindex="-1">Diffpane</h1>
-      <p>A quiet, live view of your working tree</p>
+      <p>A quiet, live view of your files</p>
     </div>
     <button class="onboarding-intro-skip" type="button" data-action="next" aria-label="Skip intro animation">Skip</button>
   </div>`
@@ -74,37 +76,53 @@ function choicesMarkup(key: keyof SetupAppearance, label: string, draft: SetupAp
   </fieldset>`
 }
 
-function shortcutMarkup() {
+function shortcuts(isGitRepository: boolean) {
+  return shortcutExamples.filter(
+    ({ action }) => isGitRepository || action === 'searchFiles' || action === 'searchProject',
+  )
+}
+
+function shortcutMarkup(isGitRepository: boolean) {
   return `<section class="onboarding-shortcut-section" aria-labelledby="onboarding-shortcut-title">
     <h2 id="onboarding-shortcut-title">A few handy shortcuts</h2>
-    <dl class="onboarding-shortcuts">${shortcutExamples.map(({ action, label }) => `<div><dt>${label}</dt><dd><kbd data-shortcut="${action}"></kbd></dd></div>`).join('')}</dl>
+    <dl class="onboarding-shortcuts">${shortcuts(isGitRepository)
+      .map(({ action, label }) => `<div><dt>${label}</dt><dd><kbd data-shortcut="${action}"></kbd></dd></div>`)
+      .join('')}</dl>
   </section>`
 }
 
-function contentFor(step: Exclude<OnboardingStep, 'intro'>, draft: SetupAppearance, inWorkspace?: boolean) {
+function contentFor(
+  step: Exclude<OnboardingStep, 'intro'>,
+  draft: SetupAppearance,
+  inWorkspace?: boolean,
+  isGitRepository = false,
+) {
   const continueButton =
     '<button class="onboarding-primary" type="button" data-action="next">Continue <span aria-hidden="true">→</span></button>'
   switch (step) {
     case 'welcome':
       return {
         title: 'See changes as they happen',
-        subtitle: 'Diffpane gives you a live view of your Git working tree.',
+        subtitle: 'Diffpane gives you a live view of your files and folders.',
         body: `<ul class="onboarding-features">
           <li><span class="onboarding-feature-live" aria-hidden="true"></span><div><strong>Follow edits live</strong><p>See saves from you and your tools.</p></div></li>
-          <li><span class="onboarding-feature-diff" aria-hidden="true">±</span><div><strong>Review changes in context</strong><p>Compare with Git HEAD and track your review.</p></div></li>
+          ${isGitRepository ? '<li><span class="onboarding-feature-diff" aria-hidden="true">±</span><div><strong>Review changes in context</strong><p>Compare with Git HEAD and track your review.</p></div></li>' : ''}
         </ul>`,
-        preview: `<figure class="onboarding-art">
+        preview: isGitRepository
+          ? `<figure class="onboarding-art">
           <figcaption><span>Example workspace</span><span class="onboarding-live-status"><i aria-hidden="true"></i> Watching</span></figcaption>
           ${comparisonArt()}
-        </figure>`,
+        </figure>`
+          : '',
         actions: `<button type="button" data-action="skip">Skip setup</button>${continueButton}`,
       }
     case 'appearance':
       return {
         title: 'Make it yours',
-        subtitle: 'Pick a theme and a layout for reading diffs.',
-        body: `<div class="onboarding-preferences">${choicesMarkup('theme', 'Theme', draft)}${choicesMarkup('layout', 'Diff layout', draft)}<p id="onboarding-layout-help">Automatic switches to inline diffs in narrow panes.</p></div>`,
-        preview: `<figure class="onboarding-art">
+        subtitle: isGitRepository ? 'Pick a theme and a layout for reading diffs.' : 'Pick a theme for your workspace.',
+        body: `<div class="onboarding-preferences">${choicesMarkup('theme', 'Theme', draft)}${isGitRepository ? `${choicesMarkup('layout', 'Diff layout', draft)}<p id="onboarding-layout-help">Automatic switches to inline diffs in narrow panes.</p>` : ''}</div>`,
+        preview: isGitRepository
+          ? `<figure class="onboarding-art">
           <figcaption><span>Live preview</span>
             <div class="onboarding-preview-width" role="group" aria-label="Preview pane width">
               <button type="button" data-preview-width="wide" aria-pressed="true">Wide</button>
@@ -113,16 +131,17 @@ function contentFor(step: Exclude<OnboardingStep, 'intro'>, draft: SetupAppearan
           </figcaption>
           ${comparisonArt()}
           <p class="onboarding-preview-result" role="status"></p>
-        </figure>`,
+        </figure>`
+          : '',
         actions: continueButton,
       }
     case 'ready':
       return {
-        title: 'Ready to review',
+        title: 'Ready to explore',
         subtitle: inWorkspace
-          ? 'Return to your working tree or take a quick tour of the workspace.'
-          : 'Open a Git folder to watch changes, or take a quick tour.',
-        body: shortcutMarkup(),
+          ? 'Return to your folder or take a quick tour of the workspace.'
+          : 'Open a file or folder, or take a quick tour.',
+        body: shortcutMarkup(isGitRepository),
         preview: '',
         actions: `<button class="onboarding-tour-action" type="button" data-action="tour">Take the tour</button>
           <button class="onboarding-primary" type="button" data-action="finish">${inWorkspace ? 'Go to workspace' : 'Get started'} <span aria-hidden="true">→</span></button>`,
@@ -135,6 +154,7 @@ function contentFor(step: Exclude<OnboardingStep, 'intro'>, draft: SetupAppearan
 export function createOnboardingSetup(options: SetupOptions) {
   const dialog = document.createElement('dialog')
   dialog.className = 'onboarding-setup'
+  dialog.dataset.gitRepository = String(Boolean(options.isGitRepository))
   dialog.setAttribute('aria-labelledby', 'onboarding-setup-title')
   const system = matchMedia('(prefers-color-scheme: dark)')
   const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
@@ -169,7 +189,7 @@ export function createOnboardingSetup(options: SetupOptions) {
     if (step === 'intro') {
       dialog.innerHTML = introMarkup()
     } else {
-      const content = contentFor(step, draft, options.inWorkspace)
+      const content = contentFor(step, draft, options.inWorkspace, options.isGitRepository)
       dialog.innerHTML = `<div class="onboarding-card">
         <div class="onboarding-masthead">
           <span class="onboarding-brand"><img src="${appIcon}" alt="" width="26" height="26"> Diffpane</span>
@@ -199,7 +219,7 @@ export function createOnboardingSetup(options: SetupOptions) {
       paintPreview()
       if (step === 'ready') {
         const isMac = /Mac/i.test(navigator.platform)
-        for (const { action } of shortcutExamples) {
+        for (const { action } of shortcuts(Boolean(options.isGitRepository))) {
           const key = requireElement(dialog, `[data-shortcut="${action}"]`, HTMLElement)
           key.textContent = options.shortcutLabel?.(action) ?? bindingLabel(effectiveBinding(action, {}, isMac), isMac)
         }

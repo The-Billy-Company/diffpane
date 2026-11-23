@@ -7,13 +7,14 @@ export interface OnboardingTourStop {
   anchor?: string | readonly string[]
   placement?: 'beside' | 'below' | 'above'
   nextLabel?: string
+  gitOnly?: boolean
 }
 
 export const homeTourStops: readonly OnboardingTourStop[] = [
   {
     anchor: '#open-folder',
-    title: 'Open a Git folder',
-    body: 'Open Folder brings in a working tree. Open File jumps straight to one of its files.',
+    title: 'Open a folder',
+    body: 'Open Folder brings in your files. Open File jumps straight to a single file.',
   },
   {
     anchor: '.home-workspaces-create',
@@ -23,7 +24,7 @@ export const homeTourStops: readonly OnboardingTourStop[] = [
   },
   {
     title: 'Open a folder to continue',
-    body: 'The tour picks up in your first working tree.',
+    body: 'The tour picks up in your first folder.',
   },
 ]
 
@@ -31,27 +32,30 @@ export const workspaceTourStops: readonly OnboardingTourStop[] = [
   {
     anchor: ['#navigator button[data-action="open-file"]', '#navigator .navigator-heading'],
     title: 'Find a file',
-    body: 'Use Search files to jump to a file by name, or browse the working tree in the explorer.',
+    body: 'Use Search files to jump to a file by name, or browse your folder in the explorer.',
     placement: 'beside',
   },
   {
     anchor: '#review-toggle',
+    gitOnly: true,
     title: 'See what changed',
     body: 'Changes collects the files that differ from Git HEAD. Open one to review its diff and track your progress.',
   },
   {
     anchor: ['.file-header .diff-toggle:not(:disabled)', '.file-header', '#empty-state h2', '.workbench'],
+    gitOnly: true,
     title: 'Compare a working file',
     body: 'Open a file to follow saves on disk. Use Diff in its header to compare the working file with Git HEAD.',
   },
   {
     anchor: '#review-notes-toggle',
+    gitOnly: true,
     title: 'Keep a review note',
     body: 'Notes keeps your review comments in one place. Attach them to a file or selection to jump back to the code.',
   },
   {
     title: 'You’re all set',
-    body: 'Open Changes to review the working tree one file at a time.',
+    body: 'Open a file to read, edit, and follow saves on disk.',
   },
 ]
 

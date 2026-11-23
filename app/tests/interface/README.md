@@ -16,3 +16,5 @@ These suites exercise the workspace behaviors users encounter while reading, fin
 - [Search](search/README.md). Project text queries and file search filters.
 
 Run `pnpm test app/tests/interface` from the repository root.
+
+After building the renderer, run `node app/tests/interface/desktop/optional-git.integration.ts` for the WebKit smoke test that opens a plain folder and a standalone file, edits and searches their contents, and checks that Git controls stay hidden.

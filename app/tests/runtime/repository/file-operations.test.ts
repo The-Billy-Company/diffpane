@@ -5,38 +5,41 @@ import path from 'node:path'
 import { test } from 'vite-plus/test'
 import { operationPath, renameEntry } from '../../../backend/workspace/repository/file-operations.ts'
 
-test('rename preserves files and folder descendants and rejects collisions and unsafe paths', async t => {
-  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-rename-')))
-  const workspace = {
-    root,
-    scope: root,
-    gitDir: path.join(root, '.git'),
-    commonDir: path.join(root, '.git'),
-  }
-  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
-  await mkdir(path.join(root, '.git'))
-  await mkdir(path.join(root, 'src'))
-  await writeFile(path.join(root, 'src', 'old.ts'), 'saved contents')
-  assert.equal((await renameEntry(workspace, 'src/old.ts', 'new.ts')).path, 'src/new.ts')
-  assert.equal(await readFile(path.join(root, 'src', 'new.ts'), 'utf8'), 'saved contents')
-  await writeFile(path.join(root, 'src', 'existing.ts'), 'keep me')
-  await assert.rejects(renameEntry(workspace, 'src/new.ts', 'existing.ts'), /already exists/u)
-  assert.equal(await readFile(path.join(root, 'src', 'existing.ts'), 'utf8'), 'keep me')
-  assert.equal((await renameEntry(workspace, 'src', 'lib')).path, 'lib')
-  assert.equal(await readFile(path.join(root, 'lib', 'new.ts'), 'utf8'), 'saved contents')
-  const invalidPaths = ['', '..', '../outside', '.git', '.git/config', 'lib/../.git', '/tmp', 'lib//new.ts']
-  await Promise.all(invalidPaths.map(filename => assert.rejects(operationPath(workspace, filename))))
-  const invalidNames = ['', ' ', '.', '..', '.git', '../escape', 'nested/file', 'nested\\file']
-  await Promise.all(invalidNames.map(name => assert.rejects(renameEntry(workspace, 'lib/new.ts', name))))
-  if (process.platform !== 'win32') {
-    await writeFile(path.join(root, 'lib', ' '), 'original name was a space')
-    const renamed = await renameEntry(workspace, 'lib/ ', 'named.txt')
-    assert.equal((await renameEntry(workspace, renamed.path, ' ', renamed.identity)).path, 'lib/ ')
-    assert.equal(await readFile(path.join(root, 'lib', ' '), 'utf8'), 'original name was a space')
-  }
-  await assert.rejects(operationPath({ ...workspace, scope: path.join(root, 'lib') }, 'lib'))
-  await assert.rejects(operationPath({ ...workspace, scope: path.join(root, 'lib') }, 'src'))
-})
+test.for([true, false])(
+  'rename preserves files and folders and rejects unsafe paths (Git repository: %s)',
+  async (isGitRepository, t) => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-rename-')))
+    const workspace = {
+      root,
+      scope: root,
+      gitDir: isGitRepository ? path.join(root, '.git') : null,
+      commonDir: isGitRepository ? path.join(root, '.git') : null,
+    }
+    t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+    if (isGitRepository) await mkdir(path.join(root, '.git'))
+    await mkdir(path.join(root, 'src'))
+    await writeFile(path.join(root, 'src', 'old.ts'), 'saved contents')
+    assert.equal((await renameEntry(workspace, 'src/old.ts', 'new.ts')).path, 'src/new.ts')
+    assert.equal(await readFile(path.join(root, 'src', 'new.ts'), 'utf8'), 'saved contents')
+    await writeFile(path.join(root, 'src', 'existing.ts'), 'keep me')
+    await assert.rejects(renameEntry(workspace, 'src/new.ts', 'existing.ts'), /already exists/u)
+    assert.equal(await readFile(path.join(root, 'src', 'existing.ts'), 'utf8'), 'keep me')
+    assert.equal((await renameEntry(workspace, 'src', 'lib')).path, 'lib')
+    assert.equal(await readFile(path.join(root, 'lib', 'new.ts'), 'utf8'), 'saved contents')
+    const invalidPaths = ['', '..', '../outside', '.git', '.git/config', 'lib/../.git', '/tmp', 'lib//new.ts']
+    await Promise.all(invalidPaths.map(filename => assert.rejects(operationPath(workspace, filename))))
+    const invalidNames = ['', ' ', '.', '..', '.git', '../escape', 'nested/file', 'nested\\file']
+    await Promise.all(invalidNames.map(name => assert.rejects(renameEntry(workspace, 'lib/new.ts', name))))
+    if (process.platform !== 'win32') {
+      await writeFile(path.join(root, 'lib', ' '), 'original name was a space')
+      const renamed = await renameEntry(workspace, 'lib/ ', 'named.txt')
+      assert.equal((await renameEntry(workspace, renamed.path, ' ', renamed.identity)).path, 'lib/ ')
+      assert.equal(await readFile(path.join(root, 'lib', ' '), 'utf8'), 'original name was a space')
+    }
+    await assert.rejects(operationPath({ ...workspace, scope: path.join(root, 'lib') }, 'lib'))
+    await assert.rejects(operationPath({ ...workspace, scope: path.join(root, 'lib') }, 'src'))
+  },
+)
 
 test('operations reject external symlink parents but can rename a symlink itself', async t => {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-symlink-')))

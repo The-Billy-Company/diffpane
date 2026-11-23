@@ -64,9 +64,10 @@ function hasMatchingProcess(provider: AgentProvider, tracked: AgentThreadProcess
 async function projectDirectory(cwd: string): Promise<string> {
   try {
     const repository = await Repository.open(cwd)
-    if (repository.gitDir === repository.commonDir) return repository.root
+    const { commonDir } = repository
+    if (!commonDir || repository.gitDir === commonDir) return repository.root
     // Standard linked worktrees share the primary checkout's .git directory.
-    const common = await realpath(repository.commonDir).catch(() => repository.commonDir)
+    const common = await realpath(commonDir).catch(() => commonDir)
     return path.basename(common) === '.git' ? path.dirname(common) : repository.root
   } catch {
     return realpath(cwd).catch(() => cwd)
