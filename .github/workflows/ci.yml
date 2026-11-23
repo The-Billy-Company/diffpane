@@ -17,6 +17,7 @@ jobs:
     timeout-minutes: 30
     env:
       VP_GIT_HOOKS: '0'
+      VITEST_MAX_WORKERS: '2'
     steps:
       - uses: actions/checkout@v7.0.1
         with:
