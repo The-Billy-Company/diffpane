@@ -6,6 +6,7 @@ description = "Browse and edit project files and watch Git changes as they happe
 [applications.macos-aarch64]
 format = "macos-app"
 path = "Diffpane.app"
+replaces = "diffpane"
 
 [pack]
 source = "release/box-build/Diffpane-darwin-arm64"

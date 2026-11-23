@@ -2,5 +2,6 @@
   "version": "3.1.0",
   "revision": "a630996ed7c48c53ccf4956abf8a375ce214ecf8",
   "url": "https://codeload.github.com/GriffinCanCode/howmany/tar.gz/a630996ed7c48c53ccf4956abf8a375ce214ecf8",
-  "sha256": "63e3707b0ac1666402446f232c15fbe192c46775e2566651bd0ec71b31588536"
+  "sha256": "63e3707b0ac1666402446f232c15fbe192c46775e2566651bd0ec71b31588536",
+  "patchSha256": "92ba0753d90e01de409bf92c2ae95c16f08c912fee7934e43a5d0550ac012aaf"
 }

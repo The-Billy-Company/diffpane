@@ -67,6 +67,7 @@ const sources = [
   'node_modules/typescript-language-server',
   'node_modules/yaml',
   'resources/howmany/howmany',
+  'resources/howmany/build.json',
 ]
 
 export async function stageBackend(scratch: string) {

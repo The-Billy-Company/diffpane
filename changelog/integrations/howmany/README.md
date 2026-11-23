@@ -11,4 +11,5 @@ These fragments document the bundled source counter and when its analysis runs.
 
 - [Deferred automatic analysis](17-defer-automatic-analysis.fixed). Paint files first and cancel queued counts after navigation.
 - [HowMany source totals](howmany-source.fixed). Separate source languages from documentation, configuration and data.
+- [Source detection](source-detection.fixed). Count Lean and C++ modules and recognize generated output using explicit evidence.
 - [Language treemap](language-treemap.added). See which languages account for the most code in a workspace.

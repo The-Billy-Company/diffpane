@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict'
+import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdtemp, writeFile, mkdir, rm, realpath, symlink, readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+import { promisify } from 'node:util'
 import { test, vi } from 'vite-plus/test'
 import { HowManyRuntime, discoverHowMany, validateReport } from '../../../backend/tools/analysis/howmany.mjs'
-import { verifyHowManySource } from '../../../tooling/dependencies/setup-howmany.ts'
+import {
+  applyHowManyPatch,
+  inspectHowManySource,
+  stampHowManyBinary,
+  verifyHowManyPatch,
+  verifyHowManySource,
+} from '../../../tooling/dependencies/setup-howmany.ts'
+
+const execute = promisify(execFile)
 
 /**
  * @import { TestContext } from 'vite-plus/test'
@@ -295,9 +306,149 @@ test('shutdown waits for a language runtime being replaced by a config reload', 
 
 test('bundling rejects a changed source archive before compilation', () => {
   assert.throws(() => verifyHowManySource(Buffer.from('changed source')), /checksum mismatch/)
+  assert.throws(() => verifyHowManyPatch(Buffer.from('changed patch')), /patch checksum mismatch/)
+})
+
+test('source patches apply inside extracted sources nested under another Git checkout', async t => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-howmany-patch-')))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  await execute('git', ['init', '--quiet', root])
+  const source = path.join(root, 'target/source')
+  const file = path.join(source, 'src/value.rs')
+  await mkdir(path.dirname(file), { recursive: true })
+  await writeFile(file, 'const BEFORE: u8 = 1;\n')
+  const patchfile = path.join(root, 'source.patch')
+  await writeFile(
+    patchfile,
+    'diff --git a/src/value.rs b/src/value.rs\n--- a/src/value.rs\n+++ b/src/value.rs\n@@ -1 +1 @@\n-const BEFORE: u8 = 1;\n+const AFTER: u8 = 2;\n',
+  )
+  await applyHowManyPatch(source, patchfile)
+  assert.equal(await readFile(file, 'utf8'), 'const AFTER: u8 = 2;\n')
+  await assert.rejects(applyHowManyPatch(source, patchfile), /patch failed|does not apply/)
+})
+
+test('packaged provenance hashes the signed executable and preserves source identity', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'diffpane-howmany-signature-'))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const source = { path: '/source/howmany', revision: 'revision', sha256: 'source-hash' }
+  await writeFile(
+    path.join(root, 'build.json'),
+    JSON.stringify({ identity: 'local-source', version: '3.1.0', sha256: 'before-signing', source }),
+  )
+  const signed = Buffer.from('executable bytes after signing')
+  await writeFile(path.join(root, 'howmany'), signed)
+  await stampHowManyBinary(root)
+  assert.deepEqual(JSON.parse(await readFile(path.join(root, 'build.json'), 'utf8')), {
+    identity: 'local-source',
+    version: '3.1.0',
+    sha256: createHash('sha256').update(signed).digest('hex'),
+    source,
+  })
+})
+
+test('local source provenance follows working-tree inputs and ignores build output', async t => {
+  const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-howmany-source-')))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  await execute('git', ['init', '--quiet', root])
+  await execute('git', [
+    '-C',
+    root,
+    '-c',
+    'user.name=Fixture',
+    '-c',
+    'user.email=fixture@example.invalid',
+    'commit',
+    '--quiet',
+    '--allow-empty',
+    '-m',
+    'Fixture',
+  ])
+  await mkdir(path.join(root, 'src'))
+  await writeFile(path.join(root, '.gitignore'), '/target/\n')
+  await writeFile(path.join(root, 'Cargo.toml'), '[package]\nname = "howmany"\nversion = "3.1.0"\n')
+  await writeFile(path.join(root, 'src/main.rs'), 'fn main() {}\n')
+  const original = await inspectHowManySource(root)
+  assert.equal(original.version, '3.1.0')
+  await mkdir(path.join(root, 'target'))
+  await writeFile(path.join(root, 'target/cache'), 'build output')
+  assert.equal((await inspectHowManySource(root)).sha256, original.sha256)
+  await writeFile(path.join(root, 'src/main.rs'), 'fn main() { println!("changed"); }\n')
+  const changed = await inspectHowManySource(root)
+  assert.equal(changed.revision, original.revision)
+  assert.notEqual(changed.sha256, original.sha256, 'uncommitted edits invalidate the bundled scanner')
+  await writeFile(path.join(root, 'src/new.rs'), 'pub fn added() {}\n')
+  assert.notEqual((await inspectHowManySource(root)).sha256, changed.sha256, 'untracked source is included')
 })
 
 const bundled = new URL('../../../../resources/howmany/howmany', import.meta.url)
+test.skipIf(!existsSync(bundled))(
+  'bundled workspace scanner counts Lean and C++ modules, retaining copied tests and excluding generated output',
+  async t => {
+    const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'diffpane-howmany-scope-')))
+    const runtime = new HowManyRuntime(root, root, () => {}, { command: bundled.pathname })
+    t.onTestFinished(async () => {
+      await runtime.dispose()
+      await rm(root, { recursive: true, force: true })
+    })
+    await execute('git', ['init', '--quiet', root])
+    const files = {
+      '.gitignore': 'ignored.cpp\n',
+      'lakefile.toml': 'name = "fixture"\n',
+      'main.lean': '/- Proof source. -/\ntheorem identity (p : Prop) (h : p) : p := h\n',
+      'module.cppm': 'export module fixture;\nexport int value() { return 1; }\n',
+      'native/CMakeLists.txt': 'project(fixture)\n',
+      'native/CMakeCache.txt': '# Configured CMake build tree\n',
+      'native/main.cpp': 'int main() { return 0; }\n',
+      'tests/copied/upstream.js': '// Copyright upstream test authors\nassert(1 + 1 === 2);\n',
+      'ignored.cpp': 'int ignored = 1;\n',
+      'generated.c': '// Lean compiler output\n#include <lean/lean.h>\nint generated = 1;\n',
+      'extracted.lean': '-- THIS FILE WAS AUTOMATICALLY GENERATED BY AENEAS\ndef generated := 1\n',
+      'table.rs':
+        '//! Entity names, generated by `examples/entity_table.rs` from\n//! `data/entities.csv`. Do not edit: run the generator.\npub const GENERATED: u8 = 1;\n',
+      'native/cmake-build-debug/compiler.cpp': 'int compiler = 1;\n',
+      'native/_deps/dependency-src/dependency.cpp': 'int dependency = 1;\n',
+      'gn/BUILD.gn': 'group("fixture") {}\n',
+      'gn/out/Debug/build.ninja': '# GN build output\n',
+      'gn/out/Debug/args.gn': 'is_debug = true\n',
+      'gn/out/Debug/gen/generated.cpp': 'int gn_output = 1;\n',
+      '.lake/build/ir/Main.c': '#include <lean/lean.h>\nint lake_output = 1;\n',
+      'lake-packages/dependency/Dependency.lean': 'def dependency := 1\n',
+    }
+    await Promise.all(
+      Object.entries(files).map(async ([filename, contents]) => {
+        const target = path.join(root, filename)
+        await mkdir(path.dirname(target), { recursive: true })
+        await writeFile(target, contents)
+      }),
+    )
+    const state = await runtime.analyze()
+    assert.equal(state.status, 'ready', state.message)
+    assert.ok(state.report?.source && state.report.breakdown)
+    assert.equal(state.report.source.file_count, 4)
+    assert.equal(state.report.source.code_lines, 5)
+    const languages = state.report.breakdown.rows.filter(row => row.category === 'code')
+    assert.equal(languages.find(row => row.language === 'Lean')?.file_count, 1)
+    assert.equal(languages.find(row => row.language === 'C++')?.file_count, 2)
+    assert.equal(languages.find(row => row.language === 'JavaScript')?.file_count, 1)
+    const hidden = validateReport(
+      JSON.parse(
+        await runtime.run([
+          root,
+          '--output',
+          'json',
+          '--no-interactive',
+          '--no-cache',
+          '--no-detect',
+          '--threads',
+          '2',
+          '--hidden',
+        ]),
+      ),
+    )
+    assert.deepEqual(hidden.source, state.report.source, 'hidden Lake output stays outside authored source totals')
+  },
+)
+
 test.skipIf(!existsSync(bundled))(
   'bundled HowMany produces real counts, thresholds, config reloads and shuts down its LSP',
   async t => {

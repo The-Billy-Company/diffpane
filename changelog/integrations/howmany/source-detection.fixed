@@ -1,0 +1,1 @@
+Count Lean proofs and C++ modules with the bundled scanner. Recognize explicit multiline generator banners and verified Lake, CMake and GN build output while retaining copied tests and authored integration code. Verify the bundled source patch and retain its build provenance.

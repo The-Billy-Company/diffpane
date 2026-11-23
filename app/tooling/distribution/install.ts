@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { appError } from '../../shared/recovery/app-errors.ts'
-import { setupHowMany } from '../dependencies/setup-howmany.ts'
+import { setupHowMany, stampHowManyBinary } from '../dependencies/setup-howmany.ts'
 import { stageBackend } from './backend.ts'
 
 const metadata: unknown = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8'))
@@ -143,6 +143,7 @@ try {
     'resources/howmany/howmany',
   ])
     codesign(path.join(resources, binary))
+  await stampHowManyBinary(path.join(resources, 'resources/howmany'))
   codesign(path.join(resources, 'bin/node'), entitlements)
   codesign(bundled)
   verifyApp(bundled)
